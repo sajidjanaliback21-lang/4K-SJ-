@@ -9,7 +9,8 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  // Use PORT from environment (Hugging Face uses 7860, AI Studio uses 3000)
+  const PORT = Number(process.env.PORT) || 7860;
 
   app.use(express.json());
 
