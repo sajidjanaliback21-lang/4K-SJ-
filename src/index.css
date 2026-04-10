@@ -10,9 +10,17 @@
   body {
     @apply bg-[#020617] text-white antialiased;
     background: radial-gradient(circle at 50% 0%, #0c4a6e 0%, transparent 70%),
-                radial-gradient(circle at 0% 100%, #082f49 0%, transparent 50%),
                 #020617;
-    background-attachment: fixed;
+    /* Hardware acceleration and scroll optimization */
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* GPU Acceleration class */
+  .gpu {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    perspective: 1000px;
+    will-change: transform, opacity;
   }
 
   /* Custom Scrollbar */
@@ -29,11 +37,13 @@
 }
 
 .glass {
-  @apply bg-white/5 backdrop-blur-xl border border-white/10;
+  @apply bg-white/5 border border-white/10;
+  backdrop-filter: blur(8px);
 }
 
 .glass-dark {
-  @apply bg-black/60 backdrop-blur-2xl border border-white/5;
+  @apply bg-black/60 border border-white/5;
+  backdrop-filter: blur(12px);
 }
 
 .text-gradient {
@@ -41,11 +51,11 @@
 }
 
 .premium-card {
-  @apply relative overflow-hidden rounded-xl border border-white/5 transition-all duration-500 hover:scale-105 hover:border-cyan-500/50 hover:shadow-[0_0_30px_rgba(6,182,212,0.2)];
+  @apply relative overflow-hidden rounded-xl border border-white/5 transition-[transform,border-color,box-shadow] duration-300 hover:scale-105 hover:border-cyan-500/50 hover:shadow-[0_0_30px_rgba(6,182,212,0.2)];
 }
 
 .premium-button {
-  @apply relative overflow-hidden px-6 py-3 rounded-xl font-bold transition-all active:scale-95 flex items-center justify-center gap-2;
+  @apply relative overflow-hidden px-6 py-3 rounded-xl font-bold transition-[transform,background-color] duration-200 active:scale-95 flex items-center justify-center gap-2;
 }
 
 .premium-button-primary {

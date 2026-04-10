@@ -706,10 +706,10 @@ export default function App() {
       <header className="sticky top-0 z-50 glass-dark px-4 md:px-6 py-3 md:py-4 flex items-center justify-between border-b border-white/5">
         <div className="flex items-center gap-4 md:gap-8">
           <div className="flex flex-col -space-y-1">
-            <h1 className="text-xl md:text-2xl font-display font-bold text-gradient tracking-tighter flex items-center gap-1">
+            <h1 className="text-xl md:text-2xl font-display font-bold text-gradient tracking-tighter flex items-center italic">
               <span className="text-cyan-400">4K</span><span className="text-white">·SJ</span>
             </h1>
-            <span className="text-[8px] md:text-[10px] text-cyan-400/60 font-bold uppercase tracking-[0.2em] pl-1">Premium Experience</span>
+            <span className="text-[8px] md:text-[10px] text-cyan-400/60 font-bold uppercase tracking-[0.2em] pl-1 italic">Premium Experience</span>
           </div>
           <nav className="hidden md:flex items-center gap-6">
             <button 
@@ -1009,7 +1009,7 @@ export default function App() {
                       key={cat.category_id}
                       onClick={() => setCurrentSelectedCategory(cat.category_id)}
                       className={cn(
-                        "relative whitespace-nowrap px-5 py-2.5 rounded-xl text-xs md:text-sm font-bold transition-all duration-300 snap-start",
+                        "relative whitespace-nowrap px-5 py-2.5 rounded-xl text-xs md:text-sm font-bold transition-all duration-300 snap-start gpu",
                         currentSelectedCategory === cat.category_id 
                           ? "text-black" 
                           : "text-white/50 hover:text-white bg-white/5 border border-white/5 hover:border-white/20"
@@ -1056,28 +1056,25 @@ export default function App() {
             ) : (
               <div className="space-y-8">
                 <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-2 md:gap-6">
-                  <AnimatePresence mode="popLayout">
                     {currentItems.map((item, idx) => (
                     <motion.div
                       key={'stream_id' in item ? item.stream_id : (item as any).series_id}
-                      initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
                       transition={{ 
-                        type: "spring",
-                        damping: 20,
-                        stiffness: 100,
-                        delay: Math.min(idx * 0.03, 0.6) 
+                        duration: 0.3,
+                        delay: Math.min(idx * 0.02, 0.3) 
                       }}
-                      whileHover={{ scale: 1.05, y: -5 }}
-                      whileTap={{ scale: 0.95 }}
+                      whileTap={{ scale: 0.98 }}
                       onClick={() => setSelectedItem(item)}
-                      className="group cursor-pointer space-y-1 md:space-y-3"
+                      className="group cursor-pointer space-y-1 md:space-y-3 gpu"
                     >
-                      <div className="relative aspect-[2/3] rounded-lg md:rounded-xl overflow-hidden shadow-2xl transition-transform group-hover:scale-105 border border-white/5 group-hover:border-cyan-500/50">
+                      <div className="relative aspect-[2/3] rounded-lg md:rounded-xl overflow-hidden shadow-2xl transition-transform group-hover:scale-105 border border-white/5 group-hover:border-cyan-500/50 gpu">
                         <img 
                           src={('stream_icon' in item ? (item as any).stream_icon : (item as Series).cover) || null} 
                           alt={item.name}
                           referrerPolicy="no-referrer"
+                          loading="lazy"
                           className="w-full h-full object-cover"
                           onError={(e) => {
                             (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/movie/400/600?blur=2';
@@ -1104,8 +1101,7 @@ export default function App() {
                       </div>
                     </motion.div>
                   ))}
-                </AnimatePresence>
-              </div>
+                </div>
             </div>
           )}
 
@@ -1128,19 +1124,17 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setSelectedItem(null)}
-              className="absolute inset-0 bg-black/90 backdrop-blur-md"
+              className="absolute inset-0 bg-black/90 backdrop-blur-sm gpu"
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.8, y: 40, rotateX: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0, rotateX: 0 }}
-              exit={{ opacity: 0, scale: 0.8, y: 40, rotateX: 15 }}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
               transition={{ 
-                type: "spring",
-                damping: 25,
-                stiffness: 300,
-                mass: 0.8
+                duration: 0.3,
+                ease: "easeOut"
               }}
-              className="relative w-full max-w-4xl glass-dark rounded-2xl md:rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] flex flex-col md:flex-row max-h-[90vh] md:max-h-none border border-white/10"
+              className="relative w-full max-w-4xl glass-dark rounded-2xl md:rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] flex flex-col md:flex-row max-h-[90vh] md:max-h-none border border-white/10 gpu"
             >
               <button 
                 onClick={() => setSelectedItem(null)}
@@ -1467,8 +1461,8 @@ export default function App() {
       </AnimatePresence>
 
       {/* Premium Mobile Bottom Navigation */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 md:hidden w-[92%] max-w-sm">
-        <div className="glass-dark border border-white/10 rounded-2xl p-1.5 flex items-center justify-around shadow-2xl shadow-black/50 backdrop-blur-3xl">
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 md:hidden w-[92%] max-w-sm gpu">
+        <div className="glass-dark border border-white/10 rounded-2xl p-1.5 flex items-center justify-around shadow-2xl shadow-black/50 backdrop-blur-3xl gpu">
           <button 
             onClick={() => { setActiveTab('home'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
             className={cn(
@@ -1531,7 +1525,7 @@ export default function App() {
         whileHover={{ scale: 1.1, rotate: 5 }}
         whileTap={{ scale: 0.9 }}
         onClick={() => setShowFreeAccessModal(true)}
-        className="fixed bottom-28 right-6 md:bottom-10 md:right-10 z-[55] w-20 h-20 bg-gradient-to-br from-yellow-400 via-orange-500 to-red-600 rounded-full shadow-[0_0_40px_rgba(234,179,8,0.6)] flex items-center justify-center border-4 border-white/50 group overflow-hidden"
+        className="fixed bottom-28 right-6 md:bottom-10 md:right-10 z-[55] w-20 h-20 bg-gradient-to-br from-yellow-400 via-orange-500 to-red-600 rounded-full shadow-[0_0_40px_rgba(234,179,8,0.6)] flex items-center justify-center border-4 border-white/50 group overflow-hidden gpu"
       >
         <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity animate-pulse" />
         <div className="flex flex-col items-center justify-center text-center px-1">
@@ -1547,19 +1541,20 @@ export default function App() {
       {/* Free Access Selection Modal */}
       <AnimatePresence>
         {showFreeAccessModal && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 gpu">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowFreeAccessModal(false)}
-              className="absolute inset-0 bg-black/90 backdrop-blur-xl"
+              className="absolute inset-0 bg-black/90 backdrop-blur-sm gpu"
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-md glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 p-6"
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="relative w-full max-w-md glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 p-6 gpu"
             >
               <div className="text-center mb-8">
                 <div className="w-16 h-16 bg-gradient-to-br from-yellow-400 to-orange-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg rotate-3">
@@ -1631,20 +1626,20 @@ export default function App() {
       {/* PSL Player Modal */}
       <AnimatePresence>
         {showPSLPlayer && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 gpu">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowPSLPlayer(false)}
-              className="absolute inset-0 bg-black/95 backdrop-blur-2xl"
+              className="absolute inset-0 bg-black/95 backdrop-blur-sm gpu"
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
               onClick={(e) => e.stopPropagation()}
-              className="relative w-[95vw] md:w-full md:max-w-5xl glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 flex flex-col"
+              className="relative w-[95vw] md:w-full md:max-w-5xl glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 flex flex-col gpu"
             >
               <div className="p-4 flex items-center justify-between border-b border-white/10 bg-white/5">
                 <div className="flex items-center gap-3">
@@ -1808,20 +1803,20 @@ export default function App() {
       {/* IPL Player Modal */}
       <AnimatePresence>
         {showIPLPlayer && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 gpu">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowIPLPlayer(false)}
-              className="absolute inset-0 bg-black/95 backdrop-blur-2xl"
+              className="absolute inset-0 bg-black/95 backdrop-blur-sm gpu"
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
               onClick={(e) => e.stopPropagation()}
-              className="relative w-[95vw] md:w-full md:max-w-5xl glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 flex flex-col"
+              className="relative w-[95vw] md:w-full md:max-w-5xl glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 flex flex-col gpu"
             >
               <div className="p-4 flex items-center justify-between border-b border-white/10 bg-white/5">
                 <div className="flex items-center gap-3">

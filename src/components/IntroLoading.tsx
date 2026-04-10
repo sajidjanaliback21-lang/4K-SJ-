@@ -33,13 +33,13 @@ const IntroLoading: React.FC<IntroLoadingProps> = ({ progress, onComplete }) => 
   return (
     <motion.div
       initial={{ opacity: 1 }}
-      exit={{ opacity: 0, scale: 1.1, filter: 'blur(20px)' }}
-      transition={{ duration: 1, ease: [0.43, 0.13, 0.23, 0.96] }}
-      className="fixed inset-0 z-[1000] bg-black flex flex-col items-center justify-center overflow-hidden"
+      exit={{ opacity: 0, scale: 1.05 }}
+      transition={{ duration: 0.8, ease: [0.43, 0.13, 0.23, 0.96] }}
+      className="fixed inset-0 z-[1000] bg-black flex flex-col items-center justify-center overflow-hidden gpu"
     >
       {/* Background Glows */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-cyan-500/10 blur-[120px] rounded-full" />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-blue-600/10 blur-[80px] rounded-full" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-cyan-500/5 blur-[60px] rounded-full" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-blue-600/5 blur-[40px] rounded-full" />
 
       <div className="relative z-10 flex flex-col items-center gap-12 w-full max-w-md px-8">
         {/* Logo Animation */}
@@ -49,7 +49,7 @@ const IntroLoading: React.FC<IntroLoadingProps> = ({ progress, onComplete }) => 
           transition={{ duration: 1, ease: "easeOut" }}
           className="flex flex-col items-center -space-y-2"
         >
-          <h1 className="text-6xl md:text-8xl font-display font-black tracking-tighter italic text-white flex items-center gap-2">
+          <h1 className="text-6xl md:text-8xl font-display font-black tracking-tighter italic text-white flex items-center">
             <span className="text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]">4K</span>
             <span className="text-white">·SJ</span>
           </h1>
@@ -57,7 +57,7 @@ const IntroLoading: React.FC<IntroLoadingProps> = ({ progress, onComplete }) => 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5, duration: 0.8 }}
-            className="text-xs md:text-sm text-cyan-400/60 font-bold uppercase tracking-[0.5em] pl-2"
+            className="text-xs md:text-sm text-cyan-400/60 font-bold uppercase tracking-[0.5em] pl-2 italic"
           >
             Premium Experience
           </motion.span>
