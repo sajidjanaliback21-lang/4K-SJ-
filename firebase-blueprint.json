@@ -1,0 +1,39 @@
+{
+  "entities": {
+    "settings": {
+      "title": "Settings",
+      "description": "Global application settings",
+      "type": "object",
+      "properties": {
+        "psl_live_url_urdu": {
+          "type": "string",
+          "description": "The current PSL Live Urdu stream URL"
+        },
+        "psl_live_url_english": {
+          "type": "string",
+          "description": "The current PSL Live English stream URL"
+        },
+        "ipl_live_url": {
+          "type": "string",
+          "description": "The current IPL Live stream URL"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp"
+        }
+      },
+      "required": ["psl_live_url_urdu", "psl_live_url_english"]
+    }
+  },
+  "firestore": {
+    "/settings/psl": {
+      "schema": "settings",
+      "description": "The document containing the PSL Live stream URL"
+    },
+    "/settings/ipl": {
+      "schema": "settings",
+      "description": "The document containing the IPL Live stream URL"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return request.auth != null && 
+             request.auth.token.email != null && 
+             (request.auth.token.email.lower() == "sjstoreuk17@gmail.com" || 
+              request.auth.token.email == "sjstoreuk17@gmail.com");
+    }
+
+    // Settings Collection
+    match /settings/{settingId} {
+      // Anyone can read the PSL URL
+      allow read: if true;
+      
+      // Only the admin can update it
+      allow write: if isAdmin();
+    }
+
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
