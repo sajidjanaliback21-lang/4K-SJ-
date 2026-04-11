@@ -22,7 +22,9 @@ import {
   Clock,
   LayoutGrid,
   Star,
-  Trophy
+  Trophy,
+  Crown,
+  MessageCircle
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -566,14 +568,14 @@ export default function App() {
         localStorage.setItem('iptv_creds', JSON.stringify(userCreds));
         localStorage.setItem('iptv_logged_in', 'true');
       } else {
-        setLoginError('Account is not active or invalid credentials');
+        setLoginError('Your username or password is not valid. Click here to register new account');
       }
     } catch (error: any) {
       console.error('Login error:', error);
       if (error.response?.status === 404) {
-        setLoginError('Server returned 404. Please check if the host URL is correct.');
+        setLoginError('Your username or password is not valid. Click here to register new account');
       } else if (error.response?.status === 401 || error.response?.status === 403) {
-        setLoginError('Invalid username or password.');
+        setLoginError('Your username or password is not valid. Click here to register new account');
       } else {
         setLoginError('Failed to connect to server. Please check your internet and credentials.');
       }
@@ -880,11 +882,11 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Popular Movies */}
+                {/* Recently Added Movies */}
                 <section className="space-y-6">
                   <div className="flex items-center justify-between px-2">
                     <h3 className="text-xl md:text-3xl font-bold flex items-center gap-3">
-                      <Film className="text-cyan-400" size={28} /> Popular Movies
+                      <Film className="text-cyan-400" size={28} /> Recently Added Movies
                     </h3>
                     <button 
                       onClick={() => setActiveTab('movies')}
@@ -930,11 +932,11 @@ export default function App() {
                   </div>
                 </section>
 
-                {/* Popular Series */}
+                {/* Recently Added Web Series */}
                 <section className="space-y-6">
                   <div className="flex items-center justify-between px-2">
                     <h3 className="text-xl md:text-3xl font-bold flex items-center gap-3">
-                      <Tv className="text-cyan-400" size={28} /> Popular Web Series
+                      <Tv className="text-cyan-400" size={28} /> Recently Added Web Series
                     </h3>
                     <button 
                       onClick={() => setActiveTab('series')}
@@ -1361,8 +1363,21 @@ export default function App() {
                 </div>
 
                 {loginError && (
-                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-2 text-red-400 text-xs">
-                    <AlertCircle size={14} /> {loginError}
+                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex flex-col gap-2 text-red-400 text-xs">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle size={14} /> 
+                      <span>{loginError.includes('Click here') ? loginError.split('Click here')[0] : loginError}</span>
+                    </div>
+                    {loginError.includes('Click here') && (
+                      <a 
+                        href="https://wa.me/923161611304" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-cyan-400 font-bold underline hover:text-cyan-300 ml-6"
+                      >
+                        Click here to register new account
+                      </a>
+                    )}
                   </div>
                 )}
 
@@ -1518,27 +1533,27 @@ export default function App() {
         </div>
       </div>
 
-      {/* Free Access Floating Button */}
+      {/* Premium Free Access Floating Button */}
       <motion.button
-        initial={{ scale: 0, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
+        initial={{ scale: 0, opacity: 0, rotate: -180 }}
+        animate={{ scale: 1, opacity: 1, rotate: 0 }}
         whileHover={{ scale: 1.1, rotate: 5 }}
         whileTap={{ scale: 0.9 }}
         onClick={() => setShowFreeAccessModal(true)}
-        className="fixed bottom-28 right-6 md:bottom-10 md:right-10 z-[55] w-20 h-20 bg-gradient-to-br from-yellow-400 via-orange-500 to-red-600 rounded-full shadow-[0_0_40px_rgba(234,179,8,0.6)] flex items-center justify-center border-4 border-white/50 group overflow-hidden gpu"
+        className="fixed bottom-28 right-6 md:bottom-10 md:right-10 z-[55] w-20 h-20 bg-gradient-to-br from-cyan-400 via-blue-500 to-indigo-600 rounded-2xl shadow-[0_0_50px_rgba(6,182,212,0.4)] flex items-center justify-center border-2 border-white/30 group overflow-hidden gpu"
       >
-        <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity animate-pulse" />
-        <div className="flex flex-col items-center justify-center text-center px-1">
-          <span className="text-[10px] font-black text-white uppercase tracking-tighter leading-none mb-1">Unlock</span>
-          <span className="text-xs font-black text-white leading-none drop-shadow-md">FREE</span>
-          <span className="text-xs font-black text-white leading-none drop-shadow-md">ACCESS</span>
+        <div className="absolute inset-0 bg-gradient-to-tr from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+        <div className="absolute -inset-1 bg-gradient-to-r from-transparent via-white/30 to-transparent -skew-x-12 translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-1000" />
+        <div className="flex flex-col items-center justify-center text-center px-1 relative z-10">
+          <Play size={24} className="text-white mb-1 drop-shadow-lg fill-white" />
+          <span className="text-[10px] font-black text-white uppercase tracking-tighter leading-none">Watch Free</span>
         </div>
-        <div className="absolute -top-1 -left-1 w-6 h-6 bg-green-500 rounded-full border-2 border-white flex items-center justify-center shadow-lg">
-          <Trophy size={10} className="text-white" />
+        <div className="absolute -top-1 -right-1 w-7 h-7 bg-red-600 rounded-full border-2 border-white flex items-center justify-center shadow-lg animate-pulse">
+          <span className="text-[8px] font-black text-white">LIVE</span>
         </div>
       </motion.button>
 
-      {/* Free Access Selection Modal */}
+      {/* Premium Free Access Selection Modal */}
       <AnimatePresence>
         {showFreeAccessModal && (
           <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 gpu">
@@ -1547,24 +1562,31 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowFreeAccessModal(false)}
-              className="absolute inset-0 bg-black/90 backdrop-blur-sm gpu"
+              className="absolute inset-0 bg-black/95 backdrop-blur-md gpu"
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              initial={{ opacity: 0, scale: 0.9, y: 30 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              transition={{ duration: 0.3, ease: "easeOut" }}
-              className="relative w-full max-w-md glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 p-6 gpu"
+              exit={{ opacity: 0, scale: 0.9, y: 30 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="relative w-full max-w-md glass-dark rounded-[2.5rem] overflow-hidden shadow-[0_0_80px_rgba(0,0,0,0.8)] border border-white/10 p-8 gpu"
             >
-              <div className="text-center mb-8">
-                <div className="w-16 h-16 bg-gradient-to-br from-yellow-400 to-orange-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg rotate-3">
-                  <Play className="text-white fill-white" size={32} />
+              <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-cyan-500/10 to-transparent" />
+              
+              <div className="text-center mb-8 relative z-10">
+                <div className="w-20 h-20 bg-gradient-to-br from-cyan-400 to-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-[0_0_30px_rgba(34,211,238,0.4)] rotate-6 group">
+                  <Crown className="text-white drop-shadow-xl" size={40} />
                 </div>
-                <h2 className="text-2xl font-display font-bold text-white mb-2">Free Live Access</h2>
-                <p className="text-white/60 text-sm">Select a stream to watch live for free without any subscription.</p>
+                <h2 className="text-3xl font-display font-black text-white mb-2 tracking-tighter italic">FREE ACCESS</h2>
+                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4">
+                  <p className="text-red-400 text-[10px] font-bold uppercase tracking-widest leading-relaxed">
+                    You can use this features without any subscription for limited time and limited speed
+                  </p>
+                </div>
+                <p className="text-white/40 text-sm font-medium">Experience high-definition live streaming for free.</p>
               </div>
 
-              <div className="grid grid-cols-1 gap-4">
+              <div className="grid grid-cols-1 gap-5 relative z-10">
                 {/* PSL Option */}
                 <button
                   onClick={() => {
@@ -1572,17 +1594,21 @@ export default function App() {
                     setShowPSLPlayer(true);
                     setShowFreeAccessModal(false);
                   }}
-                  className="group relative flex items-center gap-4 p-4 bg-white/5 hover:bg-green-600/20 border border-white/10 hover:border-green-500/50 rounded-2xl transition-all duration-300"
+                  className="group relative flex items-center gap-5 p-5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-green-500/50 rounded-[1.5rem] transition-all duration-500 overflow-hidden"
                 >
-                  <div className="w-12 h-12 bg-green-600 rounded-xl flex items-center justify-center border border-green-500 shadow-lg group-hover:scale-110 transition-transform">
-                    <span className="text-sm font-black text-white">PSL</span>
+                  <div className="absolute inset-0 bg-gradient-to-r from-green-600/0 via-green-600/5 to-green-600/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+                  <div className="w-14 h-14 bg-gradient-to-br from-green-500 to-green-700 rounded-2xl flex items-center justify-center border border-green-400/50 shadow-lg group-hover:scale-110 group-hover:rotate-3 transition-all duration-500">
+                    <span className="text-lg font-black text-white italic">PSL</span>
                   </div>
                   <div className="text-left">
-                    <h4 className="text-white font-bold text-lg">PSL Live</h4>
-                    <p className="text-white/40 text-xs uppercase tracking-widest font-bold">Pakistan Super League</p>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <h4 className="text-white font-black text-xl italic tracking-tight">PSL LIVE</h4>
+                      <span className="px-2 py-0.5 bg-green-500 text-black text-[8px] font-black rounded-full uppercase">Active</span>
+                    </div>
+                    <p className="text-white/40 text-[10px] uppercase tracking-[0.2em] font-bold">Pakistan Super League</p>
                   </div>
-                  <div className="ml-auto w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-green-500 transition-colors">
-                    <ChevronRight className="text-white/40 group-hover:text-white" size={20} />
+                  <div className="ml-auto w-10 h-10 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-green-500 group-hover:text-black transition-all duration-500">
+                    <Play size={18} fill="currentColor" />
                   </div>
                 </button>
 
@@ -1592,9 +1618,10 @@ export default function App() {
                     setShowIPLPlayer(true);
                     setShowFreeAccessModal(false);
                   }}
-                  className="group relative flex items-center gap-4 p-4 bg-white/5 hover:bg-blue-600/20 border border-white/10 hover:border-blue-500/50 rounded-2xl transition-all duration-300"
+                  className="group relative flex items-center gap-5 p-5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-blue-500/50 rounded-[1.5rem] transition-all duration-500 overflow-hidden"
                 >
-                  <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center border border-blue-600 shadow-lg group-hover:scale-110 transition-transform overflow-hidden p-1">
+                  <div className="absolute inset-0 bg-gradient-to-r from-blue-600/0 via-blue-600/5 to-blue-600/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+                  <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center border border-blue-400 shadow-lg group-hover:scale-110 group-hover:-rotate-3 transition-all duration-500 p-2">
                     <img 
                       src="https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Indian_Premier_League_Official_Logo.svg/1200px-Indian_Premier_League_Official_Logo.svg.png" 
                       alt="IPL" 
@@ -1603,20 +1630,23 @@ export default function App() {
                     />
                   </div>
                   <div className="text-left">
-                    <h4 className="text-white font-bold text-lg">IPL Live</h4>
-                    <p className="text-white/40 text-xs uppercase tracking-widest font-bold">Indian Premier League</p>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <h4 className="text-white font-black text-xl italic tracking-tight">IPL LIVE</h4>
+                      <span className="px-2 py-0.5 bg-blue-500 text-white text-[8px] font-black rounded-full uppercase">Active</span>
+                    </div>
+                    <p className="text-white/40 text-[10px] uppercase tracking-[0.2em] font-bold">Indian Premier League</p>
                   </div>
-                  <div className="ml-auto w-8 h-8 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-blue-500 transition-colors">
-                    <ChevronRight className="text-white/40 group-hover:text-white" size={20} />
+                  <div className="ml-auto w-10 h-10 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-blue-500 group-hover:text-white transition-all duration-500">
+                    <Play size={18} fill="currentColor" />
                   </div>
                 </button>
               </div>
 
               <button
                 onClick={() => setShowFreeAccessModal(false)}
-                className="mt-8 w-full py-3 text-white/40 hover:text-white font-bold text-sm transition-colors"
+                className="mt-10 w-full py-4 text-white/20 hover:text-white font-black text-xs uppercase tracking-[0.3em] transition-all hover:tracking-[0.4em]"
               >
-                Close
+                — Close Portal —
               </button>
             </motion.div>
           </div>
@@ -1789,11 +1819,23 @@ export default function App() {
                 </div>
               </div>
               
-              <div className="p-6 bg-yellow-500/10 border-t border-yellow-500/20 flex flex-col items-center justify-center gap-2">
-                <p className="text-sm text-yellow-400 font-bold uppercase tracking-[0.2em] text-center">
-                  Enjoy the match in {selectedPslLanguage === 'urdu' ? 'Urdu' : 'English'} with 4K•SJ Premium Experience
-                </p>
-                <p className="text-[10px] text-white/40 uppercase tracking-widest">High Quality HLS Stream Enabled</p>
+              <div className="p-6 bg-yellow-500/10 border-t border-yellow-500/20 flex flex-col items-center justify-center gap-4">
+                <div className="flex flex-col items-center gap-1">
+                  <p className="text-sm text-yellow-400 font-bold uppercase tracking-[0.2em] text-center">
+                    Enjoy the match in {selectedPslLanguage === 'urdu' ? 'Urdu' : 'English'} with 4K•SJ Premium Experience
+                  </p>
+                  <p className="text-[10px] text-white/40 uppercase tracking-widest">High Quality HLS Stream Enabled</p>
+                </div>
+                
+                <a 
+                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest"
+                >
+                  <MessageCircle size={20} fill="white" />
+                  Join WhatsApp Group
+                </a>
               </div>
             </motion.div>
           </div>
@@ -1947,11 +1989,23 @@ export default function App() {
                 )}
               </div>
               
-              <div className="p-6 bg-blue-600/10 border-t border-blue-600/20 flex flex-col items-center justify-center gap-2">
-                <p className="text-sm text-blue-400 font-bold uppercase tracking-[0.2em] text-center">
-                  Enjoy the match with 4K•SJ Premium Experience
-                </p>
-                <p className="text-[10px] text-white/40 uppercase tracking-widest">High Quality HLS Stream Enabled</p>
+              <div className="p-6 bg-blue-600/10 border-t border-blue-600/20 flex flex-col items-center justify-center gap-4">
+                <div className="flex flex-col items-center gap-1">
+                  <p className="text-sm text-blue-400 font-bold uppercase tracking-[0.2em] text-center">
+                    Enjoy the match with 4K•SJ Premium Experience
+                  </p>
+                  <p className="text-[10px] text-white/40 uppercase tracking-widest">High Quality HLS Stream Enabled</p>
+                </div>
+
+                <a 
+                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest"
+                >
+                  <MessageCircle size={20} fill="white" />
+                  Join WhatsApp Group
+                </a>
               </div>
             </motion.div>
           </div>
