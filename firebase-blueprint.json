@@ -24,6 +24,19 @@
         }
       },
       "required": ["psl_live_url_urdu", "psl_live_url_english"]
+    },
+    "free_movies": {
+      "title": "Free Movies",
+      "description": "Custom movies added for free access",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "poster_url": { "type": "string" },
+        "play_url": { "type": "string" },
+        "download_url": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "poster_url", "play_url"]
     }
   },
   "firestore": {
@@ -34,6 +47,10 @@
     "/settings/ipl": {
       "schema": "settings",
       "description": "The document containing the IPL Live stream URL"
+    },
+    "/free_movies/{movieId}": {
+      "schema": "free_movies",
+      "description": "Collection of free movies"
     }
   }
 }

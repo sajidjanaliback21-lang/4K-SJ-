@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import Artplayer from 'artplayer';
 import Hls from 'hls.js';
+import muxjs from 'mux.js';
 
 interface VideoPlayerProps {
   options: {
@@ -16,59 +17,137 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) => {
   const artRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<Artplayer | null>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const mediaSourceRef = useRef<MediaSource | null>(null);
+
+  const source = options.sources[0];
+  const sourceUrl = source?.src;
 
   useEffect(() => {
-    if (!artRef.current) return;
+    if (!artRef.current || !sourceUrl) return;
 
-    const source = options.sources[0];
-    const isHls = source.src.toLowerCase().includes('.m3u8') || source.type === 'application/x-mpegURL';
+    const isHls = sourceUrl.toLowerCase().includes('.m3u8') || source.type === 'application/x-mpegURL';
+    const isMkv = sourceUrl.toLowerCase().includes('.mkv');
 
     const art = new Artplayer({
       container: artRef.current,
-      url: source.src,
-      type: isHls ? 'm3u8' : undefined,
+      url: sourceUrl,
+      type: isHls ? 'm3u8' : 
+            (sourceUrl.toLowerCase().includes('.mp4') ? 'mp4' : 
+            (sourceUrl.toLowerCase().includes('.webm') ? 'webm' : 
+            (isMkv ? 'mkv' : undefined))),
       isLive: isHls,
       poster: options.poster || '',
       autoplay: options.autoplay || false,
-      autoSize: false,
+      autoSize: true,
       autoMini: true,
       loop: false,
-      flip: false,
-      playbackRate: false,
+      flip: true,
+      playbackRate: true,
       aspectRatio: true,
       setting: true,
       pip: true,
       fullscreen: true,
       fullscreenWeb: true,
-      subtitleOffset: false,
+      subtitleOffset: true,
       miniProgressBar: true,
       mutex: true,
       backdrop: true,
       playsInline: true,
-      autoPlayback: false,
+      autoPlayback: true,
       airplay: true,
+      lock: true,
+      fastForward: true,
+      autoOrientation: true,
       theme: '#22d3ee', // Cyan-400
       moreVideoAttr: {
         crossOrigin: 'anonymous',
+        playsInline: true,
       },
       customType: {
+        mkv: async function (video: HTMLVideoElement, url: string) {
+          // Check for CORS issues first
+          try {
+            const response = await fetch(url, { method: 'HEAD', mode: 'cors' });
+            if (!response.ok) throw new Error('CORS or Network Error');
+          } catch (err) {
+            console.error('MKV CORS Error:', err);
+            art.notice.show = 'CORS Error: Please allow this domain in your R2 bucket settings.';
+            
+            // Add a button to open in new tab as a workaround
+            art.controls.add({
+              position: 'right',
+              html: '<span style="color: #facc15; font-weight: bold;">FIX CORS</span>',
+              click: function () {
+                window.open(url, '_blank');
+              },
+            });
+          }
+
+          if (window.MediaSource && muxjs) {
+            const ms = new MediaSource();
+            mediaSourceRef.current = ms;
+            video.src = URL.createObjectURL(ms);
+
+            ms.addEventListener('sourceopen', async () => {
+              try {
+                const transmuxer = new muxjs.mp4.Transmuxer();
+                const sourceBuffer = ms.addSourceBuffer('video/mp4; codecs="avc1.42E01E,mp4a.40.2"');
+
+                sourceBuffer.addEventListener('error', (e) => console.error('Buffer Error:', e));
+
+                transmuxer.on('data', (data: any) => {
+                  const initSegment = new Uint8Array(data.initSegment);
+                  const dataSegment = new Uint8Array(data.data);
+                  const combined = new Uint8Array(initSegment.byteLength + dataSegment.byteLength);
+                  combined.set(initSegment);
+                  combined.set(dataSegment, initSegment.byteLength);
+                  
+                  if (!sourceBuffer.updating && ms.readyState === 'open') {
+                    sourceBuffer.appendBuffer(combined);
+                  }
+                });
+
+                const response = await fetch(url);
+                const reader = response.body?.getReader();
+                
+                if (reader) {
+                  while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                      if (ms.readyState === 'open') ms.endOfStream();
+                      break;
+                    }
+                    transmuxer.push(new Uint8Array(value));
+                    transmuxer.flush();
+                  }
+                }
+              } catch (err) {
+                console.error('MKV Transmuxing Error:', err);
+                video.src = url; // Fallback
+              }
+            });
+          } else {
+            video.src = url;
+          }
+
+          video.addEventListener('error', () => {
+            art.notice.show = 'MKV playback failed. Use "Play in VLC" or "New Tab".';
+          }, { once: true });
+        },
         m3u8: function (video: HTMLVideoElement, url: string) {
-          // Implement cache-busting by appending a dynamic timestamp to ensure browser doesn't load old cache
           const cacheBustedUrl = `${url}${url.includes('?') ? '&' : '?'}_t=${Date.now()}`;
           
           if (Hls.isSupported()) {
-            // Destroy existing HLS instance if any
             if (hlsRef.current) {
               hlsRef.current.destroy();
             }
 
             const hls = new Hls({
-              // Configure hls.js for live streaming to strictly stay on the live edge
-              liveSyncDurationCount: 3, // Start playback 3 segments from the live edge
-              liveMaxLatencyDurationCount: 10, // If latency exceeds 10 segments, jump back to live edge
+              liveSyncDurationCount: 3,
+              liveMaxLatencyDurationCount: 10,
               enableWorker: true,
               lowLatencyMode: true,
-              manifestLoadingMaxRetry: Infinity, // Keep trying to load manifest
+              manifestLoadingMaxRetry: Infinity,
               levelLoadingMaxRetry: Infinity,
               fragLoadingMaxRetry: Infinity,
             });
@@ -77,29 +156,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) => {
             hls.loadSource(cacheBustedUrl);
             hls.attachMedia(video);
             
-            // Auto-recovery logic for network and media errors
             hls.on(Hls.Events.ERROR, (event, data) => {
               if (data.fatal) {
                 switch (data.type) {
                   case Hls.ErrorTypes.NETWORK_ERROR:
-                    console.log('Fatal network error encountered, attempting to recover...');
                     hls.startLoad();
-                    video.play().catch(() => {});
                     break;
                   case Hls.ErrorTypes.MEDIA_ERROR:
-                    console.log('Fatal media error encountered, attempting to recover...');
                     hls.recoverMediaError();
-                    video.play().catch(() => {});
                     break;
                   default:
-                    console.log('Unrecoverable fatal error, destroying HLS instance');
                     hls.destroy();
                     break;
                 }
               }
             });
 
-            // Handle quality levels
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
               const levels = hls.levels;
               if (levels && levels.length > 1) {
@@ -109,7 +181,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) => {
                   value: index,
                 }));
                 
-                // Add Auto option if not present
                 quality.unshift({
                   default: hls.currentLevel === -1,
                   html: 'Auto',
@@ -130,7 +201,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) => {
               }
             });
           } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Native HLS support (Safari)
             video.src = cacheBustedUrl;
           }
         },
@@ -167,6 +237,28 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) => {
           },
         },
       ],
+      plugins: [],
+      controls: [
+        {
+          position: 'right',
+          html: 'Download',
+          click: function () {
+            const a = document.createElement('a');
+            a.href = sourceUrl;
+            a.download = '';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          },
+        },
+        {
+          position: 'right',
+          html: 'Screenshot',
+          click: function () {
+            art.screenshot();
+          },
+        },
+      ],
     });
 
     playerRef.current = art;
@@ -190,7 +282,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) => {
         playerRef.current.destroy(false);
       }
     };
-  }, [options]);
+  }, [sourceUrl]);
 
   return (
     <div 

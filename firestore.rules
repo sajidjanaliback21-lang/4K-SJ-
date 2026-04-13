@@ -22,6 +22,12 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Free Movies Collection
+    match /free_movies/{movieId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Default Deny
     match /{document=**} {
       allow read, write: if false;

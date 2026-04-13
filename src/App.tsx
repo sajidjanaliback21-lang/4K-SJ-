@@ -142,6 +142,10 @@ export default function App() {
   const [showPSLPlayer, setShowPSLPlayer] = useState(false);
   const [showIPLPlayer, setShowIPLPlayer] = useState(false);
   const [showFreeAccessModal, setShowFreeAccessModal] = useState(false);
+  const [showFreeMoviesModal, setShowFreeMoviesModal] = useState(false);
+  const [selectedFreeMovie, setSelectedFreeMovie] = useState<any>(null);
+  const [freeMovies, setFreeMovies] = useState<any[]>([]);
+  const [newFreeMovie, setNewFreeMovie] = useState({ name: '', poster_url: '', play_url: '', download_url: '' });
   const [selectedPslLanguage, setSelectedPslLanguage] = useState<'urdu' | 'english' | null>(null);
   const [pslUrlUrdu, setPslUrlUrdu] = useState('');
   const [pslUrlEnglish, setPslUrlEnglish] = useState('');
@@ -152,7 +156,7 @@ export default function App() {
   const [newPslUrlUrdu, setNewPslUrlUrdu] = useState(pslUrlUrdu);
   const [newPslUrlEnglish, setNewPslUrlEnglish] = useState(pslUrlEnglish);
   const [newIplUrl, setNewIplUrl] = useState(iplUrl);
-  const [activeAdminTab, setActiveAdminTab] = useState<'psl' | 'ipl'>('psl');
+  const [activeAdminTab, setActiveAdminTab] = useState<'psl' | 'ipl' | 'free_movies'>('psl');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showIntro, setShowIntro] = useState(() => {
     return localStorage.getItem('has_seen_intro') !== 'true';
@@ -219,6 +223,19 @@ export default function App() {
       }
     }, (error) => {
       console.error("Firestore Error (IPL):", error);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Real-time Firestore Sync for Free Movies
+  useEffect(() => {
+    const freeMoviesRef = collection(db, 'free_movies');
+    const unsubscribe = onSnapshot(freeMoviesRef, (snapshot) => {
+      const movies = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setFreeMovies(movies);
+    }, (error) => {
+      console.error("Firestore Error (Free Movies):", error);
     });
 
     return () => unsubscribe();
@@ -587,6 +604,31 @@ export default function App() {
     setIsLoggedIn(false);
     localStorage.removeItem('iptv_creds');
     localStorage.removeItem('iptv_logged_in');
+  };
+
+  const handleAddFreeMovie = async () => {
+    if (!newFreeMovie.name || !newFreeMovie.poster_url || !newFreeMovie.play_url) {
+      alert("Please fill all required fields (Name, Poster URL, Play URL)");
+      return;
+    }
+    try {
+      await addDoc(collection(db, 'free_movies'), {
+        ...newFreeMovie,
+        createdAt: new Date().toISOString()
+      });
+      setNewFreeMovie({ name: '', poster_url: '', play_url: '', download_url: '' });
+    } catch (error) {
+      console.error("Error adding free movie:", error);
+    }
+  };
+
+  const handleDeleteFreeMovie = async (id: string) => {
+    if (!window.confirm("Are you sure you want to delete this movie?")) return;
+    try {
+      await deleteDoc(doc(db, 'free_movies', id));
+    } catch (error) {
+      console.error("Error deleting free movie:", error);
+    }
   };
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -1640,6 +1682,30 @@ export default function App() {
                     <Play size={18} fill="currentColor" />
                   </div>
                 </button>
+
+                {/* Movies Option */}
+                <button
+                  onClick={() => {
+                    setShowFreeMoviesModal(true);
+                    setShowFreeAccessModal(false);
+                  }}
+                  className="group relative flex items-center gap-5 p-5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-cyan-500/50 rounded-[1.5rem] transition-all duration-500 overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-cyan-600/0 via-cyan-600/5 to-cyan-600/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+                  <div className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-blue-700 rounded-2xl flex items-center justify-center border border-cyan-400/50 shadow-lg group-hover:scale-110 group-hover:rotate-3 transition-all duration-500">
+                    <Film size={24} className="text-white" />
+                  </div>
+                  <div className="text-left">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <h4 className="text-white font-black text-xl italic tracking-tight">MOVIES</h4>
+                      <span className="px-2 py-0.5 bg-cyan-500 text-black text-[8px] font-black rounded-full uppercase">Explore</span>
+                    </div>
+                    <p className="text-white/40 text-[10px] uppercase tracking-[0.2em] font-bold">Premium VOD Collection</p>
+                  </div>
+                  <div className="ml-auto w-10 h-10 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-cyan-500 group-hover:text-black transition-all duration-500">
+                    <ChevronRight size={18} />
+                  </div>
+                </button>
               </div>
 
               <button
@@ -1648,6 +1714,239 @@ export default function App() {
               >
                 — Close Portal —
               </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Free Movies Modal */}
+      <AnimatePresence>
+        {showFreeMoviesModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 gpu">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowFreeMoviesModal(false)}
+              className="absolute inset-0 bg-black/95 backdrop-blur-md gpu"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-5xl glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 flex flex-col max-h-[90vh] gpu"
+            >
+              <div className="p-6 flex items-center justify-between border-b border-white/10 bg-white/5">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center border border-cyan-400/50 shadow-lg">
+                    <Film size={24} className="text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-display font-black text-white italic tracking-tight uppercase">Free Premium Movies</h3>
+                    <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold">Limited Time Free Access Collection</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowFreeMoviesModal(false)}
+                  className="p-3 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
+                >
+                  <X size={28} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 no-scrollbar">
+                {freeMovies.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-4 border border-white/10">
+                      <Film size={40} className="text-white/20" />
+                    </div>
+                    <h4 className="text-white font-bold text-lg">No Movies Added Yet</h4>
+                    <p className="text-white/40 text-sm max-w-xs mx-auto">Check back later for newly added free premium movies.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
+                    {freeMovies.map((movie) => (
+                      <motion.div 
+                        key={movie.id}
+                        whileHover={{ scale: 1.05, y: -5 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setSelectedFreeMovie(movie)}
+                        className="group cursor-pointer space-y-3"
+                      >
+                        <div className="relative aspect-[2/3] rounded-2xl overflow-hidden shadow-2xl border border-white/10 group-hover:border-cyan-500/50 transition-all duration-300">
+                          <img 
+                            src={movie.poster_url} 
+                            alt={movie.name}
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/movie/400/600?blur=2'; }}
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-100 transition-all duration-300 flex flex-col justify-end p-4">
+                            <div className="flex flex-col gap-2 transform translate-y-0 transition-transform duration-300">
+                              {movie.play_url.toLowerCase().includes('.mkv') && (
+                                <div className="bg-orange-500/20 border border-orange-500/30 rounded-lg p-1.5 mb-1">
+                                  <p className="text-[8px] text-orange-400 font-bold text-center uppercase leading-tight">
+                                    MKV Format: VLC Recommended
+                                  </p>
+                                </div>
+                              )}
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedFreeMovie(movie);
+                                }}
+                                className="w-full bg-cyan-500 text-black py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20"
+                              >
+                                <Play size={12} fill="currentColor" /> Play Online
+                              </button>
+                              {movie.download_url && (
+                                <a 
+                                  href={movie.download_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-full bg-white/10 hover:bg-white/20 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 border border-white/10 backdrop-blur-sm"
+                                >
+                                  <Download size={12} /> Download
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <h4 className="text-xs md:text-sm font-bold text-white line-clamp-1 group-hover:text-cyan-400 transition-colors px-1">{movie.name}</h4>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 bg-cyan-500/5 border-t border-cyan-500/10 flex flex-col items-center gap-3">
+                <a 
+                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest"
+                >
+                  <MessageCircle size={20} fill="white" />
+                  Request More Movies
+                </a>
+                <p className="text-[10px] text-white/20 uppercase tracking-[0.3em] font-bold italic">Powered by 4K•SJ Premium Engine</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Free Movie Player Modal */}
+      <AnimatePresence>
+        {selectedFreeMovie && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 gpu">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedFreeMovie(null)}
+              className="absolute inset-0 bg-black/98 backdrop-blur-2xl gpu"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-5xl glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 flex flex-col"
+            >
+              <div className="p-4 flex items-center justify-between border-b border-white/10 bg-white/5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-cyan-500 rounded-lg flex items-center justify-center border border-cyan-400 shadow-lg">
+                    <Play size={20} className="text-black fill-black" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-display font-bold text-white italic uppercase tracking-tight">{selectedFreeMovie.name}</h3>
+                    <p className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest">Streaming Free Now</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedFreeMovie(null)}
+                  className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="relative w-full aspect-video bg-black overflow-hidden min-h-[220px] md:min-h-[400px] flex items-center justify-center">
+                {selectedFreeMovie.play_url.includes('blogspot.com') ? (
+                  <iframe 
+                    src={selectedFreeMovie.play_url}
+                    className="w-full h-full border-0"
+                    allowFullScreen
+                    allow="autoplay; encrypted-media; picture-in-picture"
+                  />
+                ) : (
+                  <>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/60 backdrop-blur-sm z-0">
+                      <Loader2 className="animate-spin text-cyan-500" size={40} />
+                      <p className="text-xs text-white/40 font-bold uppercase tracking-widest">Initializing Player...</p>
+                    </div>
+                    <div className="relative z-10 w-full h-full">
+                      <VideoPlayer 
+                        key={selectedFreeMovie.play_url}
+                        options={{
+                          autoplay: true,
+                          controls: true,
+                          responsive: true,
+                          fluid: true,
+                          sources: [{
+                            src: selectedFreeMovie.play_url,
+                            type: selectedFreeMovie.play_url.includes('.m3u8') ? 'application/x-mpegURL' : 
+                                  selectedFreeMovie.play_url.toLowerCase().includes('.mp4') ? 'video/mp4' :
+                                  selectedFreeMovie.play_url.toLowerCase().includes('.webm') ? 'video/webm' :
+                                  'video/mp4' // Fallback
+                          }]
+                        }} 
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+              
+              <div className="p-6 bg-cyan-500/10 border-t border-cyan-500/20 flex flex-col items-center justify-center gap-4">
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  {selectedFreeMovie.download_url && (
+                    <a 
+                      href={selectedFreeMovie.download_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-6 py-2.5 rounded-xl font-bold text-xs transition-all border border-white/10"
+                    >
+                      <Download size={16} /> Download Movie
+                    </a>
+                  )}
+                  <a 
+                    href={`vlc://${selectedFreeMovie.play_url}`}
+                    className={`flex items-center gap-2 ${selectedFreeMovie.play_url.toLowerCase().includes('.mkv') ? 'bg-orange-500 hover:bg-orange-600 scale-105 ring-2 ring-orange-500/50' : 'bg-orange-500 hover:bg-orange-600'} text-white px-6 py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg shadow-orange-500/20`}
+                  >
+                    <Play size={16} /> {selectedFreeMovie.play_url.toLowerCase().includes('.mkv') ? 'Play in VLC (Recommended)' : 'Open in VLC'}
+                  </a>
+                </div>
+
+                <div className="flex flex-col items-center gap-1">
+                  <p className="text-sm text-cyan-400 font-bold uppercase tracking-[0.2em] text-center italic">
+                    Watching {selectedFreeMovie.name} with 4K•SJ Free Access
+                  </p>
+                  <p className="text-[10px] text-white/40 uppercase tracking-widest">High Quality Stream Enabled</p>
+                </div>
+                
+                <a 
+                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest"
+                >
+                  <MessageCircle size={20} fill="white" />
+                  Join WhatsApp Group
+                </a>
+              </div>
             </motion.div>
           </div>
         )}
@@ -1722,6 +2021,12 @@ export default function App() {
                         >
                           IPL
                         </button>
+                        <button 
+                          onClick={() => setActiveAdminTab('free_movies')}
+                          className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${activeAdminTab === 'free_movies' ? 'bg-cyan-500 text-black' : 'text-white/60 hover:text-white'}`}
+                        >
+                          Movies
+                        </button>
                       </div>
                       <button 
                         onClick={async () => {
@@ -1768,12 +2073,71 @@ export default function App() {
                       />
                     )}
 
-                    <button 
-                      onClick={handleUpdateUrl}
-                      className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-2 rounded-lg text-xs font-bold transition-colors"
-                    >
-                      Update Globally
-                    </button>
+                    {activeAdminTab === 'free_movies' && (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <input 
+                            type="text" 
+                            value={newFreeMovie.name}
+                            onChange={(e) => setNewFreeMovie({...newFreeMovie, name: e.target.value})}
+                            placeholder="Movie Name"
+                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                          <input 
+                            type="text" 
+                            value={newFreeMovie.poster_url}
+                            onChange={(e) => setNewFreeMovie({...newFreeMovie, poster_url: e.target.value})}
+                            placeholder="Poster URL"
+                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input 
+                            type="text" 
+                            value={newFreeMovie.play_url}
+                            onChange={(e) => setNewFreeMovie({...newFreeMovie, play_url: e.target.value})}
+                            placeholder="Play URL (m3u8/mp4/Blogger)"
+                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                          <input 
+                            type="text" 
+                            value={newFreeMovie.download_url}
+                            onChange={(e) => setNewFreeMovie({...newFreeMovie, download_url: e.target.value})}
+                            placeholder="Download URL (Optional)"
+                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                        </div>
+                        <button 
+                          onClick={handleAddFreeMovie}
+                          className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-2 rounded-lg text-xs font-bold transition-colors"
+                        >
+                          Add Free Movie
+                        </button>
+                        
+                        <div className="mt-4 space-y-2 max-h-40 overflow-y-auto pr-2">
+                          {freeMovies.map(movie => (
+                            <div key={movie.id} className="flex items-center justify-between bg-white/5 p-2 rounded-lg border border-white/5">
+                              <span className="text-[10px] text-white font-medium truncate max-w-[150px]">{movie.name}</span>
+                              <button 
+                                onClick={() => handleDeleteFreeMovie(movie.id)}
+                                className="text-red-500 hover:text-red-400 p-1"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {activeAdminTab !== 'free_movies' && (
+                      <button 
+                        onClick={handleUpdateUrl}
+                        className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-2 rounded-lg text-xs font-bold transition-colors"
+                      >
+                        Update Globally
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -1919,6 +2283,12 @@ export default function App() {
                         >
                           IPL
                         </button>
+                        <button 
+                          onClick={() => setActiveAdminTab('free_movies')}
+                          className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${activeAdminTab === 'free_movies' ? 'bg-cyan-500 text-black' : 'text-white/60 hover:text-white'}`}
+                        >
+                          Movies
+                        </button>
                       </div>
                       <button 
                         onClick={async () => {
@@ -1965,12 +2335,71 @@ export default function App() {
                       />
                     )}
 
-                    <button 
-                      onClick={handleUpdateUrl}
-                      className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-2 rounded-lg text-xs font-bold transition-colors"
-                    >
-                      Update Globally
-                    </button>
+                    {activeAdminTab === 'free_movies' && (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <input 
+                            type="text" 
+                            value={newFreeMovie.name}
+                            onChange={(e) => setNewFreeMovie({...newFreeMovie, name: e.target.value})}
+                            placeholder="Movie Name"
+                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                          <input 
+                            type="text" 
+                            value={newFreeMovie.poster_url}
+                            onChange={(e) => setNewFreeMovie({...newFreeMovie, poster_url: e.target.value})}
+                            placeholder="Poster URL"
+                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input 
+                            type="text" 
+                            value={newFreeMovie.play_url}
+                            onChange={(e) => setNewFreeMovie({...newFreeMovie, play_url: e.target.value})}
+                            placeholder="Play URL (m3u8/mp4/Blogger)"
+                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                          <input 
+                            type="text" 
+                            value={newFreeMovie.download_url}
+                            onChange={(e) => setNewFreeMovie({...newFreeMovie, download_url: e.target.value})}
+                            placeholder="Download URL (Optional)"
+                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                        </div>
+                        <button 
+                          onClick={handleAddFreeMovie}
+                          className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-2 rounded-lg text-xs font-bold transition-colors"
+                        >
+                          Add Free Movie
+                        </button>
+                        
+                        <div className="mt-4 space-y-2 max-h-40 overflow-y-auto pr-2">
+                          {freeMovies.map(movie => (
+                            <div key={movie.id} className="flex items-center justify-between bg-white/5 p-2 rounded-lg border border-white/5">
+                              <span className="text-[10px] text-white font-medium truncate max-w-[150px]">{movie.name}</span>
+                              <button 
+                                onClick={() => handleDeleteFreeMovie(movie.id)}
+                                className="text-red-500 hover:text-red-400 p-1"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {activeAdminTab !== 'free_movies' && (
+                      <button 
+                        onClick={handleUpdateUrl}
+                        className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-2 rounded-lg text-xs font-bold transition-colors"
+                      >
+                        Update Globally
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
