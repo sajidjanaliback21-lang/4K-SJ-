@@ -9,6 +9,7 @@ interface VideoPlayerProps {
     autoplay?: boolean;
     controls?: boolean;
     poster?: string;
+    is_embed?: boolean;
   };
   onReady?: (player: Artplayer) => void;
 }
@@ -20,10 +21,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) => {
   const mediaSourceRef = useRef<MediaSource | null>(null);
 
   const source = options.sources[0];
-  const sourceUrl = source?.src;
+  const sourceUrl = source?.src || '';
+  const isEmbed = options.is_embed || false;
+
+  const isEmbeddable = (url: string) => {
+    if (isEmbed) return true;
+    return url.includes('blogger.com') || 
+           url.includes('youtube.com/embed') || 
+           url.includes('dailymotion.com/embed') ||
+           url.includes('vimeo.com/video') ||
+           url.includes('/embed/');
+  };
 
   useEffect(() => {
-    if (!artRef.current || !sourceUrl) return;
+    if (!artRef.current || !sourceUrl || isEmbeddable(sourceUrl)) return;
 
     const isHls = sourceUrl.toLowerCase().includes('.m3u8') || source.type === 'application/x-mpegURL';
     const isMkv = sourceUrl.toLowerCase().includes('.mkv');
@@ -38,25 +49,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) => {
       isLive: isHls,
       poster: options.poster || '',
       autoplay: options.autoplay || false,
-      autoSize: true,
-      autoMini: true,
+      autoSize: false,
+      autoMini: false,
       loop: false,
-      flip: true,
-      playbackRate: true,
-      aspectRatio: true,
+      flip: false,
+      playbackRate: false,
+      aspectRatio: false,
       setting: true,
       pip: true,
       fullscreen: true,
       fullscreenWeb: true,
-      subtitleOffset: true,
-      miniProgressBar: true,
+      subtitleOffset: false,
+      miniProgressBar: false,
       mutex: true,
       backdrop: true,
       playsInline: true,
       autoPlayback: true,
       airplay: true,
-      lock: true,
-      fastForward: true,
+      lock: false,
+      fastForward: false,
       autoOrientation: true,
       theme: '#22d3ee', // Cyan-400
       moreVideoAttr: {
@@ -65,24 +76,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) => {
       },
       customType: {
         mkv: async function (video: HTMLVideoElement, url: string) {
-          // Check for CORS issues first
-          try {
-            const response = await fetch(url, { method: 'HEAD', mode: 'cors' });
-            if (!response.ok) throw new Error('CORS or Network Error');
-          } catch (err) {
-            console.error('MKV CORS Error:', err);
-            art.notice.show = 'CORS Error: Please allow this domain in your R2 bucket settings.';
-            
-            // Add a button to open in new tab as a workaround
-            art.controls.add({
-              position: 'right',
-              html: '<span style="color: #facc15; font-weight: bold;">FIX CORS</span>',
-              click: function () {
-                window.open(url, '_blank');
-              },
-            });
-          }
-
+          // Use our internal proxy to bypass CORS for MKV files
+          const proxyUrl = `/api/stream?url=${encodeURIComponent(url)}`;
+          
           if (window.MediaSource && muxjs) {
             const ms = new MediaSource();
             mediaSourceRef.current = ms;
@@ -107,7 +103,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) => {
                   }
                 });
 
-                const response = await fetch(url);
+                // Fetch through our proxy to avoid CORS
+                const response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error(`Proxy failed: ${response.statusText}`);
+                
                 const reader = response.body?.getReader();
                 
                 if (reader) {
@@ -123,7 +122,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) => {
                 }
               } catch (err) {
                 console.error('MKV Transmuxing Error:', err);
-                video.src = url; // Fallback
+                art.notice.show = 'Transmuxing failed. Trying direct playback...';
+                video.src = url; // Fallback to direct URL
               }
             });
           } else {
@@ -208,29 +208,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) => {
       settings: [
         {
           html: 'Aspect Ratio',
-          width: 200,
+          width: 150,
           tooltip: 'Default',
           selector: [
             { html: 'Default', value: 'default' },
-            { html: '16:9', value: '16:9' },
-            { html: '4:3', value: '4:3' },
-            { html: 'Fill', value: 'fill' },
+            { html: 'Stretch (16:9)', value: '16:9' },
+            { html: 'Full Screen', value: 'fill' },
           ],
           onSelect: (item: any) => {
-            const video = art.video;
             if (item.value === 'fill') {
-              video.style.objectFit = 'fill';
-              video.style.width = '100%';
-              video.style.height = '100%';
-            } else if (item.value === 'default') {
-              video.style.objectFit = 'contain';
-              video.style.width = '';
-              video.style.height = '';
-              art.aspectRatio = 'default';
+              art.video.style.objectFit = 'fill';
             } else {
-              video.style.objectFit = 'contain';
-              video.style.width = '';
-              video.style.height = '';
+              art.video.style.objectFit = 'contain';
               art.aspectRatio = item.value;
             }
             return item.html;
@@ -238,27 +227,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) => {
         },
       ],
       plugins: [],
-      controls: [
-        {
-          position: 'right',
-          html: 'Download',
-          click: function () {
-            const a = document.createElement('a');
-            a.href = sourceUrl;
-            a.download = '';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-          },
-        },
-        {
-          position: 'right',
-          html: 'Screenshot',
-          click: function () {
-            art.screenshot();
-          },
-        },
-      ],
+      controls: [],
     });
 
     playerRef.current = art;
@@ -285,11 +254,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady }) => {
   }, [sourceUrl]);
 
   return (
-    <div 
-      ref={artRef} 
-      className="w-full h-full artplayer-app rounded-xl overflow-hidden shadow-2xl"
-      style={{ minHeight: '220px' }}
-    />
+    <div className="w-full h-full relative bg-black overflow-hidden" style={{ minHeight: '220px' }}>
+      {isEmbeddable(sourceUrl) ? (
+        <iframe
+          src={sourceUrl}
+          className="absolute inset-0 w-full h-full border-0 m-0 p-0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowFullScreen
+          referrerPolicy="no-referrer"
+          style={{ width: '100%', height: '100%', display: 'block' }}
+        />
+      ) : (
+        <div ref={artRef} className="w-full h-full artplayer-app rounded-xl shadow-2xl" />
+      )}
+    </div>
   );
 };
 

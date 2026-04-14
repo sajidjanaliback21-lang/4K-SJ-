@@ -24,7 +24,8 @@ import {
   Star,
   Trophy,
   Crown,
-  MessageCircle
+  MessageCircle,
+  Pencil
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -33,7 +34,7 @@ import { XtreamCredentials, Category, Stream, Series, LiveStream } from './types
 import VideoPlayer from './components/VideoPlayer';
 import IntroLoading from './components/IntroLoading';
 import { db, auth } from './firebase';
-import { doc, onSnapshot, setDoc, getDocFromServer, collection, addDoc, deleteDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from 'firebase/auth';
 
 enum OperationType {
@@ -118,6 +119,9 @@ export default function App() {
   const [movieItems, setMovieItems] = useState<Stream[]>([]);
   const [seriesItems, setSeriesItems] = useState<Series[]>([]);
   const [liveItems, setLiveItems] = useState<LiveStream[]>([]);
+  const [totalMovieCount, setTotalMovieCount] = useState(0);
+  const [totalSeriesCount, setTotalSeriesCount] = useState(0);
+  const [totalLiveCount, setTotalLiveCount] = useState(0);
   const [homeData, setHomeData] = useState<{
     popularMovies: any[],
     popularSeries: any[]
@@ -145,7 +149,9 @@ export default function App() {
   const [showFreeMoviesModal, setShowFreeMoviesModal] = useState(false);
   const [selectedFreeMovie, setSelectedFreeMovie] = useState<any>(null);
   const [freeMovies, setFreeMovies] = useState<any[]>([]);
-  const [newFreeMovie, setNewFreeMovie] = useState({ name: '', poster_url: '', play_url: '', download_url: '' });
+  const [isMoviesLoading, setIsMoviesLoading] = useState(true);
+  const [editingMovieId, setEditingMovieId] = useState<string | null>(null);
+  const [newFreeMovie, setNewFreeMovie] = useState({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
   const [selectedPslLanguage, setSelectedPslLanguage] = useState<'urdu' | 'english' | null>(null);
   const [pslUrlUrdu, setPslUrlUrdu] = useState('');
   const [pslUrlEnglish, setPslUrlEnglish] = useState('');
@@ -231,11 +237,15 @@ export default function App() {
   // Real-time Firestore Sync for Free Movies
   useEffect(() => {
     const freeMoviesRef = collection(db, 'free_movies');
-    const unsubscribe = onSnapshot(freeMoviesRef, (snapshot) => {
+    const q = query(freeMoviesRef, orderBy('createdAt', 'desc'));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       const movies = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setFreeMovies(movies);
+      setIsMoviesLoading(false);
     }, (error) => {
       console.error("Firestore Error (Free Movies):", error);
+      setIsMoviesLoading(false);
     });
 
     return () => unsubscribe();
@@ -425,6 +435,7 @@ export default function App() {
         try {
           mItems = await xtreamApi.getMovies(creds, '0');
           setMovieItems(mItems);
+          setTotalMovieCount(mItems.length);
           setIntroProgress(55);
         } catch (mErr) {
           console.error("Failed to fetch movies", mErr);
@@ -437,6 +448,7 @@ export default function App() {
         try {
           sItems = await xtreamApi.getSeries(creds, '0');
           setSeriesItems(sItems);
+          setTotalSeriesCount(sItems.length);
           setIntroProgress(75);
         } catch (sErr) {
           console.error("Failed to fetch series", sErr);
@@ -448,6 +460,7 @@ export default function App() {
         try {
           const lItems = await xtreamApi.getLiveStreams(creds, '0');
           setLiveItems(lItems);
+          setTotalLiveCount(lItems.length);
           setIntroProgress(90);
         } catch (lErr) {
           console.error("Failed to fetch live streams", lErr);
@@ -612,13 +625,21 @@ export default function App() {
       return;
     }
     try {
-      await addDoc(collection(db, 'free_movies'), {
-        ...newFreeMovie,
-        createdAt: new Date().toISOString()
-      });
-      setNewFreeMovie({ name: '', poster_url: '', play_url: '', download_url: '' });
+      if (editingMovieId) {
+        await updateDoc(doc(db, 'free_movies', editingMovieId), {
+          ...newFreeMovie,
+          updatedAt: new Date().toISOString()
+        });
+        setEditingMovieId(null);
+      } else {
+        await addDoc(collection(db, 'free_movies'), {
+          ...newFreeMovie,
+          createdAt: new Date().toISOString()
+        });
+      }
+      setNewFreeMovie({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
     } catch (error) {
-      console.error("Error adding free movie:", error);
+      console.error("Error saving free movie:", error);
     }
   };
 
@@ -1066,7 +1087,14 @@ export default function App() {
                           transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
                         />
                       )}
-                      <span className="relative z-10">{cat.category_name}</span>
+                      <div className="relative z-10 flex flex-col items-center">
+                        <span className="leading-tight">{cat.category_name}</span>
+                        {cat.category_id === '0' && (
+                          <span className="text-[8px] md:text-[9px] opacity-60 font-medium mt-0.5">
+                            {activeTab === 'movies' ? totalMovieCount : (activeTab === 'series' ? totalSeriesCount : totalLiveCount)} Items
+                          </span>
+                        )}
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -1756,7 +1784,12 @@ export default function App() {
               </div>
 
               <div className="flex-1 overflow-y-auto p-6 no-scrollbar">
-                {freeMovies.length === 0 ? (
+                {isMoviesLoading ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <Loader2 className="animate-spin text-cyan-500 mb-4" size={40} />
+                    <p className="text-white/40 text-sm font-bold uppercase tracking-widest">Loading Movies...</p>
+                  </div>
+                ) : freeMovies.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-center">
                     <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-4 border border-white/10">
                       <Film size={40} className="text-white/20" />
@@ -1875,39 +1908,30 @@ export default function App() {
               </div>
 
               <div className="relative w-full aspect-video bg-black overflow-hidden min-h-[220px] md:min-h-[400px] flex items-center justify-center">
-                {selectedFreeMovie.play_url.includes('blogspot.com') ? (
-                  <iframe 
-                    src={selectedFreeMovie.play_url}
-                    className="w-full h-full border-0"
-                    allowFullScreen
-                    allow="autoplay; encrypted-media; picture-in-picture"
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/60 backdrop-blur-sm z-0">
+                  <Loader2 className="animate-spin text-cyan-500" size={40} />
+                  <p className="text-xs text-white/40 font-bold uppercase tracking-widest">Initializing Player...</p>
+                </div>
+                <div className="relative z-10 w-full h-full">
+                  <VideoPlayer 
+                    key={selectedFreeMovie.play_url}
+                    options={{
+                      autoplay: true,
+                      controls: true,
+                      responsive: true,
+                      fluid: true,
+                      poster: selectedFreeMovie.poster_url,
+                      is_embed: selectedFreeMovie.is_embed,
+                      sources: [{
+                        src: selectedFreeMovie.play_url,
+                        type: selectedFreeMovie.play_url.includes('.m3u8') ? 'application/x-mpegURL' : 
+                              selectedFreeMovie.play_url.toLowerCase().includes('.mp4') ? 'video/mp4' :
+                              selectedFreeMovie.play_url.toLowerCase().includes('.webm') ? 'video/webm' :
+                              'video/mp4' // Fallback
+                      }]
+                    }} 
                   />
-                ) : (
-                  <>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/60 backdrop-blur-sm z-0">
-                      <Loader2 className="animate-spin text-cyan-500" size={40} />
-                      <p className="text-xs text-white/40 font-bold uppercase tracking-widest">Initializing Player...</p>
-                    </div>
-                    <div className="relative z-10 w-full h-full">
-                      <VideoPlayer 
-                        key={selectedFreeMovie.play_url}
-                        options={{
-                          autoplay: true,
-                          controls: true,
-                          responsive: true,
-                          fluid: true,
-                          sources: [{
-                            src: selectedFreeMovie.play_url,
-                            type: selectedFreeMovie.play_url.includes('.m3u8') ? 'application/x-mpegURL' : 
-                                  selectedFreeMovie.play_url.toLowerCase().includes('.mp4') ? 'video/mp4' :
-                                  selectedFreeMovie.play_url.toLowerCase().includes('.webm') ? 'video/webm' :
-                                  'video/mp4' // Fallback
-                          }]
-                        }} 
-                      />
-                    </div>
-                  </>
-                )}
+                </div>
               </div>
               
               <div className="p-6 bg-cyan-500/10 border-t border-cyan-500/20 flex flex-col items-center justify-center gap-4">
@@ -2096,34 +2120,74 @@ export default function App() {
                             type="text" 
                             value={newFreeMovie.play_url}
                             onChange={(e) => setNewFreeMovie({...newFreeMovie, play_url: e.target.value})}
-                            placeholder="Play URL (m3u8/mp4/Blogger)"
+                            placeholder="Play URL (m3u8/mp4/Embed)"
                             className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
                           />
-                          <input 
-                            type="text" 
-                            value={newFreeMovie.download_url}
-                            onChange={(e) => setNewFreeMovie({...newFreeMovie, download_url: e.target.value})}
-                            placeholder="Download URL (Optional)"
-                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                          />
+                          <div className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-lg px-3 py-2">
+                            <input 
+                              type="checkbox" 
+                              id="is_embed_psl"
+                              checked={newFreeMovie.is_embed}
+                              onChange={(e) => setNewFreeMovie({...newFreeMovie, is_embed: e.target.checked})}
+                              className="w-4 h-4 accent-cyan-500"
+                            />
+                            <label htmlFor="is_embed_psl" className="text-[10px] text-white/60 font-bold uppercase">Is Embed URL?</label>
+                          </div>
                         </div>
-                        <button 
-                          onClick={handleAddFreeMovie}
-                          className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-2 rounded-lg text-xs font-bold transition-colors"
-                        >
-                          Add Free Movie
-                        </button>
+                        <input 
+                          type="text" 
+                          value={newFreeMovie.download_url}
+                          onChange={(e) => setNewFreeMovie({...newFreeMovie, download_url: e.target.value})}
+                          placeholder="Download URL (Optional)"
+                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                        />
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={handleAddFreeMovie}
+                            className={`flex-1 ${editingMovieId ? 'bg-yellow-500 hover:bg-yellow-400' : 'bg-cyan-500 hover:bg-cyan-400'} text-black py-2 rounded-lg text-xs font-bold transition-colors`}
+                          >
+                            {editingMovieId ? 'Update Movie' : 'Add Free Movie'}
+                          </button>
+                          {editingMovieId && (
+                            <button 
+                              onClick={() => {
+                                setEditingMovieId(null);
+                                setNewFreeMovie({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
+                              }}
+                              className="px-4 bg-white/10 hover:bg-white/20 text-white py-2 rounded-lg text-xs font-bold transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </div>
                         
                         <div className="mt-4 space-y-2 max-h-40 overflow-y-auto pr-2">
                           {freeMovies.map(movie => (
                             <div key={movie.id} className="flex items-center justify-between bg-white/5 p-2 rounded-lg border border-white/5">
-                              <span className="text-[10px] text-white font-medium truncate max-w-[150px]">{movie.name}</span>
-                              <button 
-                                onClick={() => handleDeleteFreeMovie(movie.id)}
-                                className="text-red-500 hover:text-red-400 p-1"
-                              >
-                                <X size={14} />
-                              </button>
+                              <span className="text-[10px] text-white font-medium truncate max-w-[120px]">{movie.name}</span>
+                              <div className="flex items-center gap-1">
+                                <button 
+                                  onClick={() => {
+                                    setEditingMovieId(movie.id);
+                                    setNewFreeMovie({
+                                      name: movie.name,
+                                      poster_url: movie.poster_url,
+                                      play_url: movie.play_url,
+                                      download_url: movie.download_url || '',
+                                      is_embed: movie.is_embed || false
+                                    });
+                                  }}
+                                  className="text-cyan-500 hover:text-cyan-400 p-1"
+                                >
+                                  <Pencil size={12} />
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteFreeMovie(movie.id)}
+                                  className="text-red-500 hover:text-red-400 p-1"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -2358,34 +2422,74 @@ export default function App() {
                             type="text" 
                             value={newFreeMovie.play_url}
                             onChange={(e) => setNewFreeMovie({...newFreeMovie, play_url: e.target.value})}
-                            placeholder="Play URL (m3u8/mp4/Blogger)"
+                            placeholder="Play URL (m3u8/mp4/Embed)"
                             className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
                           />
-                          <input 
-                            type="text" 
-                            value={newFreeMovie.download_url}
-                            onChange={(e) => setNewFreeMovie({...newFreeMovie, download_url: e.target.value})}
-                            placeholder="Download URL (Optional)"
-                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                          />
+                          <div className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-lg px-3 py-2">
+                            <input 
+                              type="checkbox" 
+                              id="is_embed_ipl"
+                              checked={newFreeMovie.is_embed}
+                              onChange={(e) => setNewFreeMovie({...newFreeMovie, is_embed: e.target.checked})}
+                              className="w-4 h-4 accent-cyan-500"
+                            />
+                            <label htmlFor="is_embed_ipl" className="text-[10px] text-white/60 font-bold uppercase">Is Embed URL?</label>
+                          </div>
                         </div>
-                        <button 
-                          onClick={handleAddFreeMovie}
-                          className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-2 rounded-lg text-xs font-bold transition-colors"
-                        >
-                          Add Free Movie
-                        </button>
+                        <input 
+                          type="text" 
+                          value={newFreeMovie.download_url}
+                          onChange={(e) => setNewFreeMovie({...newFreeMovie, download_url: e.target.value})}
+                          placeholder="Download URL (Optional)"
+                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                        />
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={handleAddFreeMovie}
+                            className={`flex-1 ${editingMovieId ? 'bg-yellow-500 hover:bg-yellow-400' : 'bg-cyan-500 hover:bg-cyan-400'} text-black py-2 rounded-lg text-xs font-bold transition-colors`}
+                          >
+                            {editingMovieId ? 'Update Movie' : 'Add Free Movie'}
+                          </button>
+                          {editingMovieId && (
+                            <button 
+                              onClick={() => {
+                                setEditingMovieId(null);
+                                setNewFreeMovie({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
+                              }}
+                              className="px-4 bg-white/10 hover:bg-white/20 text-white py-2 rounded-lg text-xs font-bold transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </div>
                         
                         <div className="mt-4 space-y-2 max-h-40 overflow-y-auto pr-2">
                           {freeMovies.map(movie => (
                             <div key={movie.id} className="flex items-center justify-between bg-white/5 p-2 rounded-lg border border-white/5">
-                              <span className="text-[10px] text-white font-medium truncate max-w-[150px]">{movie.name}</span>
-                              <button 
-                                onClick={() => handleDeleteFreeMovie(movie.id)}
-                                className="text-red-500 hover:text-red-400 p-1"
-                              >
-                                <X size={14} />
-                              </button>
+                              <span className="text-[10px] text-white font-medium truncate max-w-[120px]">{movie.name}</span>
+                              <div className="flex items-center gap-1">
+                                <button 
+                                  onClick={() => {
+                                    setEditingMovieId(movie.id);
+                                    setNewFreeMovie({
+                                      name: movie.name,
+                                      poster_url: movie.poster_url,
+                                      play_url: movie.play_url,
+                                      download_url: movie.download_url || '',
+                                      is_embed: movie.is_embed || false
+                                    });
+                                  }}
+                                  className="text-cyan-500 hover:text-cyan-400 p-1"
+                                >
+                                  <Pencil size={12} />
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteFreeMovie(movie.id)}
+                                  className="text-red-500 hover:text-red-400 p-1"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
                             </div>
                           ))}
                         </div>

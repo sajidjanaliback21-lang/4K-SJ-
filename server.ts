@@ -42,6 +42,53 @@ async function startServer() {
     }
   });
 
+  // Video Streaming Proxy with Range support
+  app.get("/api/stream", async (req, res) => {
+    const { url } = req.query;
+    if (!url) return res.status(400).send("URL is required");
+
+    const targetUrl = url as string;
+    const range = req.headers.range;
+
+    try {
+      const headers: any = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      };
+      if (range) {
+        headers['Range'] = range;
+      }
+
+      const response = await axios({
+        method: 'get',
+        url: targetUrl,
+        responseType: 'stream',
+        headers: headers,
+        timeout: 0, // No timeout for streaming
+      });
+
+      // Forward headers from target server
+      const responseHeaders = {
+        'Content-Type': response.headers['content-type'] || 'video/x-matroska',
+        'Content-Length': response.headers['content-length'],
+        'Content-Range': response.headers['content-range'],
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*',
+      };
+
+      res.writeHead(response.status, responseHeaders);
+      response.data.pipe(res);
+
+      req.on('close', () => {
+        if (response.data && response.data.destroy) {
+          response.data.destroy();
+        }
+      });
+    } catch (error: any) {
+      console.error(`Streaming error for ${targetUrl}:`, error.message);
+      res.status(500).send("Streaming failed");
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     console.log("Starting in development mode with Vite middleware...");
