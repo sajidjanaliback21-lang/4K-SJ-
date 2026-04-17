@@ -654,6 +654,20 @@ export default function App() {
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  const formatVlcUrl = (url: string) => {
+    if (!url) return '';
+    const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
+    const isAndroid = /Android/i.test(userAgent);
+
+    if (isAndroid) {
+      // Use the exact Intent format requested for Android
+      return `intent:${url}#Intent;package=org.videolan.vlc;type=video/*;end;`;
+    }
+
+    // Fallback for non-Android (Desktop/iOS)
+    return `vlc:${url}`;
+  };
+
   const handleAction = async (action: 'play' | 'download' | 'web_play' | 'copy', item: any, episodeId?: string, episodeExt?: string, isConfirmed = false) => {
     if (!isLoggedIn) {
       setShowLoginModal(true);
@@ -735,19 +749,18 @@ export default function App() {
 
       if (isMobile) {
         if (isAndroid) {
-          // Intent for Android to show player chooser
-          const intentUrl = `intent:${url}#Intent;action=android.intent.action.VIEW;type=video/*;S.title=${encodeURIComponent(item.name)};end`;
-          window.location.href = intentUrl;
+          // Use the consolidated VLC Intent/scheme formatter
+          window.location.href = formatVlcUrl(url);
         } else if (isIOS) {
           // iOS - try vlc:// as a common player scheme
-          const vlcUrl = `vlc://${url}`;
+          const vlcUrl = formatVlcUrl(url);
           window.location.href = vlcUrl;
         } else {
           window.open(url, '_blank');
         }
       } else {
         // Desktop/PC - use vlc:// protocol scheme
-        const vlcUrl = `vlc://${url}`;
+        const vlcUrl = formatVlcUrl(url);
         window.location.href = vlcUrl;
       }
     }
@@ -1947,10 +1960,10 @@ export default function App() {
                     </a>
                   )}
                   <a 
-                    href={`vlc://${selectedFreeMovie.play_url}`}
-                    className={`flex items-center gap-2 ${selectedFreeMovie.play_url.toLowerCase().includes('.mkv') ? 'bg-orange-500 hover:bg-orange-600 scale-105 ring-2 ring-orange-500/50' : 'bg-orange-500 hover:bg-orange-600'} text-white px-6 py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg shadow-orange-500/20`}
+                    href={formatVlcUrl(selectedFreeMovie.download_url)}
+                    className={`flex items-center gap-2 ${(selectedFreeMovie.download_url || selectedFreeMovie.play_url).toLowerCase().includes('.mkv') ? 'bg-orange-500 hover:bg-orange-600 scale-105 ring-2 ring-orange-500/50' : 'bg-orange-500 hover:bg-orange-600'} text-white px-6 py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg shadow-orange-500/20`}
                   >
-                    <Play size={16} /> {selectedFreeMovie.play_url.toLowerCase().includes('.mkv') ? 'Play in VLC (Recommended)' : 'Open in VLC'}
+                    <Play size={16} /> {(selectedFreeMovie.download_url || selectedFreeMovie.play_url).toLowerCase().includes('.mkv') ? 'Play in VLC (Recommended)' : 'Open in VLC'}
                   </a>
                 </div>
 
