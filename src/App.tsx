@@ -25,7 +25,9 @@ import {
   Trophy,
   Crown,
   MessageCircle,
-  Pencil
+  Pencil,
+  Settings,
+  Share2
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -147,11 +149,17 @@ export default function App() {
   const [showIPLPlayer, setShowIPLPlayer] = useState(false);
   const [showFreeAccessModal, setShowFreeAccessModal] = useState(false);
   const [showFreeMoviesModal, setShowFreeMoviesModal] = useState(false);
+  const [showFreeSeriesModal, setShowFreeSeriesModal] = useState(false);
   const [selectedFreeMovie, setSelectedFreeMovie] = useState<any>(null);
+  const [selectedFreeSeries, setSelectedFreeSeries] = useState<any>(null);
   const [freeMovies, setFreeMovies] = useState<any[]>([]);
+  const [freeSeries, setFreeSeries] = useState<any[]>([]);
   const [isMoviesLoading, setIsMoviesLoading] = useState(true);
+  const [isSeriesLoading, setIsSeriesLoading] = useState(true);
   const [editingMovieId, setEditingMovieId] = useState<string | null>(null);
+  const [editingSeriesId, setEditingSeriesId] = useState<string | null>(null);
   const [newFreeMovie, setNewFreeMovie] = useState({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
+  const [newFreeSeries, setNewFreeSeries] = useState({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
   const [selectedPslLanguage, setSelectedPslLanguage] = useState<'urdu' | 'english' | null>(null);
   const [pslUrlUrdu, setPslUrlUrdu] = useState('');
   const [pslUrlEnglish, setPslUrlEnglish] = useState('');
@@ -162,12 +170,14 @@ export default function App() {
   const [newPslUrlUrdu, setNewPslUrlUrdu] = useState(pslUrlUrdu);
   const [newPslUrlEnglish, setNewPslUrlEnglish] = useState(pslUrlEnglish);
   const [newIplUrl, setNewIplUrl] = useState(iplUrl);
-  const [activeAdminTab, setActiveAdminTab] = useState<'psl' | 'ipl' | 'free_movies'>('psl');
+  const [activeAdminTab, setActiveAdminTab] = useState<'psl' | 'ipl' | 'free_movies' | 'free_series'>('psl');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showIntro, setShowIntro] = useState(() => {
     return localStorage.getItem('has_seen_intro') !== 'true';
   });
   const [introProgress, setIntroProgress] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(40);
+  const loadMoreRef = React.useRef<HTMLDivElement>(null);
 
   // Firebase Auth Listener
   useEffect(() => {
@@ -246,6 +256,23 @@ export default function App() {
     }, (error) => {
       console.error("Firestore Error (Free Movies):", error);
       setIsMoviesLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Real-time Firestore Sync for Free Web Series
+  useEffect(() => {
+    const freeSeriesRef = collection(db, 'free_series');
+    const q = query(freeSeriesRef, orderBy('createdAt', 'desc'));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const series = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setFreeSeries(series);
+      setIsSeriesLoading(false);
+    }, (error) => {
+      console.error("Firestore Error (Free Series):", error);
+      setIsSeriesLoading(false);
     });
 
     return () => unsubscribe();
@@ -567,16 +594,46 @@ export default function App() {
 
   const currentItems = useMemo(() => {
     const items = activeTab === 'movies' ? movieItems : (activeTab === 'series' ? seriesItems : liveItems);
-    const base = searchQuery 
+    const filtered = searchQuery 
       ? items.filter((item: any) => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
       : items;
-    return base.slice(0, 200);
-  }, [activeTab, movieItems, seriesItems, liveItems, searchQuery]);
+    return filtered.slice(0, visibleCount);
+  }, [activeTab, movieItems, seriesItems, liveItems, searchQuery, visibleCount]);
+
+  const hasMore = useMemo(() => {
+    const items = activeTab === 'movies' ? movieItems : (activeTab === 'series' ? seriesItems : liveItems);
+    const filtered = searchQuery 
+      ? items.filter((item: any) => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      : items;
+    return visibleCount < filtered.length;
+  }, [activeTab, movieItems, seriesItems, liveItems, searchQuery, visibleCount]);
 
   const currentCategories = activeTab === 'movies' ? movieCategories : (activeTab === 'series' ? seriesCategories : liveCategories);
   const currentSelectedCategory = activeTab === 'movies' ? selectedMovieCategory : (activeTab === 'series' ? selectedSeriesCategory : selectedLiveCategory);
   const setCurrentSelectedCategory = activeTab === 'movies' ? setSelectedMovieCategory : (activeTab === 'series' ? setSelectedSeriesCategory : setSelectedLiveCategory);
   const currentLoading = activeTab === 'movies' ? loadingMovies : (activeTab === 'series' ? loadingSeries : loadingLive);
+
+  // Reset visible items when category or search changes
+  useEffect(() => {
+    setVisibleCount(40);
+  }, [activeTab, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, searchQuery]);
+
+  // Infinite scroll observer
+  useEffect(() => {
+    if (currentLoading) return;
+    
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && !currentLoading) {
+        setVisibleCount(prev => prev + 40);
+      }
+    }, { threshold: 0.1 });
+
+    if (loadMoreRef.current) {
+      observer.observe(loadMoreRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [currentLoading, activeTab, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, searchQuery]);
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -649,6 +706,39 @@ export default function App() {
       await deleteDoc(doc(db, 'free_movies', id));
     } catch (error) {
       console.error("Error deleting free movie:", error);
+    }
+  };
+
+  const handleAddFreeSeries = async () => {
+    if (!newFreeSeries.name || !newFreeSeries.play_url || !newFreeSeries.poster_url) {
+      alert("Please fill all required fields");
+      return;
+    }
+    try {
+      if (editingSeriesId) {
+        await updateDoc(doc(db, 'free_series', editingSeriesId), {
+          ...newFreeSeries,
+          updatedAt: new Date().toISOString()
+        });
+        setEditingSeriesId(null);
+      } else {
+        await addDoc(collection(db, 'free_series'), {
+          ...newFreeSeries,
+          createdAt: new Date().toISOString()
+        });
+      }
+      setNewFreeSeries({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
+    } catch (error) {
+      console.error("Error saving free series:", error);
+    }
+  };
+
+  const handleDeleteFreeSeries = async (id: string) => {
+    if (!window.confirm("Are you sure you want to delete this series?")) return;
+    try {
+      await deleteDoc(doc(db, 'free_series', id));
+    } catch (error) {
+      console.error("Error deleting free series:", error);
     }
   };
 
@@ -974,7 +1064,7 @@ export default function App() {
                   <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3 md:gap-6">
                     {homeData.popularMovies.map((item, idx) => (
                       <motion.div 
-                        key={item.stream_id}
+                        key={`home-movie-${item.stream_id}-${idx}`}
                         initial={{ opacity: 0, scale: 0.9, y: 20 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         transition={{ 
@@ -1024,7 +1114,7 @@ export default function App() {
                   <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3 md:gap-6">
                     {homeData.popularSeries.map((item, idx) => (
                       <motion.div 
-                        key={item.series_id}
+                        key={`home-series-${item.series_id}-${idx}`}
                         initial={{ opacity: 0, scale: 0.9, y: 20 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         transition={{ 
@@ -1082,9 +1172,9 @@ export default function App() {
 
               <div className="relative group">
                 <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-2 snap-x snap-mandatory">
-                  {currentCategories.map((cat) => (
+                  {currentCategories.map((cat, idx) => (
                     <button
-                      key={cat.category_id}
+                      key={`${activeTab}-cat-${cat.category_id}-${idx}`}
                       onClick={() => setCurrentSelectedCategory(cat.category_id)}
                       className={cn(
                         "relative whitespace-nowrap px-5 py-2.5 rounded-xl text-xs md:text-sm font-bold transition-all duration-300 snap-start gpu",
@@ -1143,7 +1233,7 @@ export default function App() {
                 <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-2 md:gap-6">
                     {currentItems.map((item, idx) => (
                     <motion.div
-                      key={'stream_id' in item ? item.stream_id : (item as any).series_id}
+                      key={`${activeTab}-${'stream_id' in item ? item.stream_id : (item as any).series_id}-${idx}`}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ 
@@ -1187,6 +1277,19 @@ export default function App() {
                     </motion.div>
                   ))}
                 </div>
+                
+                {/* Scroll Sentinel for Lazy Loading */}
+                {hasMore && !currentLoading && (
+                  <div 
+                    ref={loadMoreRef} 
+                    className="flex justify-center py-12"
+                  >
+                    <div className="flex items-center gap-3 text-cyan-500 font-medium">
+                      <Loader2 className="animate-spin" size={24} />
+                      <span className="text-sm">Loading more titles...</span>
+                    </div>
+                  </div>
+                )}
             </div>
           )}
 
@@ -1314,9 +1417,9 @@ export default function App() {
                       <>
                         {/* Seasons Selector */}
                         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 md:pb-2">
-                          {Object.keys(seriesInfo.episodes).map((seasonNum) => (
+                          {Object.keys(seriesInfo.episodes).map((seasonNum, idx) => (
                             <button
-                              key={seasonNum}
+                              key={`season-${seasonNum}-${idx}`}
                               onClick={() => setSelectedSeason(seasonNum)}
                               className={cn(
                                 "whitespace-nowrap px-3 md:px-4 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-bold transition-all border",
@@ -1332,9 +1435,9 @@ export default function App() {
 
                         {/* Episodes List */}
                         <div className="space-y-2 max-h-[300px] md:max-h-[400px] overflow-y-auto pr-1 md:pr-2 no-scrollbar pb-20 md:pb-10">
-                          {seriesInfo.episodes[selectedSeason || '']?.map((episode: any) => (
+                          {seriesInfo.episodes[selectedSeason || '']?.map((episode: any, idx: number) => (
                             <div 
-                              key={episode.id}
+                              key={`episode-${episode.id}-${idx}`}
                               className="group/ep flex items-center justify-between p-2.5 md:p-3 rounded-lg md:rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/20 transition-all"
                             >
                               <div className="flex items-center gap-3 md:gap-4">
@@ -1645,116 +1748,170 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowFreeAccessModal(false)}
-              className="absolute inset-0 bg-black/95 backdrop-blur-md gpu"
+              className="absolute inset-0 bg-black/95 backdrop-blur-3xl gpu"
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 30 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 30 }}
-              transition={{ type: "spring", damping: 25, stiffness: 300 }}
-              className="relative w-full max-w-md glass-dark rounded-[2.5rem] overflow-hidden shadow-[0_0_80px_rgba(0,0,0,0.8)] border border-white/10 p-8 gpu"
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              variants={{
+                hidden: { opacity: 0, scale: 0.9, y: 30, rotateX: 10 },
+                visible: { 
+                  opacity: 1, 
+                  scale: 1, 
+                  y: 0, 
+                  rotateX: 0,
+                  transition: {
+                    type: "spring",
+                    damping: 25,
+                    stiffness: 300,
+                    staggerChildren: 0.1,
+                    delayChildren: 0.2
+                  }
+                },
+                exit: { 
+                  opacity: 0, 
+                  scale: 0.9, 
+                  y: 30,
+                  transition: { duration: 0.4, ease: [0.23, 1, 0.32, 1] }
+                }
+              }}
+              className="relative w-full max-w-[380px] glass rounded-[3.5rem] overflow-hidden shadow-[0_0_120px_rgba(0,0,0,0.8)] border border-white/20 p-8 flex flex-col items-center gap-8 gpu preserve-3d"
             >
-              <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-cyan-500/10 to-transparent" />
+              {/* Complex Atmospheric Glows */}
+              <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-500/10 rounded-full blur-[80px] -mr-20 -mt-20" />
+              <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-600/10 rounded-full blur-[80px] -ml-20 -mb-20" />
+              <div className="absolute inset-0 bg-gradient-to-tr from-white/[0.03] via-transparent to-transparent pointer-events-none" />
               
-              <div className="text-center mb-8 relative z-10">
-                <div className="w-20 h-20 bg-gradient-to-br from-cyan-400 to-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-[0_0_30px_rgba(34,211,238,0.4)] rotate-6 group">
-                  <Crown className="text-white drop-shadow-xl" size={40} />
-                </div>
-                <h2 className="text-3xl font-display font-black text-white mb-2 tracking-tighter italic">FREE ACCESS</h2>
-                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4">
-                  <p className="text-red-400 text-[10px] font-bold uppercase tracking-widest leading-relaxed">
-                    You can use this features without any subscription for limited time and limited speed
-                  </p>
-                </div>
-                <p className="text-white/40 text-sm font-medium">Experience high-definition live streaming for free.</p>
+              <div className="absolute top-7 left-7 right-7 flex justify-between items-center z-20">
+                <motion.button 
+                  variants={{ hidden: { opacity: 0, scale: 0 }, visible: { opacity: 1, scale: 1 } }}
+                  whileHover={{ scale: 1.15, rotate: 180, backgroundColor: "rgba(34, 211, 238, 0.2)" }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => setShowAdminLogin(true)}
+                  className="p-2.5 bg-white/5 hover:bg-cyan-500/20 rounded-2xl transition-all border border-white/10 group shadow-lg"
+                >
+                  <Settings size={20} className="text-white/40 group-hover:text-cyan-400 group-hover:drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
+                </motion.button>
+                <motion.button 
+                  variants={{ hidden: { opacity: 0, scale: 0 }, visible: { opacity: 1, scale: 1 } }}
+                  whileHover={{ scale: 1.15, rotate: 90, backgroundColor: "rgba(239, 68, 68, 0.2)" }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => setShowFreeAccessModal(false)}
+                  className="p-2.5 bg-white/5 hover:bg-red-500/20 rounded-2xl transition-all border border-white/10 group shadow-lg"
+                >
+                  <X size={20} className="text-white/40 group-hover:text-red-400" />
+                </motion.button>
               </div>
 
-              <div className="grid grid-cols-1 gap-5 relative z-10">
-                {/* PSL Option */}
-                <button
-                  onClick={() => {
-                    setSelectedPslLanguage('urdu');
-                    setShowPSLPlayer(true);
-                    setShowFreeAccessModal(false);
-                  }}
-                  className="group relative flex items-center gap-5 p-5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-green-500/50 rounded-[1.5rem] transition-all duration-500 overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-green-600/0 via-green-600/5 to-green-600/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
-                  <div className="w-14 h-14 bg-gradient-to-br from-green-500 to-green-700 rounded-2xl flex items-center justify-center border border-green-400/50 shadow-lg group-hover:scale-110 group-hover:rotate-3 transition-all duration-500">
-                    <span className="text-lg font-black text-white italic">PSL</span>
-                  </div>
-                  <div className="text-left">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <h4 className="text-white font-black text-xl italic tracking-tight">PSL LIVE</h4>
-                      <span className="px-2 py-0.5 bg-green-500 text-black text-[8px] font-black rounded-full uppercase">Active</span>
-                    </div>
-                    <p className="text-white/40 text-[10px] uppercase tracking-[0.2em] font-bold">Pakistan Super League</p>
-                  </div>
-                  <div className="ml-auto w-10 h-10 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-green-500 group-hover:text-black transition-all duration-500">
-                    <Play size={18} fill="currentColor" />
-                  </div>
-                </button>
-
-                {/* IPL Option */}
-                <button
-                  onClick={() => {
-                    setShowIPLPlayer(true);
-                    setShowFreeAccessModal(false);
-                  }}
-                  className="group relative flex items-center gap-5 p-5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-blue-500/50 rounded-[1.5rem] transition-all duration-500 overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-blue-600/0 via-blue-600/5 to-blue-600/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
-                  <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center border border-blue-400 shadow-lg group-hover:scale-110 group-hover:-rotate-3 transition-all duration-500 p-2">
-                    <img 
-                      src="https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Indian_Premier_League_Official_Logo.svg/1200px-Indian_Premier_League_Official_Logo.svg.png" 
-                      alt="IPL" 
-                      className="w-full h-full object-contain"
-                      referrerPolicy="no-referrer"
-                    />
-                  </div>
-                  <div className="text-left">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <h4 className="text-white font-black text-xl italic tracking-tight">IPL LIVE</h4>
-                      <span className="px-2 py-0.5 bg-blue-500 text-white text-[8px] font-black rounded-full uppercase">Active</span>
-                    </div>
-                    <p className="text-white/40 text-[10px] uppercase tracking-[0.2em] font-bold">Indian Premier League</p>
-                  </div>
-                  <div className="ml-auto w-10 h-10 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-blue-500 group-hover:text-white transition-all duration-500">
-                    <Play size={18} fill="currentColor" />
-                  </div>
-                </button>
-
-                {/* Movies Option */}
-                <button
-                  onClick={() => {
-                    setShowFreeMoviesModal(true);
-                    setShowFreeAccessModal(false);
-                  }}
-                  className="group relative flex items-center gap-5 p-5 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-cyan-500/50 rounded-[1.5rem] transition-all duration-500 overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-cyan-600/0 via-cyan-600/5 to-cyan-600/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
-                  <div className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-blue-700 rounded-2xl flex items-center justify-center border border-cyan-400/50 shadow-lg group-hover:scale-110 group-hover:rotate-3 transition-all duration-500">
-                    <Film size={24} className="text-white" />
-                  </div>
-                  <div className="text-left">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <h4 className="text-white font-black text-xl italic tracking-tight">MOVIES</h4>
-                      <span className="px-2 py-0.5 bg-cyan-500 text-black text-[8px] font-black rounded-full uppercase">Explore</span>
-                    </div>
-                    <p className="text-white/40 text-[10px] uppercase tracking-[0.2em] font-bold">Premium VOD Collection</p>
-                  </div>
-                  <div className="ml-auto w-10 h-10 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-cyan-500 group-hover:text-black transition-all duration-500">
-                    <ChevronRight size={18} />
-                  </div>
-                </button>
-              </div>
-
-              <button
-                onClick={() => setShowFreeAccessModal(false)}
-                className="mt-10 w-full py-4 text-white/20 hover:text-white font-black text-xs uppercase tracking-[0.3em] transition-all hover:tracking-[0.4em]"
+              <motion.div 
+                variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}
+                className="text-center relative z-10 w-full pt-6"
               >
-                — Close Portal —
-              </button>
+                <motion.div 
+                  animate={{ 
+                    y: [0, -12, 0],
+                    rotate: [0, 10, -10, 0],
+                    boxShadow: [
+                      "0 0 30px rgba(34,211,238,0.2)",
+                      "0 0 60px rgba(34,211,238,0.5)",
+                      "0 0 30px rgba(34,211,238,0.2)"
+                    ]
+                  }}
+                  transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+                  className="w-20 h-20 bg-gradient-to-br from-cyan-400 via-blue-600 to-indigo-700 rounded-[2.2rem] flex items-center justify-center mx-auto mb-6 border border-white/30 relative group overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-tr from-white/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <Crown className="text-white relative z-10 drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]" size={42} />
+                </motion.div>
+                <h2 className="text-4xl font-black text-white tracking-[-0.08em] leading-none mb-3 italic">
+                  FREE <span className="text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.4)]">ACCESS</span>
+                </h2>
+                <motion.div 
+                  animate={{ opacity: [0.6, 1, 0.6], scale: [0.98, 1, 0.98] }}
+                  transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                  className="flex justify-center"
+                >
+                  <span className="px-5 py-1.5 bg-cyan-500/10 border border-cyan-500/30 rounded-full text-[10px] font-black text-cyan-400 uppercase tracking-[0.4em] flex items-center gap-2 shadow-inner">
+                    <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,211,238,1)]" />
+                    Ultra Experience
+                  </span>
+                </motion.div>
+              </motion.div>
+
+              <div className="grid grid-cols-2 gap-5 w-full relative z-10">
+                {[
+                  { 
+                    label: 'LIVE CRICKET', 
+                    title: 'PSL', 
+                    icon: <span className="text-lg font-black text-white italic">PSL</span>, 
+                    color: 'from-green-400 to-green-700', 
+                    bg: 'from-green-500/20 via-green-900/10',
+                    border: 'green-500/30',
+                    onClick: () => { setSelectedPslLanguage('urdu'); setShowPSLPlayer(true); setShowFreeAccessModal(false); }
+                  },
+                  { 
+                    label: 'LIVE IPL', 
+                    title: 'IPL', 
+                    icon: <img src="https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Indian_Premier_League_Official_Logo.svg/1200px-Indian_Premier_League_Official_Logo.svg.png" className="w-full h-full object-contain p-2" referrerPolicy="no-referrer" />, 
+                    color: 'from-blue-400 to-blue-700', 
+                    bg: 'from-blue-500/20 via-blue-900/10',
+                    border: 'blue-500/30',
+                    onClick: () => { setShowIPLPlayer(true); setShowFreeAccessModal(false); }
+                  },
+                  { 
+                    label: 'MOVIES', 
+                    title: 'CINEMA', 
+                    icon: <Film size={34} className="text-white" />, 
+                    color: 'from-cyan-400 to-blue-600', 
+                    bg: 'from-cyan-500/20 via-indigo-900/10',
+                    border: 'cyan-500/30',
+                    onClick: () => { setShowFreeMoviesModal(true); setShowFreeAccessModal(false); }
+                  },
+                  { 
+                    label: 'SERIES', 
+                    title: 'BINGE', 
+                    icon: <Tv size={34} className="text-white" />, 
+                    color: 'from-purple-400 to-indigo-600', 
+                    bg: 'from-purple-500/20 via-indigo-900/10',
+                    border: 'purple-500/30',
+                    onClick: () => { setShowFreeSeriesModal(true); setShowFreeAccessModal(false); }
+                  }
+                ].map((item, i) => (
+                  <motion.button
+                    key={i}
+                    variants={{
+                      hidden: { opacity: 0, y: 30, scale: 0.8 },
+                      visible: { opacity: 1, y: 0, scale: 1 }
+                    }}
+                    whileHover={{ y: -10, scale: 1.05, rotateZ: i % 2 === 0 ? 2 : -2 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={item.onClick}
+                    className={`col-span-1 group relative aspect-[4/5] bg-gradient-to-br ${item.bg} to-transparent border border-${item.border} rounded-[3rem] p-6 flex flex-col items-center justify-center transition-all duration-500 overflow-hidden shadow-2xl backdrop-blur-md`}
+                  >
+                    <div className="absolute inset-0 bg-white/[0.05] opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <div className="absolute -inset-full bg-gradient-to-br from-white/10 to-transparent opacity-0 group-hover:opacity-100 group-hover:animate-pulse -rotate-45 pointer-events-none" />
+                    
+                    <div className={`w-16 h-16 bg-gradient-to-br ${item.color} rounded-[1.8rem] flex items-center justify-center shadow-2xl mb-4 transform group-hover:scale-110 group-hover:rotate-6 transition-all duration-500 border border-white/20 relative`}>
+                      <div className="absolute inset-0 bg-white/30 rounded-[1.8rem] blur-md opacity-0 group-hover:opacity-50 transition-opacity" />
+                      {item.icon}
+                    </div>
+                    <div className="text-center relative z-10">
+                      <p className="text-[9px] text-white/40 font-black uppercase tracking-[0.25em] mb-1.5">{item.label}</p>
+                      <h4 className="text-white font-black text-sm italic tracking-tighter truncate leading-none uppercase">{item.title}</h4>
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+
+              <motion.div 
+                variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }}
+                className="relative z-10 w-full mb-2"
+              >
+                <p className="text-[10px] text-white/20 text-center font-bold tracking-[0.2em] px-8 leading-relaxed italic uppercase">
+                  Proprietary Delivery • Ultra-Stream Engine
+                </p>
+              </motion.div>
             </motion.div>
           </div>
         )}
@@ -1812,9 +1969,9 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
-                    {freeMovies.map((movie) => (
+                    {freeMovies.map((movie, idx) => (
                       <motion.div 
-                        key={movie.id}
+                        key={`${movie.id}-${idx}`}
                         whileHover={{ scale: 1.05, y: -5 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={() => setSelectedFreeMovie(movie)}
@@ -2022,13 +2179,6 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button 
-                    onClick={() => isAdminLoggedIn ? setIsAdminLoggedIn(false) : setShowAdminLogin(true)}
-                    className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/20 hover:text-white/60"
-                    title="Admin Settings"
-                  >
-                    <User size={16} />
-                  </button>
-                  <button 
                     onClick={() => setShowPSLPlayer(false)}
                     className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
                   >
@@ -2036,188 +2186,6 @@ export default function App() {
                   </button>
                 </div>
               </div>
-
-              {isAdminLoggedIn && (
-                <div className="p-4 bg-cyan-500/10 border-b border-cyan-500/20 flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest">Admin Panel: Manage {activeAdminTab.toUpperCase()}</span>
-                      <span className="text-[9px] text-white/40">Logged in as: {currentUser?.email}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex bg-black/40 p-1 rounded-lg border border-white/10">
-                        <button 
-                          onClick={() => setActiveAdminTab('psl')}
-                          className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${activeAdminTab === 'psl' ? 'bg-cyan-500 text-black' : 'text-white/60 hover:text-white'}`}
-                        >
-                          PSL
-                        </button>
-                        <button 
-                          onClick={() => setActiveAdminTab('ipl')}
-                          className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${activeAdminTab === 'ipl' ? 'bg-cyan-500 text-black' : 'text-white/60 hover:text-white'}`}
-                        >
-                          IPL
-                        </button>
-                        <button 
-                          onClick={() => setActiveAdminTab('free_movies')}
-                          className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${activeAdminTab === 'free_movies' ? 'bg-cyan-500 text-black' : 'text-white/60 hover:text-white'}`}
-                        >
-                          Movies
-                        </button>
-                      </div>
-                      <button 
-                        onClick={async () => {
-                          await auth.signOut();
-                          setIsAdminLoggedIn(false);
-                        }}
-                        className="text-[10px] text-white/40 hover:text-white underline"
-                      >
-                        Logout
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    {activeAdminTab === 'psl' && (
-                      <>
-                        <div className="flex gap-2">
-                          <input 
-                            type="text" 
-                            value={newPslUrlUrdu}
-                            onChange={(e) => setNewPslUrlUrdu(e.target.value)}
-                            placeholder="Enter new PSL Urdu .m3u8 URL"
-                            className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                        </div>
-                        <div className="flex gap-2">
-                          <input 
-                            type="text" 
-                            value={newPslUrlEnglish}
-                            onChange={(e) => setNewPslUrlEnglish(e.target.value)}
-                            placeholder="Enter new PSL English .m3u8 URL"
-                            className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                        </div>
-                      </>
-                    )}
-                    
-                    {activeAdminTab === 'ipl' && (
-                      <input 
-                        type="text" 
-                        value={newIplUrl}
-                        onChange={(e) => setNewIplUrl(e.target.value)}
-                        placeholder="Enter new IPL .m3u8 URL"
-                        className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                      />
-                    )}
-
-                    {activeAdminTab === 'free_movies' && (
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <input 
-                            type="text" 
-                            value={newFreeMovie.name}
-                            onChange={(e) => setNewFreeMovie({...newFreeMovie, name: e.target.value})}
-                            placeholder="Movie Name"
-                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                          <input 
-                            type="text" 
-                            value={newFreeMovie.poster_url}
-                            onChange={(e) => setNewFreeMovie({...newFreeMovie, poster_url: e.target.value})}
-                            placeholder="Poster URL"
-                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <input 
-                            type="text" 
-                            value={newFreeMovie.play_url}
-                            onChange={(e) => setNewFreeMovie({...newFreeMovie, play_url: e.target.value})}
-                            placeholder="Play URL (m3u8/mp4/Embed)"
-                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                          <div className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-lg px-3 py-2">
-                            <input 
-                              type="checkbox" 
-                              id="is_embed_psl"
-                              checked={newFreeMovie.is_embed}
-                              onChange={(e) => setNewFreeMovie({...newFreeMovie, is_embed: e.target.checked})}
-                              className="w-4 h-4 accent-cyan-500"
-                            />
-                            <label htmlFor="is_embed_psl" className="text-[10px] text-white/60 font-bold uppercase">Is Embed URL?</label>
-                          </div>
-                        </div>
-                        <input 
-                          type="text" 
-                          value={newFreeMovie.download_url}
-                          onChange={(e) => setNewFreeMovie({...newFreeMovie, download_url: e.target.value})}
-                          placeholder="Download URL (Optional)"
-                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                        />
-                        <div className="flex gap-2">
-                          <button 
-                            onClick={handleAddFreeMovie}
-                            className={`flex-1 ${editingMovieId ? 'bg-yellow-500 hover:bg-yellow-400' : 'bg-cyan-500 hover:bg-cyan-400'} text-black py-2 rounded-lg text-xs font-bold transition-colors`}
-                          >
-                            {editingMovieId ? 'Update Movie' : 'Add Free Movie'}
-                          </button>
-                          {editingMovieId && (
-                            <button 
-                              onClick={() => {
-                                setEditingMovieId(null);
-                                setNewFreeMovie({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
-                              }}
-                              className="px-4 bg-white/10 hover:bg-white/20 text-white py-2 rounded-lg text-xs font-bold transition-colors"
-                            >
-                              Cancel
-                            </button>
-                          )}
-                        </div>
-                        
-                        <div className="mt-4 space-y-2 max-h-40 overflow-y-auto pr-2">
-                          {freeMovies.map(movie => (
-                            <div key={movie.id} className="flex items-center justify-between bg-white/5 p-2 rounded-lg border border-white/5">
-                              <span className="text-[10px] text-white font-medium truncate max-w-[120px]">{movie.name}</span>
-                              <div className="flex items-center gap-1">
-                                <button 
-                                  onClick={() => {
-                                    setEditingMovieId(movie.id);
-                                    setNewFreeMovie({
-                                      name: movie.name,
-                                      poster_url: movie.poster_url,
-                                      play_url: movie.play_url,
-                                      download_url: movie.download_url || '',
-                                      is_embed: movie.is_embed || false
-                                    });
-                                  }}
-                                  className="text-cyan-500 hover:text-cyan-400 p-1"
-                                >
-                                  <Pencil size={12} />
-                                </button>
-                                <button 
-                                  onClick={() => handleDeleteFreeMovie(movie.id)}
-                                  className="text-red-500 hover:text-red-400 p-1"
-                                >
-                                  <X size={14} />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {activeAdminTab !== 'free_movies' && (
-                      <button 
-                        onClick={handleUpdateUrl}
-                        className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-2 rounded-lg text-xs font-bold transition-colors"
-                      >
-                        Update Globally
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
 
               <div className="relative w-full aspect-video bg-black overflow-hidden min-h-[220px] md:min-h-[400px]">
                 {pslOptions.sources[0].src ? (
@@ -2321,16 +2289,6 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button 
-                    onClick={() => {
-                      setActiveAdminTab('ipl');
-                      isAdminLoggedIn ? setIsAdminLoggedIn(false) : setShowAdminLogin(true);
-                    }}
-                    className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/20 hover:text-white/60"
-                    title="Admin Settings"
-                  >
-                    <User size={16} />
-                  </button>
-                  <button 
                     onClick={() => setShowIPLPlayer(false)}
                     className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
                   >
@@ -2338,188 +2296,6 @@ export default function App() {
                   </button>
                 </div>
               </div>
-
-              {isAdminLoggedIn && (
-                <div className="p-4 bg-cyan-500/10 border-b border-cyan-500/20 flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest">Admin Panel: Manage {activeAdminTab.toUpperCase()}</span>
-                      <span className="text-[9px] text-white/40">Logged in as: {currentUser?.email}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex bg-black/40 p-1 rounded-lg border border-white/10">
-                        <button 
-                          onClick={() => setActiveAdminTab('psl')}
-                          className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${activeAdminTab === 'psl' ? 'bg-cyan-500 text-black' : 'text-white/60 hover:text-white'}`}
-                        >
-                          PSL
-                        </button>
-                        <button 
-                          onClick={() => setActiveAdminTab('ipl')}
-                          className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${activeAdminTab === 'ipl' ? 'bg-cyan-500 text-black' : 'text-white/60 hover:text-white'}`}
-                        >
-                          IPL
-                        </button>
-                        <button 
-                          onClick={() => setActiveAdminTab('free_movies')}
-                          className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${activeAdminTab === 'free_movies' ? 'bg-cyan-500 text-black' : 'text-white/60 hover:text-white'}`}
-                        >
-                          Movies
-                        </button>
-                      </div>
-                      <button 
-                        onClick={async () => {
-                          await auth.signOut();
-                          setIsAdminLoggedIn(false);
-                        }}
-                        className="text-[10px] text-white/40 hover:text-white underline"
-                      >
-                        Logout
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    {activeAdminTab === 'psl' && (
-                      <>
-                        <div className="flex gap-2">
-                          <input 
-                            type="text" 
-                            value={newPslUrlUrdu}
-                            onChange={(e) => setNewPslUrlUrdu(e.target.value)}
-                            placeholder="Enter new PSL Urdu .m3u8 URL"
-                            className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                        </div>
-                        <div className="flex gap-2">
-                          <input 
-                            type="text" 
-                            value={newPslUrlEnglish}
-                            onChange={(e) => setNewPslUrlEnglish(e.target.value)}
-                            placeholder="Enter new PSL English .m3u8 URL"
-                            className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                        </div>
-                      </>
-                    )}
-                    
-                    {activeAdminTab === 'ipl' && (
-                      <input 
-                        type="text" 
-                        value={newIplUrl}
-                        onChange={(e) => setNewIplUrl(e.target.value)}
-                        placeholder="Enter new IPL .m3u8 URL"
-                        className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                      />
-                    )}
-
-                    {activeAdminTab === 'free_movies' && (
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <input 
-                            type="text" 
-                            value={newFreeMovie.name}
-                            onChange={(e) => setNewFreeMovie({...newFreeMovie, name: e.target.value})}
-                            placeholder="Movie Name"
-                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                          <input 
-                            type="text" 
-                            value={newFreeMovie.poster_url}
-                            onChange={(e) => setNewFreeMovie({...newFreeMovie, poster_url: e.target.value})}
-                            placeholder="Poster URL"
-                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <input 
-                            type="text" 
-                            value={newFreeMovie.play_url}
-                            onChange={(e) => setNewFreeMovie({...newFreeMovie, play_url: e.target.value})}
-                            placeholder="Play URL (m3u8/mp4/Embed)"
-                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                          <div className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-lg px-3 py-2">
-                            <input 
-                              type="checkbox" 
-                              id="is_embed_ipl"
-                              checked={newFreeMovie.is_embed}
-                              onChange={(e) => setNewFreeMovie({...newFreeMovie, is_embed: e.target.checked})}
-                              className="w-4 h-4 accent-cyan-500"
-                            />
-                            <label htmlFor="is_embed_ipl" className="text-[10px] text-white/60 font-bold uppercase">Is Embed URL?</label>
-                          </div>
-                        </div>
-                        <input 
-                          type="text" 
-                          value={newFreeMovie.download_url}
-                          onChange={(e) => setNewFreeMovie({...newFreeMovie, download_url: e.target.value})}
-                          placeholder="Download URL (Optional)"
-                          className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                        />
-                        <div className="flex gap-2">
-                          <button 
-                            onClick={handleAddFreeMovie}
-                            className={`flex-1 ${editingMovieId ? 'bg-yellow-500 hover:bg-yellow-400' : 'bg-cyan-500 hover:bg-cyan-400'} text-black py-2 rounded-lg text-xs font-bold transition-colors`}
-                          >
-                            {editingMovieId ? 'Update Movie' : 'Add Free Movie'}
-                          </button>
-                          {editingMovieId && (
-                            <button 
-                              onClick={() => {
-                                setEditingMovieId(null);
-                                setNewFreeMovie({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
-                              }}
-                              className="px-4 bg-white/10 hover:bg-white/20 text-white py-2 rounded-lg text-xs font-bold transition-colors"
-                            >
-                              Cancel
-                            </button>
-                          )}
-                        </div>
-                        
-                        <div className="mt-4 space-y-2 max-h-40 overflow-y-auto pr-2">
-                          {freeMovies.map(movie => (
-                            <div key={movie.id} className="flex items-center justify-between bg-white/5 p-2 rounded-lg border border-white/5">
-                              <span className="text-[10px] text-white font-medium truncate max-w-[120px]">{movie.name}</span>
-                              <div className="flex items-center gap-1">
-                                <button 
-                                  onClick={() => {
-                                    setEditingMovieId(movie.id);
-                                    setNewFreeMovie({
-                                      name: movie.name,
-                                      poster_url: movie.poster_url,
-                                      play_url: movie.play_url,
-                                      download_url: movie.download_url || '',
-                                      is_embed: movie.is_embed || false
-                                    });
-                                  }}
-                                  className="text-cyan-500 hover:text-cyan-400 p-1"
-                                >
-                                  <Pencil size={12} />
-                                </button>
-                                <button 
-                                  onClick={() => handleDeleteFreeMovie(movie.id)}
-                                  className="text-red-500 hover:text-red-400 p-1"
-                                >
-                                  <X size={14} />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {activeAdminTab !== 'free_movies' && (
-                      <button 
-                        onClick={handleUpdateUrl}
-                        className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-2 rounded-lg text-xs font-bold transition-colors"
-                      >
-                        Update Globally
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
 
               <div className="relative w-full aspect-video bg-black overflow-hidden min-h-[220px] md:min-h-[400px]">
                 {iplOptions.sources[0].src ? (
@@ -2593,6 +2369,490 @@ export default function App() {
                   Login
                 </button>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Free Series Modal */}
+      <AnimatePresence>
+        {showFreeSeriesModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 gpu">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowFreeSeriesModal(false)}
+              className="absolute inset-0 bg-black/95 backdrop-blur-md gpu"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-5xl glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 flex flex-col max-h-[90vh] gpu"
+            >
+              <div className="p-6 flex items-center justify-between border-b border-white/10 bg-white/5">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl flex items-center justify-center border border-purple-400/50 shadow-lg">
+                    <Tv size={24} className="text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-display font-black text-white italic tracking-tight uppercase">Free Web Series</h3>
+                    <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold">Premium Binge Collection</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowFreeSeriesModal(false)}
+                  className="p-3 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
+                >
+                  <X size={28} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 no-scrollbar">
+                {isSeriesLoading ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <Loader2 className="animate-spin text-purple-500 mb-4" size={40} />
+                    <p className="text-white/40 text-sm font-bold uppercase tracking-widest">Loading Series...</p>
+                  </div>
+                ) : freeSeries.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-4 border border-white/10">
+                      <Tv size={40} className="text-white/20" />
+                    </div>
+                    <h4 className="text-white font-bold text-lg">No Series Added Yet</h4>
+                    <p className="text-white/40 text-sm max-w-xs mx-auto">Check back later for newly added free web series.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
+                    {freeSeries.map((series, idx) => (
+                      <motion.div 
+                        key={`${series.id}-${idx}`}
+                        whileHover={{ scale: 1.05, y: -5 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setSelectedFreeSeries(series)}
+                        className="group cursor-pointer space-y-3"
+                      >
+                        <div className="relative aspect-[2/3] rounded-2xl overflow-hidden shadow-2xl border border-white/10 group-hover:border-purple-500/50 transition-all duration-300">
+                          <img 
+                            src={series.poster_url} 
+                            alt={series.name}
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/series/400/600?blur=1'; }}
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-100 transition-all duration-300 flex flex-col justify-end p-4">
+                            <div className="flex flex-col gap-2 transform translate-y-0 transition-transform duration-300">
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedFreeSeries(series);
+                                }}
+                                className="w-full bg-purple-500 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-purple-500/20"
+                              >
+                                <Play size={12} fill="currentColor" /> Watch Now
+                              </button>
+                              {series.download_url && (
+                                <a 
+                                  href={series.download_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-full bg-white/10 hover:bg-white/20 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 border border-white/10 backdrop-blur-sm"
+                                >
+                                  <Download size={12} /> Download
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <h4 className="text-xs md:text-sm font-bold text-white line-clamp-1 group-hover:text-purple-400 transition-colors px-1">{series.name}</h4>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 bg-purple-500/5 border-t border-purple-500/10 flex flex-col items-center gap-3">
+                <a 
+                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest"
+                >
+                  <MessageCircle size={20} fill="white" />
+                  Request Web Series
+                </a>
+                <p className="text-[10px] text-white/20 uppercase tracking-[0.3em] font-bold italic">Powered by 4K•SJ Premium Engine</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Free Series Player Modal */}
+      <AnimatePresence>
+        {selectedFreeSeries && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 gpu">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedFreeSeries(null)}
+              className="absolute inset-0 bg-black/98 backdrop-blur-2xl gpu"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-5xl glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 flex flex-col max-h-[95vh] gpu"
+            >
+              <div className="p-4 flex items-center justify-between border-b border-white/10 bg-white/5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center border border-purple-500 shadow-lg group">
+                    <Tv size={20} className="text-white group-hover:rotate-12 transition-transform" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-display font-bold text-white italic tracking-tight uppercase line-clamp-1">{selectedFreeSeries.name}</h3>
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
+                      <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Streaming Quality 4K</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={() => setSelectedFreeSeries(null)}
+                    className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
+                  >
+                    <X size={28} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="relative w-full aspect-video bg-black overflow-hidden flex-1 group">
+                {selectedFreeSeries.is_embed ? (
+                  <iframe
+                    src={selectedFreeSeries.play_url}
+                    className="w-full h-full border-0"
+                    allowFullScreen
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <VideoPlayer 
+                    key={selectedFreeSeries.play_url}
+                    options={{
+                      autoplay: true,
+                      controls: true,
+                      responsive: true,
+                      fluid: true,
+                      poster: selectedFreeSeries.poster_url,
+                      is_embed: selectedFreeSeries.is_embed,
+                      sources: [{
+                        src: selectedFreeSeries.play_url,
+                        type: selectedFreeSeries.play_url.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'
+                      }]
+                    }} 
+                  />
+                )}
+              </div>
+
+              <div className="p-6 bg-black/40 border-t border-white/10 flex flex-wrap items-center justify-between gap-6">
+                <div className="flex flex-wrap items-center gap-4">
+                  <button 
+                    onClick={() => {
+                      const shareText = `Watching ${selectedFreeSeries.name} for FREE on 4K•SJ! Check it out: ${window.location.origin}`;
+                      navigator.share?.({ title: '4K•SJ Free Access', text: shareText, url: window.location.origin })
+                        .catch(() => {
+                           navigator.clipboard.writeText(shareText);
+                           alert("Share link copied to clipboard!");
+                        });
+                    }}
+                    className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-6 py-2.5 rounded-xl font-bold text-xs transition-all border border-white/10"
+                  >
+                    <Share2 size={16} /> Share Now
+                  </button>
+                  {selectedFreeSeries.download_url && (
+                    <a 
+                      href={selectedFreeSeries.download_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 bg-white/5 hover:bg-white/10 text-white px-6 py-2.5 rounded-xl font-bold text-xs transition-all border border-white/10"
+                    >
+                      <Download size={16} /> Download Series
+                    </a>
+                  )}
+                  <a 
+                    href={formatVlcUrl(selectedFreeSeries.download_url || selectedFreeSeries.play_url)}
+                    className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-6 py-2.5 rounded-xl font-bold text-xs transition-all shadow-lg shadow-orange-500/20"
+                  >
+                    <Play size={16} /> Play in VLC
+                  </a>
+                </div>
+
+                <div className="flex flex-col items-center gap-1">
+                  <p className="text-sm text-purple-400 font-bold uppercase tracking-[0.2em] text-center italic">
+                    Watching {selectedFreeSeries.name} with 4K•SJ Free Access
+                  </p>
+                  <p className="text-[10px] text-white/40 uppercase tracking-widest">High Quality Stream Enabled</p>
+                </div>
+                
+                <a 
+                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest"
+                >
+                  <MessageCircle size={20} fill="white" />
+                  Join WhatsApp Group
+                </a>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Standalone Admin Panel Modal */}
+      <AnimatePresence>
+        {isAdminLoggedIn && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 gpu">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAdminLoggedIn(false)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-xl gpu"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 30 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-2xl bg-[#0a0a0b] rounded-[3rem] overflow-hidden shadow-[0_0_80px_rgba(34,211,238,0.2)] border border-white/10 flex flex-col gpu"
+            >
+              <div className="p-6 flex items-center justify-between border-b border-white/5 bg-white/5">
+                <div className="flex flex-col">
+                  <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Admin Control Center</h3>
+                  <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest">Logged in: {currentUser?.email}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={async () => {
+                      await auth.signOut();
+                      setIsAdminLoggedIn(false);
+                    }}
+                    className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-red-500/20"
+                  >
+                    Log Out
+                  </button>
+                  <button 
+                    onClick={() => setIsAdminLoggedIn(false)}
+                    className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
+                  >
+                    <X size={24} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-6 bg-black/40 border-b border-white/5">
+                <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 overflow-x-auto no-scrollbar">
+                  {(['psl', 'ipl', 'free_movies', 'free_series'] as const).map((tab) => (
+                    <button 
+                      key={tab}
+                      onClick={() => setActiveAdminTab(tab)}
+                      className={`min-w-[80px] flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                        activeAdminTab === tab 
+                          ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20' 
+                          : 'text-white/40 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      {tab.replace('free_', '').toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-6 flex-1 overflow-y-auto no-scrollbar max-h-[60vh]">
+                <div className="flex flex-col gap-6">
+                  {activeAdminTab === 'psl' && (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">PSL Urdu Stream URL</label>
+                        <input 
+                          type="text" 
+                          value={newPslUrlUrdu}
+                          onChange={(e) => setNewPslUrlUrdu(e.target.value)}
+                          placeholder="Enter .m3u8 URL"
+                          className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">PSL English Stream URL</label>
+                        <input 
+                          type="text" 
+                          value={newPslUrlEnglish}
+                          onChange={(e) => setNewPslUrlEnglish(e.target.value)}
+                          placeholder="Enter .m3u8 URL"
+                          className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  
+                  {activeAdminTab === 'ipl' && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">IPL Stream URL</label>
+                      <input 
+                        type="text" 
+                        value={newIplUrl}
+                        onChange={(e) => setNewIplUrl(e.target.value)}
+                        placeholder="Enter .m3u8 URL"
+                        className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                      />
+                    </div>
+                  )}
+
+                  {(activeAdminTab === 'free_movies' || activeAdminTab === 'free_series') && (
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Title</label>
+                          <input 
+                            type="text" 
+                            value={activeAdminTab === 'free_movies' ? newFreeMovie.name : newFreeSeries.name}
+                            onChange={(e) => activeAdminTab === 'free_movies' 
+                              ? setNewFreeMovie({...newFreeMovie, name: e.target.value}) 
+                              : setNewFreeSeries({...newFreeSeries, name: e.target.value})
+                            }
+                            placeholder="Display Name"
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Poster URL</label>
+                          <input 
+                            type="text" 
+                            value={activeAdminTab === 'free_movies' ? newFreeMovie.poster_url : newFreeSeries.poster_url}
+                            onChange={(e) => activeAdminTab === 'free_movies' 
+                              ? setNewFreeMovie({...newFreeMovie, poster_url: e.target.value}) 
+                              : setNewFreeSeries({...newFreeSeries, poster_url: e.target.value})
+                            }
+                            placeholder="Image URL"
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Streaming Link</label>
+                        <input 
+                          type="text" 
+                          value={activeAdminTab === 'free_movies' ? newFreeMovie.play_url : newFreeSeries.play_url}
+                          onChange={(e) => activeAdminTab === 'free_movies' 
+                            ? setNewFreeMovie({...newFreeMovie, play_url: e.target.value}) 
+                            : setNewFreeSeries({...newFreeSeries, play_url: e.target.value})
+                          }
+                          placeholder="Source Link"
+                          className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-4">
+                        <div className="flex-1 space-y-2">
+                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Download Link (Optional)</label>
+                          <input 
+                            type="text" 
+                            value={activeAdminTab === 'free_movies' ? newFreeMovie.download_url : newFreeSeries.download_url}
+                            onChange={(e) => activeAdminTab === 'free_movies' 
+                              ? setNewFreeMovie({...newFreeMovie, download_url: e.target.value}) 
+                              : setNewFreeSeries({...newFreeSeries, download_url: e.target.value})
+                            }
+                            placeholder="Optional File Link"
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-2 pt-6">
+                           <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3">
+                            <input 
+                              type="checkbox" 
+                              id="is_embed_admin"
+                              checked={activeAdminTab === 'free_movies' ? newFreeMovie.is_embed : newFreeSeries.is_embed}
+                              onChange={(e) => activeAdminTab === 'free_movies' 
+                                ? setNewFreeMovie({...newFreeMovie, is_embed: e.target.checked}) 
+                                : setNewFreeSeries({...newFreeSeries, is_embed: e.target.checked})
+                              }
+                              className="w-4 h-4 accent-cyan-500"
+                            />
+                            <label htmlFor="is_embed_admin" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer">Embed Mode</label>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button 
+                        onClick={activeAdminTab === 'free_movies' ? handleAddFreeMovie : handleAddFreeSeries}
+                        className={`w-full py-4 rounded-2xl text-xs font-black uppercase tracking-[0.2em] transition-all shadow-xl ${
+                          (activeAdminTab === 'free_movies' ? editingMovieId : editingSeriesId)
+                            ? 'bg-yellow-500 text-black shadow-yellow-500/20' 
+                            : 'bg-cyan-500 text-black shadow-cyan-500/20'
+                        }`}
+                      >
+                        {(activeAdminTab === 'free_movies' ? editingMovieId : editingSeriesId) ? 'Update Entry' : 'Publish to Hub'}
+                      </button>
+
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Recent Management</label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {(activeAdminTab === 'free_movies' ? freeMovies : freeSeries).map((item, idx) => (
+                            <div key={`admin-v2-${item.id}-${idx}`} className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10 group">
+                              <div className="flex flex-col gap-0.5 max-w-[140px]">
+                                <span className="text-[11px] text-white font-bold truncate">{item.name}</span>
+                                <span className="text-[8px] text-white/30 uppercase tracking-widest font-black">Online Now</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button 
+                                  onClick={() => {
+                                    if (activeAdminTab === 'free_movies') {
+                                      setEditingMovieId(item.id);
+                                      setNewFreeMovie({ ...item });
+                                    } else {
+                                      setEditingSeriesId(item.id);
+                                      setNewFreeSeries({ ...item });
+                                    }
+                                  }}
+                                  className="w-8 h-8 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 flex items-center justify-center transition-all"
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                                <button 
+                                  onClick={() => activeAdminTab === 'free_movies' ? handleDeleteFreeMovie(item.id) : handleDeleteFreeSeries(item.id)}
+                                  className="w-8 h-8 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-400 flex items-center justify-center transition-all"
+                                >
+                                  <X size={16} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeAdminTab !== 'free_movies' && activeAdminTab !== 'free_series' && (
+                    <button 
+                      onClick={handleUpdateUrl}
+                      className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-black py-4 rounded-2xl text-xs font-black uppercase tracking-[0.3em] transition-all shadow-xl shadow-cyan-500/20"
+                    >
+                      Update Hub Status
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-4 bg-white/5 text-center">
+                 <p className="text-[9px] text-white/20 uppercase tracking-[0.3em] font-bold italic">Admin Surface v2.0 • Secure Session Exclusive</p>
+              </div>
             </motion.div>
           </div>
         )}
