@@ -160,15 +160,23 @@ export default function App() {
   const [editingSeriesId, setEditingSeriesId] = useState<string | null>(null);
   const [newFreeMovie, setNewFreeMovie] = useState({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
   const [newFreeSeries, setNewFreeSeries] = useState({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
-  const [selectedPslLanguage, setSelectedPslLanguage] = useState<'urdu' | 'english' | null>(null);
+  const [selectedPslLanguage, setSelectedPslLanguage] = useState<'urdu' | 'english' | 'custom' | null>(null);
   const [pslUrlUrdu, setPslUrlUrdu] = useState('');
   const [pslUrlEnglish, setPslUrlEnglish] = useState('');
+  const [pslChannel3Name, setPslChannel3Name] = useState('Channel 3');
+  const [pslChannel3Url, setPslChannel3Url] = useState('');
+  const [pslChannel3IsEmbed, setPslChannel3IsEmbed] = useState(false);
+  const [pslChannel3ShowLiveIcon, setPslChannel3ShowLiveIcon] = useState(true);
   const [iplUrl, setIplUrl] = useState('');
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [adminPassword, setAdminPassword] = useState('');
   const [newPslUrlUrdu, setNewPslUrlUrdu] = useState(pslUrlUrdu);
   const [newPslUrlEnglish, setNewPslUrlEnglish] = useState(pslUrlEnglish);
+  const [newPslChannel3Name, setNewPslChannel3Name] = useState(pslChannel3Name);
+  const [newPslChannel3Url, setNewPslChannel3Url] = useState(pslChannel3Url);
+  const [newPslChannel3IsEmbed, setNewPslChannel3IsEmbed] = useState(pslChannel3IsEmbed);
+  const [newPslChannel3ShowLiveIcon, setNewPslChannel3ShowLiveIcon] = useState(pslChannel3ShowLiveIcon);
   const [newIplUrl, setNewIplUrl] = useState(iplUrl);
   const [activeAdminTab, setActiveAdminTab] = useState<'psl' | 'ipl' | 'free_movies' | 'free_series'>('psl');
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -217,6 +225,20 @@ export default function App() {
         if (data.psl_live_url_english) {
           setPslUrlEnglish(data.psl_live_url_english);
           setNewPslUrlEnglish(data.psl_live_url_english);
+        }
+        if (data.psl_channel3_name) {
+          setPslChannel3Name(data.psl_channel3_name);
+          setNewPslChannel3Name(data.psl_channel3_name);
+        }
+        if (data.psl_channel3_url) {
+          setPslChannel3Url(data.psl_channel3_url);
+          setNewPslChannel3Url(data.psl_channel3_url);
+        }
+        setPslChannel3IsEmbed(!!data.psl_channel3_is_embed);
+        setNewPslChannel3IsEmbed(!!data.psl_channel3_is_embed);
+        if (data.psl_channel3_show_live_icon !== undefined) {
+          setPslChannel3ShowLiveIcon(data.psl_channel3_show_live_icon);
+          setNewPslChannel3ShowLiveIcon(data.psl_channel3_show_live_icon);
         }
       }
     }, (error) => {
@@ -294,7 +316,18 @@ export default function App() {
   }, []);
 
   const pslOptions = useMemo(() => {
-    const url = selectedPslLanguage === 'urdu' ? pslUrlUrdu : pslUrlEnglish;
+    let url = '';
+    let isEmbed = false;
+
+    if (selectedPslLanguage === 'urdu') {
+      url = pslUrlUrdu;
+    } else if (selectedPslLanguage === 'english') {
+      url = pslUrlEnglish;
+    } else if (selectedPslLanguage === 'custom') {
+      url = pslChannel3Url;
+      isEmbed = pslChannel3IsEmbed;
+    }
+
     const isMp4 = url.toLowerCase().includes('.mp4');
     const isHls = url.toLowerCase().includes('.m3u8');
     
@@ -305,12 +338,13 @@ export default function App() {
       fluid: false,
       fill: true,
       preload: 'auto',
+      is_embed: isEmbed,
       sources: [{
         src: url,
         type: isHls ? 'application/x-mpegURL' : (isMp4 ? 'video/mp4' : 'video/mp4')
       }]
     };
-  }, [pslUrlUrdu, pslUrlEnglish, selectedPslLanguage]);
+  }, [pslUrlUrdu, pslUrlEnglish, pslChannel3Url, pslChannel3IsEmbed, selectedPslLanguage]);
 
   const iplOptions = useMemo(() => {
     const isMp4 = iplUrl.toLowerCase().includes('.mp4');
@@ -376,6 +410,10 @@ export default function App() {
         ? { 
             psl_live_url_urdu: newPslUrlUrdu, 
             psl_live_url_english: newPslUrlEnglish, 
+            psl_channel3_name: newPslChannel3Name,
+            psl_channel3_url: newPslChannel3Url,
+            psl_channel3_is_embed: newPslChannel3IsEmbed,
+            psl_channel3_show_live_icon: newPslChannel3ShowLiveIcon,
             updatedAt: new Date().toISOString() 
           }
         : { ipl_live_url: newIplUrl, updatedAt: new Date().toISOString() };
@@ -2198,34 +2236,34 @@ export default function App() {
                 )}
                 
                 {/* Language Switcher Overlay */}
-                <div className="absolute top-4 right-4 z-10 flex items-center gap-1 p-1 bg-black/60 backdrop-blur-md border border-white/10 rounded-full">
-                  <button 
-                    onClick={() => setSelectedPslLanguage('urdu')}
-                    className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
-                      selectedPslLanguage === 'urdu' 
-                        ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20' 
-                        : 'text-white/60 hover:text-white hover:bg-white/10'
-                    }`}
-                  >
-                    Urdu
-                  </button>
-                  <button 
-                    onClick={() => setSelectedPslLanguage('english')}
-                    className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
-                      selectedPslLanguage === 'english' 
-                        ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20' 
-                        : 'text-white/60 hover:text-white hover:bg-white/10'
-                    }`}
-                  >
-                    English
-                  </button>
+                <div className="absolute top-4 right-4 z-10 flex items-center gap-1 p-1 bg-black/40 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl">
+                  {[
+                    { id: 'urdu', label: 'Urdu', color: 'bg-yellow-500' },
+                    { id: 'english', label: 'English', color: 'bg-cyan-500' },
+                    ...(pslChannel3Url ? [{ id: 'custom' as const, label: pslChannel3Name, color: 'bg-purple-500' }] : [])
+                  ].map((lang) => (
+                    <button 
+                      key={lang.id}
+                      onClick={() => setSelectedPslLanguage(lang.id as any)}
+                      className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-[0.15em] transition-all duration-300 ${
+                        selectedPslLanguage === lang.id 
+                          ? `${lang.color} text-black font-black` 
+                          : 'text-white/40 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      {lang.label}
+                    </button>
+                  ))}
                 </div>
                 
                 {/* Live Indicator Overlay */}
-                <div className="absolute top-4 left-4 z-10 flex items-center gap-2 px-3 py-1.5 bg-red-600 rounded-full shadow-lg shadow-red-600/20">
-                  <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
-                  <span className="text-[10px] font-black text-white uppercase tracking-widest">Live</span>
-                </div>
+                {((selectedPslLanguage === 'urdu' || selectedPslLanguage === 'english') || 
+                  (selectedPslLanguage === 'custom' && pslChannel3ShowLiveIcon)) && (
+                  <div className="absolute top-4 left-4 z-10 flex items-center gap-2 px-3 py-1.5 bg-red-600 rounded-full shadow-lg shadow-red-600/20">
+                    <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+                    <span className="text-[10px] font-black text-white uppercase tracking-widest">Live</span>
+                  </div>
+                )}
               </div>
               
               <div className="p-6 bg-yellow-500/10 border-t border-yellow-500/20 flex flex-col items-center justify-center gap-4">
@@ -2678,25 +2716,78 @@ export default function App() {
                 <div className="flex flex-col gap-6">
                   {activeAdminTab === 'psl' && (
                     <div className="space-y-4">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">PSL Urdu Stream URL</label>
-                        <input 
-                          type="text" 
-                          value={newPslUrlUrdu}
-                          onChange={(e) => setNewPslUrlUrdu(e.target.value)}
-                          placeholder="Enter .m3u8 URL"
-                          className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                        />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">PSL Urdu Stream URL</label>
+                          <input 
+                            type="text" 
+                            value={newPslUrlUrdu}
+                            onChange={(e) => setNewPslUrlUrdu(e.target.value)}
+                            placeholder="Enter .m3u8 URL"
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">PSL English Stream URL</label>
+                          <input 
+                            type="text" 
+                            value={newPslUrlEnglish}
+                            onChange={(e) => setNewPslUrlEnglish(e.target.value)}
+                            placeholder="Enter .m3u8 URL"
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">PSL English Stream URL</label>
-                        <input 
-                          type="text" 
-                          value={newPslUrlEnglish}
-                          onChange={(e) => setNewPslUrlEnglish(e.target.value)}
-                          placeholder="Enter .m3u8 URL"
-                          className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                        />
+
+                      <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-3xl space-y-4">
+                        <div className="flex items-center justify-between px-1">
+                          <h4 className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Custom Channel 3</h4>
+                          <span className="text-[8px] text-white/20 uppercase font-bold tracking-widest italic font-mono">Premium Expansion</span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Channel Name</label>
+                            <input 
+                              type="text" 
+                              value={newPslChannel3Name}
+                              onChange={(e) => setNewPslChannel3Name(e.target.value)}
+                              placeholder="e.g. Hindi, PTV Sports, etc."
+                              className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-purple-500/50"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Stream URL</label>
+                            <input 
+                              type="text" 
+                              value={newPslChannel3Url}
+                              onChange={(e) => setNewPslChannel3Url(e.target.value)}
+                              placeholder="URL or Embed Code"
+                              className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-purple-500/50"
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3">
+                            <input 
+                              type="checkbox" 
+                              id="psl_3_embed"
+                              checked={newPslChannel3IsEmbed}
+                              onChange={(e) => setNewPslChannel3IsEmbed(e.target.checked)}
+                              className="w-4 h-4 accent-purple-500"
+                            />
+                            <label htmlFor="psl_3_embed" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer">Embed Mode</label>
+                          </div>
+                          <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3">
+                            <input 
+                              type="checkbox" 
+                              id="psl_3_live_icon"
+                              checked={newPslChannel3ShowLiveIcon}
+                              onChange={(e) => setNewPslChannel3ShowLiveIcon(e.target.checked)}
+                              className="w-4 h-4 accent-purple-500"
+                            />
+                            <label htmlFor="psl_3_live_icon" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer">Show Live Icon</label>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
