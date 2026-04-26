@@ -171,6 +171,9 @@ export default function App() {
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [adminPassword, setAdminPassword] = useState('');
+  const [showWebPlayer, setShowWebPlayer] = useState(false);
+  const [webPlayUrl, setWebPlayUrl] = useState('');
+  const [webPlayTitle, setWebPlayTitle] = useState('');
   const [newPslUrlUrdu, setNewPslUrlUrdu] = useState(pslUrlUrdu);
   const [newPslUrlEnglish, setNewPslUrlEnglish] = useState(pslUrlEnglish);
   const [newPslChannel3Name, setNewPslChannel3Name] = useState(pslChannel3Name);
@@ -328,8 +331,14 @@ export default function App() {
       isEmbed = pslChannel3IsEmbed;
     }
 
+    // Ensure .ts for Live TV if not an embed and not already present
+    if (url && !isEmbed && !url.toLowerCase().includes('.m3u8') && !url.toLowerCase().includes('.mp4') && !url.toLowerCase().includes('.mkv') && !url.toLowerCase().includes('.ts')) {
+      url = url.endsWith('/') ? `${url.slice(0, -1)}.ts` : `${url}.ts`;
+    }
+
     const isMp4 = url.toLowerCase().includes('.mp4');
     const isHls = url.toLowerCase().includes('.m3u8');
+    const isTs = url.toLowerCase().includes('.ts');
     
     return {
       autoplay: true,
@@ -341,14 +350,21 @@ export default function App() {
       is_embed: isEmbed,
       sources: [{
         src: url,
-        type: isHls ? 'application/x-mpegURL' : (isMp4 ? 'video/mp4' : 'video/mp4')
+        type: isHls ? 'application/x-mpegURL' : (isMp4 ? 'video/mp4' : (isTs ? 'video/mp2t' : 'video/mp4'))
       }]
     };
   }, [pslUrlUrdu, pslUrlEnglish, pslChannel3Url, pslChannel3IsEmbed, selectedPslLanguage]);
 
   const iplOptions = useMemo(() => {
-    const isMp4 = iplUrl.toLowerCase().includes('.mp4');
-    const isHls = iplUrl.toLowerCase().includes('.m3u8');
+    let url = iplUrl;
+    // Ensure .ts for Live TV if not already present
+    if (url && !url.toLowerCase().includes('.m3u8') && !url.toLowerCase().includes('.mp4') && !url.toLowerCase().includes('.mkv') && !url.toLowerCase().includes('.ts')) {
+      url = url.endsWith('/') ? `${url.slice(0, -1)}.ts` : `${url}.ts`;
+    }
+
+    const isMp4 = url.toLowerCase().includes('.mp4');
+    const isHls = url.toLowerCase().includes('.m3u8');
+    const isTs = url.toLowerCase().includes('.ts');
     
     return {
       autoplay: true,
@@ -358,8 +374,8 @@ export default function App() {
       fill: true,
       preload: 'auto',
       sources: [{
-        src: iplUrl,
-        type: isHls ? 'application/x-mpegURL' : (isMp4 ? 'video/mp4' : 'video/mp4')
+        src: url,
+        type: isHls ? 'application/x-mpegURL' : (isMp4 ? 'video/mp4' : (isTs ? 'video/mp2t' : 'video/mp4'))
       }]
     };
   }, [iplUrl]);
@@ -832,12 +848,24 @@ export default function App() {
       return;
     }
 
-    const ext = isLive ? 'ts' : (episodeExt || (item as any).container_extension || 'mp4');
+    let ext = isLive ? 'ts' : (episodeExt || (item as any).container_extension || 'mp4');
     const type = isLive ? 'live' : (isSeries ? 'series' : 'movie');
+
+    // For Web Player Live TV, we use .ts extension for raw stream playback via proxy
+    if (action === 'web_play' && isLive) {
+      ext = 'ts';
+    }
     
     // Correct Xtream URL format: http://host:port/type/user/pass/id.ext
     const url = `${host}/${type}/${creds.username}/${creds.password}/${streamId}.${ext}`;
     
+    if (action === 'web_play') {
+      setWebPlayUrl(url);
+      setWebPlayTitle((item as any).name || (selectedItem as any)?.name || 'Title');
+      setShowWebPlayer(true);
+      return;
+    }
+
     if (action === 'download' && !isConfirmed) {
       if (downloading) {
         alert("Another download is already in progress. Please wait for it to complete.");
@@ -1406,13 +1434,20 @@ export default function App() {
                 { !(selectedItem as any).series_id ? (
                   <div className="flex flex-col gap-2 md:gap-4 pt-1 md:pt-4">
                     <button 
+                      onClick={() => handleAction('web_play', selectedItem)}
+                      className="flex items-center justify-center gap-2 md:gap-3 bg-[#00D1FF] text-black hover:bg-cyan-300 px-4 py-3 md:px-6 md:py-4 rounded-xl font-black transition-all transform hover:scale-105 text-sm md:text-base shadow-[0_0_25px_rgba(0,209,255,0.4)] uppercase tracking-widest"
+                    >
+                      <Play size={20} md:size={24} fill="black" /> 
+                      <span>Play Online</span>
+                    </button>
+
+                    <button 
                       onClick={() => handleAction('play', selectedItem)}
                       title="Play in External Player (Only for Mobile Users)"
-                      className="flex items-center justify-center gap-2 md:gap-3 bg-cyan-500 text-black hover:bg-cyan-400 px-4 py-2.5 md:px-6 md:py-3 rounded-xl font-bold transition-all transform hover:scale-105 text-xs md:text-sm shadow-[0_0_20px_rgba(6,182,212,0.4)]"
+                      className="flex items-center justify-center gap-2 md:gap-3 bg-white/5 border border-white/10 text-white hover:bg-white/10 px-4 py-2.5 md:px-6 md:py-3 rounded-xl font-bold transition-all text-xs md:text-sm"
                     >
-                      <Play size={16} md:size={18} fill="black" /> 
-                      <span>Play in External Player</span>
-                      <span className="text-[8px] md:text-[10px] opacity-70 font-normal ml-1">(Only for Mobile Users)</span>
+                      <Share2 size={16} md:size={18} /> 
+                      <span>Open in External Player</span>
                     </button>
                     
                     {/* Copy Link for Movies/Live */}
@@ -1489,11 +1524,18 @@ export default function App() {
                               </div>
                               <div className="flex items-center gap-1 md:gap-2">
                                 <button 
-                                  onClick={() => handleAction('play', selectedItem, episode.id, episode.container_extension)}
-                                  className="p-1.5 md:p-2 hover:bg-white/20 rounded-lg transition-colors"
-                                  title="Play in External Player (Only for Mobile Users)"
+                                  onClick={() => handleAction('web_play', selectedItem, episode.id, episode.container_extension)}
+                                  className="p-1.5 md:p-2 bg-[#00D1FF]/10 text-[#00D1FF] hover:bg-[#00D1FF]/20 rounded-lg transition-colors border border-[#00D1FF]/20"
+                                  title="Play Online"
                                 >
                                   <Play size={14} md:size={16} fill="currentColor" />
+                                </button>
+                                <button 
+                                  onClick={() => handleAction('play', selectedItem, episode.id, episode.container_extension)}
+                                  className="p-1.5 md:p-2 hover:bg-white/20 rounded-lg transition-colors"
+                                  title="Play in External Player"
+                                >
+                                  <Share2 size={14} md:size={16} />
                                 </button>
                                 <button 
                                   onClick={() => handleAction('copy', selectedItem, episode.id, episode.container_extension)}
@@ -1524,6 +1566,66 @@ export default function App() {
                     )}
                   </div>
                 )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Internal Web Player Modal */}
+      <AnimatePresence>
+        {showWebPlayer && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 md:p-8 lg:p-12 gpu overflow-hidden">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowWebPlayer(false)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-2xl gpu"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-6xl aspect-video glass-dark rounded-xl md:rounded-[2rem] overflow-hidden shadow-[0_0_100px_rgba(0,209,255,0.4)] border border-white/20 flex flex-col gpu"
+            >
+              {/* Minimalist Top Header with Gradient Overlay */}
+              <div className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between p-3 md:p-8 bg-gradient-to-b from-black/95 via-black/60 to-transparent pointer-events-none group-hover:opacity-100 transition-opacity duration-300">
+                <div className="flex items-center gap-3 md:gap-5 pointer-events-auto">
+                  <div className="w-10 h-10 md:w-14 md:h-14 bg-cyan-500/10 backdrop-blur-2xl rounded-xl md:rounded-[1.5rem] flex items-center justify-center border border-cyan-500/40 shadow-[0_0_25px_rgba(0,209,255,0.3)]">
+                    <Play size={20} className="text-[#00D1FF] fill-[#00D1FF] md:w-7 md:h-7" />
+                  </div>
+                  <div className="flex flex-col">
+                    <h3 className="text-sm md:text-xl font-bold text-white truncate max-w-[160px] md:max-w-2xl drop-shadow-[0_2px_10px_rgba(0,0,0,1)] tracking-tight">
+                      {webPlayTitle}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 bg-[#00D1FF] rounded-full animate-pulse shadow-[0_0_10px_#00D1FF]" />
+                      <p className="text-[9px] md:text-sm text-[#00D1FF] font-black uppercase tracking-[0.25em] drop-shadow-md">Theater Mode 4K</p>
+                    </div>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowWebPlayer(false)}
+                  className="p-2.5 md:p-5 bg-black/50 hover:bg-red-500/95 text-white rounded-xl md:rounded-2xl backdrop-blur-2xl border border-white/20 transition-all duration-300 hover:scale-110 active:scale-90 group pointer-events-auto shadow-xl"
+                >
+                  <X size={20} className="md:w-7 md:h-7 group-hover:rotate-90 transition-transform duration-500" />
+                </button>
+              </div>
+
+              <div className="flex-1 w-full h-full bg-black relative">
+                <VideoPlayer 
+                  key={webPlayUrl}
+                  options={{
+                    autoplay: true,
+                    controls: true,
+                    sources: [{
+                      src: webPlayUrl,
+                      type: webPlayUrl.toLowerCase().includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'
+                    }]
+                  }} 
+                  onClose={() => setShowWebPlayer(false)}
+                />
               </div>
             </motion.div>
           </div>
