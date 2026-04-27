@@ -812,6 +812,15 @@ export default function App() {
     return `vlc:${url}`;
   };
 
+  const triggerDownload = (url: string, filename: string) => {
+    const safeFilename = filename.replace(/[^a-z0-9.-]/gi, '_');
+    const proxyUrl = `https://sjstore-sjstore-download-proxy.hf.space/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(safeFilename)}`;
+    
+    // Using window.location.assign for direct trigger to browser's native download manager
+    // This is memory-safe and handles large files (GBs) correctly
+    window.location.assign(proxyUrl);
+  };
+
   const handleAction = async (action: 'play' | 'download' | 'web_play' | 'copy', item: any, episodeId?: string, episodeExt?: string, isConfirmed = false) => {
     if (!isLoggedIn) {
       setShowLoginModal(true);
@@ -889,7 +898,9 @@ export default function App() {
 
     if (action === 'download') {
       setDownloading(streamId);
-      window.open(url, '_blank');
+      const filename = `${(item as any).name || 'video'}.${ext}`;
+      triggerDownload(url, filename);
+
       // Reset after some time since we can't track completion
       setTimeout(() => setDownloading(null), 30000);
       return;
@@ -2143,17 +2154,16 @@ export default function App() {
                               >
                                 <Play size={12} fill="currentColor" /> Play Online
                               </button>
-                              {movie.download_url && (
-                                <a 
-                                  href={movie.download_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="w-full bg-white/10 hover:bg-white/20 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 border border-white/10 backdrop-blur-sm"
-                                >
-                                  <Download size={12} /> Download
-                                </a>
-                              )}
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const filename = `${movie.name || 'movie'}.${movie.play_url.split('.').pop() || 'mp4'}`;
+                                  triggerDownload(movie.download_url, filename);
+                                }}
+                                className="w-full bg-white/10 hover:bg-white/20 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 border border-white/10 backdrop-blur-sm"
+                              >
+                                <Download size={12} /> Download
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -2247,14 +2257,15 @@ export default function App() {
               <div className="p-6 bg-cyan-500/10 border-t border-cyan-500/20 flex flex-col items-center justify-center gap-4">
                 <div className="flex flex-wrap items-center justify-center gap-3">
                   {selectedFreeMovie.download_url && (
-                    <a 
-                      href={selectedFreeMovie.download_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button 
+                      onClick={() => {
+                        const filename = `${selectedFreeMovie.name || 'movie'}.${selectedFreeMovie.play_url.split('.').pop() || 'mp4'}`;
+                        triggerDownload(selectedFreeMovie.download_url, filename);
+                      }}
                       className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-6 py-2.5 rounded-xl font-bold text-xs transition-all border border-white/10"
                     >
                       <Download size={16} /> Download Movie
-                    </a>
+                    </button>
                   )}
                   <a 
                     href={formatVlcUrl(selectedFreeMovie.download_url)}

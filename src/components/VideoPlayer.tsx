@@ -137,6 +137,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
           ],
           onSelect: (item: any) => {
             const video = art.video;
+            // Web Audio API for Volume Boost
             try {
               // @ts-ignore
               if (!art.gainNode) {
@@ -160,24 +161,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
             }
             return item.html;
           },
-        },
-        {
-          name: 'audio',
-          html: 'Audio Tracks',
-          width: 250,
-          tooltip: 'Default',
-          selector: [
-            { html: 'Default Audio', value: 0, default: true }
-          ],
-        },
-        {
-          name: 'subtitle-select',
-          html: 'Subtitle Tracks',
-          width: 250,
-          tooltip: 'Off',
-          selector: [
-            { html: 'Off', value: -1, default: true }
-          ],
         }
       ],
       layers: [
@@ -206,7 +189,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
             }
 
             const player = mpegts.createPlayer({
-              type: 'mse',
+              type: 'mse', // Use MSE for .ts streams
               isLive: true,
               url: url,
             }, {
@@ -216,44 +199,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
               seekType: 'range',
             });
 
-            const mPlayer = player as any;
-            mpegtsRef.current = mPlayer;
-            mPlayer.attachMediaElement(video);
-            mPlayer.load();
+            mpegtsRef.current = player;
+            player.attachMediaElement(video);
+            player.load();
             
-            mPlayer.on(mpegts.Events.ERROR, (type: any, detail: any, data: any) => {
+            player.on(mpegts.Events.ERROR, (type, detail, data) => {
               console.error('MPEGTS Error:', type, detail, data);
               art.notice.show = 'Live Stream Error. Reconnecting...';
             });
 
-            const playPromise = mPlayer.play() as any;
+            const playPromise = player.play() as any;
             if (playPromise && typeof playPromise.catch === 'function') {
               playPromise.catch(() => {
                 art.notice.show = 'Click to Play Live';
               });
             }
-
-            mPlayer.on(mpegts.Events.METADATA_ARRIVED, () => {
-              const audioTracks = mPlayer.getAudioTrackList ? mPlayer.getAudioTrackList() : [];
-              if (audioTracks.length > 0) {
-                const audios = audioTracks.map((track: any, index: number) => ({
-                  html: track.name || track.language || `Track ${index + 1}`,
-                  value: track.id,
-                }));
-                
-                art.setting.update({
-                  name: 'audio',
-                  html: 'Audio Selection',
-                  tooltip: audios.length > 1 ? 'Multiple Tracks' : 'Default',
-                  width: 250,
-                  selector: audios,
-                  onSelect: (item: any) => {
-                    mPlayer.setAudioTrack(item.value);
-                    return item.html;
-                  },
-                });
-              }
-            });
           } else {
             video.src = url;
           }
@@ -263,6 +223,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
             if (hlsRef.current) hlsRef.current.destroy();
 
             const hls = new Hls({
+              liveSyncDurationCount: 3,
+              liveMaxLatencyDurationCount: 10,
               enableWorker: true,
               lowLatencyMode: true,
               backBufferLength: 90,
@@ -281,7 +243,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
               
               quality.unshift({ default: true, html: 'Auto', value: -1 });
 
-              art.setting.add({
+              art.setting.update({
                 name: 'quality',
                 html: 'Quality',
                 width: 150,
@@ -292,43 +254,28 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
                 },
               });
 
-              // Initial Audio Tracks
-              if (hls.audioTracks && hls.audioTracks.length > 0) {
+              // Audio Tracks
+              if (hls.audioTracks && hls.audioTracks.length > 1) {
                 const audios = hls.audioTracks.map((track, index) => ({
+                  default: index === hls.audioTrack,
                   html: track.name || track.lang || `Track ${index + 1}`,
                   value: index,
-                  default: index === hls.audioTrack
                 }));
 
                 art.setting.update({
                   name: 'audio',
-                  html: 'Dual Audio Select',
-                  tooltip: audios.length > 1 ? 'Multiple' : 'Default',
-                  width: 250,
+                  html: 'Audio Select',
+                  width: 150,
                   selector: audios,
                   onSelect: (item: any) => {
                     hls.audioTrack = item.value;
-                    art.notice.show = `Audio: ${item.html}`;
                     return item.html;
                   },
                 });
               }
             });
 
-            // Monitor Audio Track Switches
-            hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
-              if (hls.audioTracks && hls.audioTracks.length > 0) {
-                 const audios = hls.audioTracks.map((track, index) => ({
-                  html: track.name || track.lang || `Track ${index + 1}`,
-                  value: index,
-                }));
-                art.setting.update({
-                  name: 'audio',
-                  selector: audios,
-                });
-              }
-            });
-
+            // Subtitle Tracks
             hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
               if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
                 const subs = hls.subtitleTracks.map((track, index) => ({
@@ -339,9 +286,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
 
                 art.setting.update({
                   name: 'subtitle-select',
-                  html: 'Select Subtitles',
-                  tooltip: subs.length > 1 ? 'Available' : 'Off',
-                  width: 250,
+                  html: 'Subtitles',
+                  width: 150,
                   selector: subs,
                   onSelect: (item: any) => {
                     hls.subtitleTrack = item.value;
@@ -358,163 +304,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
       },
     });
 
-    // Native Tracks Handler (for MP4/MKV directly in browser)
-    const video = art.video;
-    const handleNativeTracks = () => {
-      // @ts-ignore - Handle Native AudioTracks (Safari/IE mainly)
-      const audioTracks = video.audioTracks;
-      if (audioTracks && audioTracks.length > 0) {
-        const audios = [];
-        for (let i = 0; i < audioTracks.length; i++) {
-          audios.push({
-            html: audioTracks[i].label || audioTracks[i].language || `Audio Track ${i + 1}`,
-            value: i,
-            default: audioTracks[i].enabled
-          });
-        }
-        art.setting.update({
-          name: 'audio',
-          selector: audios,
-          onSelect: (item: any) => {
-            for (let i = 0; i < audioTracks.length; i++) {
-              audioTracks[i].enabled = (i === item.value);
-            }
-            art.notice.show = `Audio: ${item.html}`;
-            return item.html;
-          }
-        });
-      }
-
-      // Handle Native TextTracks
-      const textTracks = video.textTracks;
-      if (textTracks && textTracks.length > 0) {
-        const subs = [{ html: 'Off', value: -1 }];
-        for (let i = 0; i < textTracks.length; i++) {
-          if (textTracks[i].kind === 'subtitles' || textTracks[i].kind === 'captions') {
-            subs.push({
-              html: textTracks[i].label || textTracks[i].language || `Subtitle ${i + 1}`,
-              value: i,
-            });
-          }
-        }
-        if (subs.length > 1) {
-          art.setting.update({
-            name: 'subtitle-select',
-            selector: subs,
-            onSelect: (item: any) => {
-              for (let i = 0; i < textTracks.length; i++) {
-                if (i === item.value) {
-                  textTracks[i].mode = 'showing';
-                } else {
-                  textTracks[i].mode = 'hidden';
-                }
-              }
-              art.notice.show = `Subtitle: ${item.html}`;
-              return item.html;
-            }
-          });
-        }
-      }
-    };
-
-    video.addEventListener('loadedmetadata', handleNativeTracks);
-
-    // Custom Layers for Indicators
-    const addIndicator = (type: 'forward' | 'backward') => {
-      const layer = art.layers.add({
-        name: `indicator-${type}`,
-        html: type === 'forward' 
-          ? '<div style="display:flex;flex-direction:column;align-items:center;color:#00D1FF;"><svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M13 19l-1.41-1.41L15.17 14H4v-2h11.17l-3.58-3.59L13 7l6 6-6 6z"/><path d="M13 13V7l9 6-9 6v-6z"/></svg><span>+10s</span></div>'
-          : '<div style="display:flex;flex-direction:column;align-items:center;color:#00D1FF;"><svg width="40" height="40" viewBox="0 0 24 24" fill="currentColor" style="transform:rotate(180deg)"><path d="M13 19l-1.41-1.41L15.17 14H4v-2h11.17l-3.58-3.59L13 7l6 6-6 6z"/><path d="M13 13V7l9 6-9 6v-6z"/></svg><span>-10s</span></div>',
-        style: {
-          position: 'absolute',
-          top: '50%',
-          left: type === 'forward' ? '70%' : '30%',
-          transform: 'translate(-50%, -50%)',
-          display: 'none',
-          pointerEvents: 'none',
-          zIndex: '100',
-          background: 'rgba(0,0,0,0.4)',
-          padding: '20px',
-          borderRadius: '50%',
-          backdropFilter: 'blur(10px)',
-        },
-      });
-
-      setTimeout(() => {
-        layer.style.display = 'flex';
-        layer.style.opacity = '1';
-        setTimeout(() => {
-          layer.style.opacity = '0';
-          setTimeout(() => {
-            art.layers.remove(`indicator-${type}`);
-          }, 300);
-        }, 500);
-      }, 0);
-    };
-
-    // Long Press for 2x Speed logic with Context Menu prevention
-    let longPressTimer: any = null;
-    let isLongPressing = false;
-
-    // Prevent default context menu (Download prompt)
-    video.addEventListener('contextmenu', (e) => e.preventDefault());
-
-    const showSpeedIndicator = (active: boolean) => {
-      let speedLayer = art.layers['speed-indicator'];
-      if (!speedLayer) {
-        speedLayer = art.layers.add({
-          name: 'speed-indicator',
-          html: '<div style="display:flex;align-items:center;gap:8px;background:rgba(0,209,255,0.2);padding:10px 20px;border-radius:30px;border:1px solid rgba(0,209,255,0.4);backdrop-filter:blur(10px);color:#00D1FF;font-weight:900;letter-spacing:2px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M13 19l-1.41-1.41L15.17 14H4v-2h11.17l-3.58-3.59L13 7l6 6-6 6z"/><path d="M13 13V7l9 6-9 6v-6z"/></svg>2X SPEED</div>',
-          style: {
-            position: 'absolute',
-            top: '20%',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            display: 'none',
-            zIndex: '100',
-            pointerEvents: 'none',
-          },
-        });
-      }
-      speedLayer.style.display = active ? 'flex' : 'none';
-    };
-
-    const startLongPress = (e: Event) => {
-      // Don't trigger if it's a right click or if UI elements are clicked
-      if (e instanceof MouseEvent && e.button !== 0) return;
-      
-      clearTimeout(longPressTimer);
-      longPressTimer = setTimeout(() => {
-        isLongPressing = true;
-        art.playbackRate = 2;
-        showSpeedIndicator(true);
-        art.notice.show = 'Action: 2X Fast-Forward';
-      }, 1000); // Trigger after 1 second for better UX
-    };
-
-    const endLongPress = () => {
-      clearTimeout(longPressTimer);
-      if (isLongPressing) {
-        art.playbackRate = 1;
-        showSpeedIndicator(false);
-        art.notice.show = 'Back to Normal Speed';
-        isLongPressing = false;
-      }
-    };
-
-    art.on('video:mousedown', startLongPress);
-    art.on('video:mouseup', endLongPress);
-    art.on('video:mouseleave', endLongPress);
-    art.on('video:touchstart', startLongPress);
-    art.on('video:touchend', endLongPress);
-
-    // Disable default sliding/seeking behavior on screen
-    art.on('video:mousemove', (e: MouseEvent) => {
-      // This helps prevent default drag behaviors in some browsers
-      if (e.buttons === 1) e.preventDefault();
-    });
-
     // Toggle back button layer visibility with controls
     art.on('control', (state: boolean) => {
       const layer = art.layers['back-button'];
@@ -525,8 +314,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
 
     // Handle Double Tap for Seeking
     art.on('video:click', (event: MouseEvent) => {
-      if (isLongPressing) return;
-
       const now = Date.now();
       const delay = now - lastClickTimeRef.current;
       
@@ -537,12 +324,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
 
         if (x > halfWidth) {
           art.seek = art.currentTime + 10;
-          addIndicator('forward');
+          art.notice.show = 'Seek Forward +10s';
         } else {
           art.seek = art.currentTime - 10;
-          addIndicator('backward');
+          art.notice.show = 'Seek Backward -10s';
         }
         
+        // Reset last click time to avoid triple tap seeking twice
         lastClickTimeRef.current = 0;
       } else {
         lastClickTimeRef.current = now;
