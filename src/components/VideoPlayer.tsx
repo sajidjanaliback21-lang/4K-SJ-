@@ -25,8 +25,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
   const getProxiedUrl = (url: string) => {
     if (!url) return '';
     // If it's already a proxied URL or an embed URL, don't proxy it again
-    if (url.includes('sjstore-4ksj-store-proxy.hf.space') || url.includes('/embed/')) return url;
-    return `https://sjstore-4ksj-store-proxy.hf.space/play?url=${encodeURIComponent(url)}`;
+    if (url.includes('sjstore-proxy.sjstoreuk22.workers.dev') || url.includes('/embed/')) return url;
+    return `https://sjstore-proxy.sjstoreuk22.workers.dev/?url=${encodeURIComponent(url)}`;
   };
 
   const source = options.sources[0];

@@ -143,6 +143,8 @@ export default function App() {
   const [loadingInfo, setLoadingInfo] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [playingLiveStream, setPlayingLiveStream] = useState<LiveStream | null>(null);
+  const [liveSearchQuery, setLiveSearchQuery] = useState('');
   const [showDownloadConfirm, setShowDownloadConfirm] = useState(false);
   const [pendingDownload, setPendingDownload] = useState<{item: any, episodeId?: string, episodeExt?: string} | null>(null);
   const [showPSLPlayer, setShowPSLPlayer] = useState(false);
@@ -1227,6 +1229,212 @@ export default function App() {
               </>
             )}
           </div>
+        ) : activeTab === 'live' ? (
+          <div className="flex flex-col gap-6">
+            {/* IPTV Layout for Live TV */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Left Column: Player (Span 2) */}
+              <div className="lg:col-span-2 space-y-4">
+                <div className="relative aspect-video rounded-[2rem] overflow-hidden bg-black border border-white/10 shadow-2xl group group-hover:border-cyan-500/50 transition-all duration-500">
+                  {playingLiveStream ? (
+                    <div className="w-full h-full">
+                       <VideoPlayer 
+                        key={`live-player-${playingLiveStream.stream_id}`}
+                        options={{
+                          autoplay: true,
+                          controls: true,
+                          responsive: true,
+                          fluid: true,
+                          is_embed: false,
+                          sources: [{
+                            src: `https://sjstore-proxy.sjstoreuk22.workers.dev/?url=${encodeURIComponent(`${creds.host.replace(/\/$/, '')}/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.ts`)}`,
+                            type: 'video/mp2t'
+                          }]
+                        }} 
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-[#0a0a0b] group">
+                      <div className="w-20 h-20 rounded-3xl bg-cyan-500/5 flex items-center justify-center border border-cyan-500/10 mb-6 group-hover:scale-110 transition-transform duration-500">
+                        <Tv size={40} className="text-cyan-500/40" />
+                      </div>
+                      <h3 className="text-xl font-display font-bold text-white italic tracking-tight uppercase">Premium IPTV Player</h3>
+                      <p className="text-white/30 text-xs mt-2 uppercase tracking-[0.2em] font-medium">Select a channel to start streaming</p>
+                    </div>
+                  )}
+                </div>
+
+                {playingLiveStream && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex flex-row items-center justify-between p-2.5 sm:p-3 glass rounded-2xl border border-white/10 gap-3"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      {playingLiveStream.stream_icon && (
+                        <div className="w-8 h-8 rounded-lg overflow-hidden border border-white/10 bg-white/5 shrink-0 hidden xs:block">
+                          <img 
+                            src={playingLiveStream.stream_icon} 
+                            alt=""
+                            className="w-full h-full object-contain p-0.5"
+                            onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/live/200/200?blur=1'; }}
+                          />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <h2 className="text-[11px] sm:text-xs font-display font-black text-white italic tracking-tight uppercase truncate">{playingLiveStream.name}</h2>
+                        <span className="text-[8px] text-cyan-400 font-bold uppercase tracking-widest block opacity-60 leading-none">1080P Signal</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button 
+                        onClick={() => handleAction('copy', playingLiveStream)}
+                        className="p-1.5 sm:p-2 bg-white/5 hover:bg-white/10 rounded-lg transition-all border border-white/10 text-white/60 hover:text-white"
+                        title="Copy"
+                      >
+                        {copiedId === playingLiveStream.stream_id ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                      </button>
+                      <button 
+                        onClick={() => window.location.href = formatVlcUrl(`${creds.host.replace(/\/$/, '')}/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.ts`)}
+                        className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg font-black text-[9px] transition-all shadow-lg shadow-orange-500/20 uppercase tracking-widest italic"
+                      >
+                        <Play size={12} fill="white" /> VLC
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </div>
+
+              {/* Right Column: Categories & Channels List */}
+              <div className="lg:h-[calc(100vh-280px)] min-h-[500px] flex flex-col gap-6">
+                {/* Categories Scroll */}
+                <div className="flex flex-col gap-3">
+                  <h3 className="text-xs font-black text-white/30 uppercase tracking-[0.3em] px-2 italic">Categories</h3>
+                  <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
+                    {liveCategories.map((cat, idx) => (
+                      <button
+                        key={`iptv-cat-${cat.category_id}-${idx}`}
+                        onClick={() => setSelectedLiveCategory(cat.category_id)}
+                        className={cn(
+                          "whitespace-nowrap px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 italic",
+                          selectedLiveCategory === cat.category_id 
+                            ? "bg-cyan-500 text-black shadow-[0_0_20px_rgba(6,182,212,0.4)]" 
+                            : "bg-white/5 text-white/40 hover:text-white border border-white/5 hover:border-white/10"
+                        )}
+                      >
+                        {cat.category_name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Channels List Grid with Search */}
+                <div className="flex-1 glass rounded-[2.5rem] border border-white/10 overflow-hidden flex flex-col min-h-[400px]">
+                  <div className="p-4 border-b border-white/5 bg-white/5 flex flex-col gap-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-black text-white uppercase tracking-widest italic flex items-center gap-2">
+                        <Tv size={14} className="text-cyan-400" /> Live Grid
+                      </h3>
+                      <span className="text-[10px] font-bold text-white/30 tracking-tighter">Category: {liveCategories.find(c => c.category_id === selectedLiveCategory)?.category_name || "All"}</span>
+                    </div>
+                    
+                    {/* Channel Search */}
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20" size={14} />
+                      <input 
+                        type="text"
+                        placeholder="Search Channel..."
+                        value={liveSearchQuery}
+                        onChange={(e) => setLiveSearchQuery(e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 pl-10 pr-4 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-cyan-500/50 transition-all italic font-medium"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="flex-1 overflow-y-auto no-scrollbar p-4">
+                    {loadingLive ? (
+                      <div className="flex flex-col items-center justify-center py-20 gap-4">
+                        <Loader2 className="animate-spin text-cyan-500" size={32} />
+                        <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Scanning channels...</span>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                        {currentItems
+                          .filter(item => item.name.toLowerCase().includes(liveSearchQuery.toLowerCase()))
+                          .map((item, idx) => (
+                          <motion.button
+                            key={`iptv-channel-${(item as any).stream_id}-${idx}`}
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            transition={{ delay: Math.min(idx * 0.005, 0.1) }}
+                            onClick={() => {
+                              setPlayingLiveStream(item as any);
+                              // Scroll to top on mobile when selecting a channel
+                              if (window.innerWidth < 1024) {
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                              }
+                            }}
+                            className={cn(
+                              "flex flex-col items-center gap-2 p-2 rounded-2xl transition-all border group relative aspect-square justify-center text-center",
+                              playingLiveStream?.stream_id === (item as any).stream_id
+                                ? "bg-cyan-500/10 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.15)]"
+                                : "bg-white/2 hover:bg-white/5 border-transparent hover:border-white/10"
+                            )}
+                          >
+                            <div className="w-full aspect-square max-w-[50px] rounded-xl bg-black/40 border border-white/5 overflow-hidden flex items-center justify-center p-1.5 shrink-0 group-hover:scale-110 transition-transform duration-300">
+                              {(item as any).stream_icon ? (
+                                <img 
+                                  src={(item as any).stream_icon} 
+                                  alt="" 
+                                  className="w-full h-full object-contain"
+                                  onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/tv/100/100?blur=5'; }}
+                                />
+                              ) : (
+                                <Tv size={20} className="text-white/20" />
+                              )}
+                            </div>
+                            <h4 className={cn(
+                              "text-[8px] font-black uppercase tracking-tight line-clamp-2 leading-tight px-1 italic",
+                              playingLiveStream?.stream_id === (item as any).stream_id ? "text-cyan-400" : "text-white/60 group-hover:text-white"
+                            )}>
+                              {item.name}
+                            </h4>
+                            
+                            {playingLiveStream?.stream_id === (item as any).stream_id && (
+                              <div className="absolute top-1 right-1">
+                                <motion.div 
+                                  animate={{ scale: [1, 1.2, 1] }}
+                                  transition={{ repeat: Infinity, duration: 2 }}
+                                  className="w-1.5 h-1.5 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)]" 
+                                />
+                              </div>
+                            )}
+                          </motion.button>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {currentItems.length > 0 && currentItems.filter(item => item.name.toLowerCase().includes(liveSearchQuery.toLowerCase())).length === 0 && (
+                      <div className="flex flex-col items-center justify-center py-20 text-white/20">
+                        <Search size={32} className="mb-3 opacity-10" />
+                        <span className="text-[10px] font-bold uppercase tracking-widest italic">No Channels Matching</span>
+                      </div>
+                    )}
+
+                    {/* Scroll Sentinel for Lazy Loading */}
+                    {hasMore && !loadingLive && (
+                      <div 
+                        ref={loadMoreRef} 
+                        className="flex justify-center py-8"
+                      >
+                        <Loader2 className="animate-spin text-cyan-500/40" size={20} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         ) : (
           <>
             {/* Premium Category Bar */}
@@ -1308,7 +1516,7 @@ export default function App() {
             ) : (
               <div className="space-y-8">
                 <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-2 md:gap-6">
-                    {currentItems.map((item, idx) => (
+                {currentItems.map((item, idx) => (
                     <motion.div
                       key={`${activeTab}-${'stream_id' in item ? item.stream_id : (item as any).series_id}-${idx}`}
                       initial={{ opacity: 0, y: 10 }}
@@ -1370,15 +1578,15 @@ export default function App() {
             </div>
           )}
 
-            {!currentLoading && currentItems.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-24 md:py-32 text-white/40">
-                <Search size={40} md:size={48} className="mb-4 opacity-20" />
-                <p className="text-sm">No titles found in this category.</p>
-              </div>
-            )}
-          </>
-        )}
-      </main>
+          {!currentLoading && currentItems.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-24 md:py-32 text-white/40">
+              <Search size={40} md:size={48} className="mb-4 opacity-20" />
+              <p className="text-sm">No titles found in this category.</p>
+            </div>
+          )}
+        </>
+      )}
+    </main>
 
       {/* Item Details Modal */}
       <AnimatePresence>
