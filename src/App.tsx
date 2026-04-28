@@ -8,6 +8,7 @@ import {
   Search, 
   LogIn, 
   LogOut, 
+  Lock,
   Film, 
   Tv, 
   X, 
@@ -1230,6 +1231,25 @@ export default function App() {
             )}
           </div>
         ) : activeTab === 'live' ? (
+          !isLoggedIn ? (
+            <div className="flex flex-col items-center justify-center py-32 gap-6 text-center max-w-lg mx-auto px-6 glass rounded-[2.5rem] border border-white/20 shadow-2xl shadow-cyan-500/5">
+              <div className="w-20 h-20 rounded-3xl bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20 mb-2">
+                <Lock size={40} className="text-cyan-500" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-3xl font-display font-black text-white italic tracking-tighter uppercase">Live TV Locked</h3>
+                <p className="text-white/40 text-sm font-medium italic tracking-wide max-w-xs mx-auto">
+                  Premium Live TV signals are only accessible to registered users. Please login to continue.
+                </p>
+              </div>
+              <button 
+                onClick={() => setShowLoginModal(true)}
+                className="premium-button premium-button-primary px-10 py-4 text-base shadow-lg shadow-cyan-500/20"
+              >
+                <LogIn size={20} /> Login to Access
+              </button>
+            </div>
+          ) : (
           <div className="flex flex-col gap-6">
             {/* IPTV Layout for Live TV */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1247,11 +1267,17 @@ export default function App() {
                           fluid: true,
                           is_embed: false,
                           sources: [{
-                            src: `https://sjstore-proxy.sjstoreuk22.workers.dev/?url=${encodeURIComponent(`${creds.host.replace(/\/$/, '')}/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.ts`)}`,
+                            src: `${creds.host.replace(/\/$/, '')}/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.ts`,
                             type: 'video/mp2t'
                           }]
                         }} 
                       />
+                      <div className="absolute top-4 left-4 z-10">
+                        <div className="flex items-center gap-2 bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
+                          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                          <span className="text-[10px] font-black text-white uppercase tracking-widest italic">Live Now</span>
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-[#0a0a0b] group">
@@ -1435,7 +1461,8 @@ export default function App() {
               </div>
             </div>
           </div>
-        ) : (
+        )
+      ) : (
           <>
             {/* Premium Category Bar */}
             <div className="flex flex-col gap-4 mb-6">
