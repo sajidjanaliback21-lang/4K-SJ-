@@ -351,6 +351,7 @@ export default function App() {
       fill: true,
       preload: 'auto',
       is_embed: isEmbed,
+      skipProxy: true,
       sources: [{
         src: url,
         type: isHls ? 'application/x-mpegURL' : (isMp4 ? 'video/mp4' : (isTs ? 'video/mp2t' : 'video/mp4'))
@@ -376,6 +377,7 @@ export default function App() {
       fluid: false,
       fill: true,
       preload: 'auto',
+      skipProxy: true,
       sources: [{
         src: url,
         type: isHls ? 'application/x-mpegURL' : (isMp4 ? 'video/mp4' : (isTs ? 'video/mp2t' : 'video/mp4'))
@@ -2477,6 +2479,7 @@ export default function App() {
                       fluid: true,
                       poster: selectedFreeMovie.poster_url,
                       is_embed: selectedFreeMovie.is_embed,
+                      skipProxy: true,
                       sources: [{
                         src: selectedFreeMovie.play_url,
                         type: selectedFreeMovie.play_url.includes('.m3u8') ? 'application/x-mpegURL' : 
@@ -2936,6 +2939,7 @@ export default function App() {
                       fluid: true,
                       poster: selectedFreeSeries.poster_url,
                       is_embed: selectedFreeSeries.is_embed,
+                      skipProxy: true,
                       sources: [{
                         src: selectedFreeSeries.play_url,
                         type: selectedFreeSeries.play_url.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'

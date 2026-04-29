@@ -10,6 +10,7 @@ interface VideoPlayerProps {
     controls?: boolean;
     poster?: string;
     is_embed?: boolean;
+    skipProxy?: boolean;
   };
   onReady?: (player: Artplayer) => void;
   onClose?: () => void;
@@ -24,6 +25,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
 
   const getProxiedUrl = (url: string) => {
     if (!url) return '';
+    if (options.skipProxy) return url;
     // If it's already a proxied URL or an embed URL, don't proxy it again
     if (url.includes('sjstore-4ksj-store-proxy.hf.space') || url.includes('/embed/')) return url;
     return `https://sjstore-4ksj-store-proxy.hf.space/play?url=${encodeURIComponent(url)}`;
