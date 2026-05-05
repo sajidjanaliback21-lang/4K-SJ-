@@ -12,6 +12,9 @@ import {
   Lock,
   Film, 
   Tv, 
+  Clapperboard,
+  Zap,
+  Gift,
   X, 
   ChevronRight, 
   Info,
@@ -1520,74 +1523,97 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 px-2 md:px-4">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 px-2 md:px-4 max-w-5xl mx-auto">
                   {[
                     { 
                       id: 'psl',
-                      label: 'LIVE CRICKET', 
-                      title: appSettings.psl_title, 
-                      icon: <Play size={24} className="text-white fill-white" />, 
+                      label: 'CRICKET LIVE', 
+                      title: appSettings.psl_title || 'PSL', 
+                      icon: <Play size={28} className="text-white fill-white drop-shadow-lg" />, 
                       color: 'from-emerald-400 to-green-600', 
-                      bg: 'from-emerald-500/10 via-emerald-950/5',
-                      border: 'emerald-500/20',
+                      glow: 'shadow-emerald-500/20',
+                      border: 'border-emerald-500/20',
                       enabled: appSettings.psl_enabled,
                       onClick: () => { setSelectedPslLanguage('urdu'); setShowPSLPlayer(true); }
                     },
                     { 
                       id: 'ipl',
-                      label: 'LIVE IPL', 
-                      title: appSettings.ipl_title, 
-                      icon: <img src="https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Indian_Premier_League_Official_Logo.svg/1200px-Indian_Premier_League_Official_Logo.svg.png" className="w-8 h-8 md:w-12 md:h-12 object-contain" referrerPolicy="no-referrer" />, 
-                      color: 'from-blue-400 to-blue-700', 
-                      bg: 'from-blue-500/10 via-blue-900/5',
-                      border: 'blue-500/20',
+                      label: 'IPL LIVE', 
+                      title: appSettings.ipl_title || 'IPL', 
+                      icon: <img src="https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Indian_Premier_League_Official_Logo.svg/1200px-Indian_Premier_League_Official_Logo.svg.png" className="w-10 h-10 md:w-14 md:h-14 object-contain brightness-110 contrast-125" referrerPolicy="no-referrer" />, 
+                      color: 'from-blue-400 to-indigo-600', 
+                      glow: 'shadow-blue-500/20',
+                      border: 'border-blue-500/20',
                       enabled: appSettings.ipl_enabled,
                       onClick: () => { setShowIPLPlayer(true); }
                     },
                     { 
                       id: 'movies',
-                      label: 'PREMIUM', 
-                      title: appSettings.free_movies_title, 
-                      icon: <Film size={24} className="text-white" />, 
+                      label: 'MOVIES', 
+                      title: appSettings.free_movies_title || 'M O V I E S', 
+                      icon: <Film size={28} className="text-white drop-shadow-lg" />, 
                       color: 'from-cyan-400 to-blue-600', 
-                      bg: 'from-cyan-500/10 via-indigo-900/5',
-                      border: 'cyan-500/20',
+                      glow: 'shadow-cyan-500/20',
+                      border: 'border-cyan-500/20',
                       enabled: appSettings.free_movies_enabled,
+                      showLive: false,
                       onClick: () => { setActiveFreeTab('movies'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
                     },
                     { 
                       id: 'series',
-                      label: 'BINGE', 
-                      title: appSettings.free_series_title, 
-                      icon: <Tv size={24} className="text-white" />, 
+                      label: 'WEB SERIES', 
+                      title: appSettings.free_series_title || 'WEB SERIES', 
+                      icon: <Tv size={28} className="text-white drop-shadow-lg" />, 
                       color: 'from-purple-400 to-indigo-600', 
-                      bg: 'from-purple-500/10 via-indigo-900/5',
-                      border: 'purple-500/20',
+                      glow: 'shadow-purple-500/20',
+                      border: 'border-purple-500/20',
                       enabled: appSettings.free_series_enabled,
+                      showLive: false,
                       onClick: () => { setActiveFreeTab('series'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
                     }
                   ].filter(item => item.enabled).map((item, i) => (
                     <motion.button
                       key={item.id}
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: i * 0.05 }}
-                      whileHover={{ y: -5, scale: 1.02 }}
+                      initial={{ opacity: 0, y: 30 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.1, duration: 0.7, ease: [0.23, 1, 0.32, 1] }}
+                      whileHover={{ y: -10, scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={item.onClick}
-                      className={`group relative p-4 md:p-8 rounded-[1.5rem] md:rounded-[2.5rem] bg-gradient-to-br ${item.bg} to-black/80 border border-${item.border} flex flex-col items-center justify-center gap-3 md:gap-6 transition-all duration-500 shadow-xl backdrop-blur-xl overflow-hidden min-h-[140px] md:min-h-[220px]`}
+                      className={cn(
+                        "group relative p-6 md:p-10 rounded-[2.5rem] bg-black/40 flex flex-col items-center justify-center gap-6 transition-all duration-500 shadow-2xl backdrop-blur-xl overflow-hidden min-h-[160px] md:min-h-[260px] border",
+                        item.border,
+                        item.glow
+                      )}
                     >
-                      <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      <div className={`w-12 h-12 md:w-20 md:h-20 bg-gradient-to-br ${item.color} rounded-2xl md:rounded-[2rem] flex items-center justify-center shadow-2xl transform group-hover:scale-110 group-hover:rotate-6 transition-all duration-500 border border-white/20 relative`}>
+                      {/* Animated Glow Background */}
+                      <div className={cn(
+                        "absolute -top-20 -right-20 w-40 h-40 bg-gradient-to-br opacity-10 group-hover:opacity-30 blur-3xl transition-opacity duration-700",
+                        item.color
+                      )} />
+                      
+                      <div className={cn(
+                        "w-16 h-16 md:w-24 md:h-24 bg-gradient-to-br rounded-3xl flex items-center justify-center shadow-2xl ring-1 ring-white/20 transform group-hover:scale-110 group-hover:rotate-6 transition-all duration-700 relative overflow-hidden",
+                        item.color
+                      )}>
+                        <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
                         {item.icon}
                       </div>
-                      <div className="text-center">
-                        <p className="text-[7px] md:text-[10px] text-white/40 font-black uppercase tracking-[0.2em] mb-1 md:mb-2">{item.label}</p>
-                        <h4 className="text-white font-display font-black text-xs md:text-xl italic tracking-tight uppercase leading-none">{item.title}</h4>
+
+                      <div className="text-center space-y-2 relative z-10">
+                        <p className="text-[8px] md:text-[11px] text-white/50 font-black uppercase tracking-[0.3em] font-display">{item.label}</p>
+                        <h4 className="text-white font-display font-black text-xs md:text-2xl italic tracking-tight uppercase leading-none">{item.title}</h4>
                       </div>
-                      <div className="absolute top-2 right-2 md:top-4 md:right-4">
-                        <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
-                      </div>
+
+                      {/* Premium Badge - Only for Live sections */}
+                      {(item.showLive !== false) && (
+                        <div className="absolute top-4 right-4">
+                          <div className="flex items-center gap-1.5 bg-black/40 px-2 py-1 rounded-full border border-white/5 backdrop-blur-md">
+                            <div className={cn("w-1.5 h-1.5 rounded-full animate-pulse", `bg-${item.color.split('-')[1]}`)} />
+                            <span className="text-[6px] font-black text-white/40 uppercase tracking-widest">Live</span>
+                          </div>
+                        </div>
+                      )}
                     </motion.button>
                   ))}
                   { [appSettings.psl_enabled, appSettings.ipl_enabled, appSettings.free_movies_enabled, appSettings.free_series_enabled].every(e => !e) && (
@@ -2319,74 +2345,56 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Premium Mobile Bottom Navigation */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 md:hidden w-[92%] max-w-sm gpu">
-        <div className="glass-dark border border-white/10 rounded-2xl p-1.5 flex items-center justify-around shadow-2xl shadow-black/50 backdrop-blur-3xl gpu">
-          <button 
-            onClick={() => { setActiveTab('home'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={cn(
-              "relative flex flex-col items-center gap-1 py-2 px-4 rounded-xl transition-all duration-300",
-              activeTab === 'home' ? "text-cyan-400" : "text-white/40 hover:text-white/60"
-            )}
-          >
-            {activeTab === 'home' && (
-              <motion.div layoutId="mobileNav" className="absolute inset-0 bg-white/5 rounded-xl" />
-            )}
-            <Home size={20} className="relative z-10" />
-            <span className="text-[9px] font-black uppercase tracking-tighter relative z-10">Home</span>
-          </button>
-          <button 
-            onClick={() => { setActiveTab('movies'); setSelectedMovieCategory('0'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={cn(
-              "relative flex flex-col items-center gap-1 py-2 px-4 rounded-xl transition-all duration-300",
-              activeTab === 'movies' ? "text-cyan-400" : "text-white/40 hover:text-white/60"
-            )}
-          >
-            {activeTab === 'movies' && (
-              <motion.div layoutId="mobileNav" className="absolute inset-0 bg-white/5 rounded-xl" />
-            )}
-            <Film size={20} className="relative z-10" />
-            <span className="text-[9px] font-black uppercase tracking-tighter relative z-10">Movies</span>
-          </button>
-          <button 
-            onClick={() => { setActiveTab('series'); setSelectedSeriesCategory('0'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={cn(
-              "relative flex flex-col items-center gap-1 py-2 px-4 rounded-xl transition-all duration-300",
-              activeTab === 'series' ? "text-cyan-400" : "text-white/40 hover:text-white/60"
-            )}
-          >
-            {activeTab === 'series' && (
-              <motion.div layoutId="mobileNav" className="absolute inset-0 bg-white/5 rounded-xl" />
-            )}
-            <Tv size={20} className="relative z-10" />
-            <span className="text-[9px] font-black uppercase tracking-tighter relative z-10">Series</span>
-          </button>
-          <button 
-            onClick={() => { setActiveTab('live'); setSelectedLiveCategory('0'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={cn(
-              "relative flex flex-col items-center gap-1 py-2 px-4 rounded-xl transition-all duration-300",
-              activeTab === 'live' ? "text-cyan-400" : "text-white/40 hover:text-white/60"
-            )}
-          >
-            {activeTab === 'live' && (
-              <motion.div layoutId="mobileNav" className="absolute inset-0 bg-white/5 rounded-xl" />
-            )}
-            <LayoutGrid size={20} className="relative z-10" />
-            <span className="text-[9px] font-black uppercase tracking-tighter relative z-10">Live</span>
-          </button>
-          <button 
-            onClick={() => { setActiveTab('free'); setActiveFreeTab('menu'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-            className={cn(
-              "relative flex flex-col items-center gap-1 py-2 px-4 rounded-xl transition-all duration-300",
-              activeTab === 'free' ? "text-cyan-400" : "text-white/40 hover:text-white/60"
-            )}
-          >
-            {activeTab === 'free' && (
-              <motion.div layoutId="mobileNav" className="absolute inset-0 bg-white/5 rounded-xl" />
-            )}
-            <Play size={20} className="relative z-10" />
-            <span className="text-[9px] font-black uppercase tracking-tighter relative z-10">Free</span>
-          </button>
+      {/* Next-Level Mobile Floating Navigation - Ultra-Optimized & Premium UI */}
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] md:hidden w-auto pointer-events-none px-4">
+        <div className="relative flex items-center gap-1 p-2 bg-black/80 border border-white/10 rounded-[3rem] shadow-[0_25px_50px_-12px_rgba(0,0,0,1)] backdrop-blur-3xl pointer-events-auto ring-1 ring-white/10">
+          {[
+            { id: 'home', label: 'HOME', icon: Home, color: 'cyan' },
+            { id: 'movies', label: 'MOVIES', icon: Clapperboard, color: 'blue' },
+            { id: 'series', label: 'WEB SERIES', icon: Tv, color: 'purple' },
+            { id: 'live', label: 'LIVE TV', icon: Zap, color: 'orange' },
+            { id: 'free', label: 'FREE', icon: Gift, color: 'yellow' }
+          ].map((item) => {
+            const isActive = activeTab === item.id;
+            const Icon = item.icon;
+
+            return (
+              <button
+                key={item.id}
+                onClick={() => {
+                  if (item.id === 'movies') setSelectedMovieCategory('0');
+                  if (item.id === 'series') setSelectedSeriesCategory('0');
+                  if (item.id === 'live') setSelectedLiveCategory('0');
+                  if (item.id === 'free') setActiveFreeTab('menu');
+                  setActiveTab(item.id as any);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="relative flex flex-col items-center justify-center w-[72px] h-14 transition-transform active:scale-95"
+              >
+                <div className={cn(
+                  "relative z-10 flex flex-col items-center gap-1 transition-all duration-300",
+                  isActive ? "opacity-100" : "opacity-40"
+                )}>
+                  <div className="p-1 rounded-xl">
+                    <Icon 
+                      size={20} 
+                      className={cn(
+                        "transition-all duration-300",
+                        isActive ? `text-${item.color}-400` : "text-white"
+                      )} 
+                    />
+                  </div>
+                  <span className={cn(
+                    "text-[8px] font-black uppercase tracking-wider leading-none transition-all duration-300",
+                    isActive ? `text-${item.color}-400` : "text-white"
+                  )}>
+                    {item.label}
+                  </span>
+                </div>
+
+              </button>
+            )
+          })}
         </div>
       </div>
 
