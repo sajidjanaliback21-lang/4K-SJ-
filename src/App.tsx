@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
+  ArrowLeft,
   Check,
   Copy,
   Play, 
@@ -38,7 +39,7 @@ import VideoPlayer from './components/VideoPlayer';
 import IntroLoading from './components/IntroLoading';
 import { db, auth } from './firebase';
 import { doc, onSnapshot, setDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc } from 'firebase/firestore';
-import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from 'firebase/auth';
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 
 enum OperationType {
   CREATE = 'create',
@@ -112,7 +113,8 @@ export default function App() {
     return localStorage.getItem('iptv_logged_in') === 'true';
   });
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'home' | 'movies' | 'series' | 'live'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'movies' | 'series' | 'live' | 'free'>('home');
+  const [activeFreeTab, setActiveFreeTab] = useState<'menu' | 'movies' | 'series'>('menu');
   const [movieCategories, setMovieCategories] = useState<Category[]>([]);
   const [seriesCategories, setSeriesCategories] = useState<Category[]>([]);
   const [liveCategories, setLiveCategories] = useState<Category[]>([]);
@@ -150,9 +152,6 @@ export default function App() {
   const [pendingDownload, setPendingDownload] = useState<{item: any, episodeId?: string, episodeExt?: string} | null>(null);
   const [showPSLPlayer, setShowPSLPlayer] = useState(false);
   const [showIPLPlayer, setShowIPLPlayer] = useState(false);
-  const [showFreeAccessModal, setShowFreeAccessModal] = useState(false);
-  const [showFreeMoviesModal, setShowFreeMoviesModal] = useState(false);
-  const [showFreeSeriesModal, setShowFreeSeriesModal] = useState(false);
   const [selectedFreeMovie, setSelectedFreeMovie] = useState<any>(null);
   const [selectedFreeSeries, setSelectedFreeSeries] = useState<any>(null);
   const [freeMovies, setFreeMovies] = useState<any[]>([]);
@@ -174,6 +173,17 @@ export default function App() {
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [adminPassword, setAdminPassword] = useState('');
+  const [appSettings, setAppSettings] = useState({
+    psl_enabled: true,
+    ipl_enabled: true,
+    free_movies_enabled: true,
+    free_series_enabled: true,
+    psl_title: 'PSL',
+    ipl_title: 'IPL',
+    free_movies_title: 'FREE CINEMA',
+    free_series_title: 'FREE BINGE'
+  });
+  const [newAppSettings, setNewAppSettings] = useState(appSettings);
   const [showWebPlayer, setShowWebPlayer] = useState(false);
   const [webPlayUrl, setWebPlayUrl] = useState('');
   const [webPlayTitle, setWebPlayTitle] = useState('');
@@ -184,7 +194,7 @@ export default function App() {
   const [newPslChannel3IsEmbed, setNewPslChannel3IsEmbed] = useState(pslChannel3IsEmbed);
   const [newPslChannel3ShowLiveIcon, setNewPslChannel3ShowLiveIcon] = useState(pslChannel3ShowLiveIcon);
   const [newIplUrl, setNewIplUrl] = useState(iplUrl);
-  const [activeAdminTab, setActiveAdminTab] = useState<'psl' | 'ipl' | 'free_movies' | 'free_series'>('psl');
+  const [activeAdminTab, setActiveAdminTab] = useState<'psl' | 'ipl' | 'free_movies' | 'free_series' | 'app'>('psl');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showIntro, setShowIntro] = useState(() => {
     return localStorage.getItem('has_seen_intro') !== 'true';
@@ -216,6 +226,32 @@ export default function App() {
       }
     };
     testConnection();
+  }, []);
+
+  // Real-time Firestore Sync for App Settings
+  useEffect(() => {
+    const appDocRef = doc(db, 'settings', 'app');
+    const unsubscribe = onSnapshot(appDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const updated = {
+          psl_enabled: data.psl_enabled ?? true,
+          ipl_enabled: data.ipl_enabled ?? true,
+          free_movies_enabled: data.free_movies_enabled ?? true,
+          free_series_enabled: data.free_series_enabled ?? true,
+          psl_title: data.psl_title || 'PSL',
+          ipl_title: data.ipl_title || 'IPL',
+          free_movies_title: data.free_movies_title || 'FREE CINEMA',
+          free_series_title: data.free_series_title || 'FREE BINGE'
+        };
+        setAppSettings(updated);
+        setNewAppSettings(updated);
+      }
+    }, (error) => {
+      console.error("Firestore Error (App Settings):", error);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   // Real-time Firestore Sync for PSL URL
@@ -387,44 +423,24 @@ export default function App() {
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminPassword === 'admin123') { // Simple password for demo
-      try {
-        const provider = new GoogleAuthProvider();
-        provider.addScope('email');
-        provider.addScope('profile');
-        // Force account selection so the user can pick the correct Gmail
-        provider.setCustomParameters({ prompt: 'select_account' });
-        
-        const result = await signInWithPopup(auth, provider);
-        const userEmail = result.user.email?.toLowerCase();
-        
-        console.log("Logged in user email:", result.user.email);
-        console.log("Logged in user UID:", result.user.uid);
-        
-        if (userEmail === 'sjstoreuk17@gmail.com' || result.user.email === 'sjstoreuk17@gmail.com') {
-          setIsAdminLoggedIn(true);
-          setShowAdminLogin(false);
-          setAdminPassword('');
-        } else {
-          alert(`Unauthorized: ${userEmail} is not the authorized admin email. Please login with sjstoreuk17@gmail.com`);
-          await auth.signOut();
-        }
-      } catch (err) {
-        console.error("Login failed", err);
-        alert("Login failed. Popups might be blocked or the sign-in was cancelled.");
-      }
+    if (adminPassword === 'sajid122') {
+      setIsAdminLoggedIn(true);
+      setShowAdminLogin(false);
+      setAdminPassword('');
     } else {
       alert('Invalid password');
     }
   };
 
   const handleUpdateUrl = async () => {
-    if (!currentUser) {
-      alert("Please login first.");
-      return;
-    }
-    
     try {
+      if (activeAdminTab === 'app') {
+        const docRef = doc(db, 'settings', 'app');
+        await setDoc(docRef, { ...newAppSettings, updatedAt: new Date().toISOString() });
+        alert("App Settings Updated Globally!");
+        return;
+      }
+
       const docId = activeAdminTab === 'psl' ? 'psl' : 'ipl';
       const docRef = doc(db, 'settings', docId);
       const data = activeAdminTab === 'psl' 
@@ -441,14 +457,9 @@ export default function App() {
       
       await setDoc(docRef, data);
       alert(`${activeAdminTab.toUpperCase()} URL Updated Globally!`);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Update failed", err);
-      try {
-        handleFirestoreError(err, OperationType.WRITE, `settings/${activeAdminTab}`);
-      } catch (e: any) {
-        const errorData = JSON.parse(e.message);
-        alert(`Failed to update. Error: ${errorData.error}. Make sure you are the authorized admin.`);
-      }
+      alert(`Failed to update. Error: ${err.message}`);
     }
   };
 
@@ -998,6 +1009,19 @@ export default function App() {
             >
               <LayoutGrid size={18} /> Live TV
             </button>
+            <button 
+              onClick={() => { setActiveTab('free'); setActiveFreeTab('menu'); }}
+              className={cn(
+                "flex items-center gap-2 text-sm font-medium transition-all hover:scale-105",
+                activeTab === 'free' ? "text-cyan-400 font-bold" : "text-white/60 hover:text-white"
+              )}
+            >
+              <div className="relative">
+                <Play size={18} className="fill-current opacity-40 group-hover:opacity-100 transition-opacity" />
+                <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-600 rounded-full animate-pulse border border-black" />
+              </div>
+               Watch Free
+            </button>
           </nav>
         </div>
 
@@ -1463,8 +1487,254 @@ export default function App() {
               </div>
             </div>
           </div>
-        )
-      ) : (
+        ) ) : activeTab === 'free' ? (
+          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {activeFreeTab === 'menu' ? (
+              <div className="relative max-w-4xl mx-auto space-y-12 py-8 px-4">
+                <div className="text-center space-y-8">
+                  <div className="flex flex-col items-center">
+                    <div className="w-24 h-24 bg-gradient-to-br from-cyan-400 via-blue-600 to-indigo-700 rounded-[2.5rem] flex items-center justify-center mb-6 border border-white/30 shadow-[0_0_50px_rgba(34,211,238,0.3)] relative group overflow-hidden">
+                      <Play className="text-white relative z-10 fill-white" size={48} />
+                      <motion.div 
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+                        className="absolute inset-0 bg-gradient-to-tr from-white/20 to-transparent opacity-30" 
+                      />
+                    </div>
+                    <div className="flex flex-col items-center gap-4">
+                      <div className="flex items-center justify-center gap-4 w-full">
+                        <h2 className="text-5xl font-black text-white tracking-tighter italic uppercase whitespace-nowrap">
+                          FREE <span className="text-cyan-400 uppercase">ACCESS</span>
+                        </h2>
+                        <motion.button 
+                          whileHover={{ scale: 1.1, rotate: 180 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => setShowAdminLogin(true)}
+                          className="p-3 bg-white/5 hover:bg-cyan-500/20 rounded-2xl transition-all border border-white/10 group shadow-lg flex items-center justify-center"
+                        >
+                          <Settings size={28} className="text-white/40 group-hover:text-cyan-400" />
+                        </motion.button>
+                      </div>
+                      <p className="text-white/40 font-medium tracking-[0.2em] uppercase text-xs italic">Experience 4K•SJ Luxury Without Login</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 px-2 md:px-4">
+                  {[
+                    { 
+                      id: 'psl',
+                      label: 'LIVE CRICKET', 
+                      title: appSettings.psl_title, 
+                      icon: <Play size={24} className="text-white fill-white" />, 
+                      color: 'from-emerald-400 to-green-600', 
+                      bg: 'from-emerald-500/10 via-emerald-950/5',
+                      border: 'emerald-500/20',
+                      enabled: appSettings.psl_enabled,
+                      onClick: () => { setSelectedPslLanguage('urdu'); setShowPSLPlayer(true); }
+                    },
+                    { 
+                      id: 'ipl',
+                      label: 'LIVE IPL', 
+                      title: appSettings.ipl_title, 
+                      icon: <img src="https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Indian_Premier_League_Official_Logo.svg/1200px-Indian_Premier_League_Official_Logo.svg.png" className="w-8 h-8 md:w-12 md:h-12 object-contain" referrerPolicy="no-referrer" />, 
+                      color: 'from-blue-400 to-blue-700', 
+                      bg: 'from-blue-500/10 via-blue-900/5',
+                      border: 'blue-500/20',
+                      enabled: appSettings.ipl_enabled,
+                      onClick: () => { setShowIPLPlayer(true); }
+                    },
+                    { 
+                      id: 'movies',
+                      label: 'PREMIUM', 
+                      title: appSettings.free_movies_title, 
+                      icon: <Film size={24} className="text-white" />, 
+                      color: 'from-cyan-400 to-blue-600', 
+                      bg: 'from-cyan-500/10 via-indigo-900/5',
+                      border: 'cyan-500/20',
+                      enabled: appSettings.free_movies_enabled,
+                      onClick: () => { setActiveFreeTab('movies'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+                    },
+                    { 
+                      id: 'series',
+                      label: 'BINGE', 
+                      title: appSettings.free_series_title, 
+                      icon: <Tv size={24} className="text-white" />, 
+                      color: 'from-purple-400 to-indigo-600', 
+                      bg: 'from-purple-500/10 via-indigo-900/5',
+                      border: 'purple-500/20',
+                      enabled: appSettings.free_series_enabled,
+                      onClick: () => { setActiveFreeTab('series'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+                    }
+                  ].filter(item => item.enabled).map((item, i) => (
+                    <motion.button
+                      key={item.id}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: i * 0.05 }}
+                      whileHover={{ y: -5, scale: 1.02 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={item.onClick}
+                      className={`group relative p-4 md:p-8 rounded-[1.5rem] md:rounded-[2.5rem] bg-gradient-to-br ${item.bg} to-black/80 border border-${item.border} flex flex-col items-center justify-center gap-3 md:gap-6 transition-all duration-500 shadow-xl backdrop-blur-xl overflow-hidden min-h-[140px] md:min-h-[220px]`}
+                    >
+                      <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <div className={`w-12 h-12 md:w-20 md:h-20 bg-gradient-to-br ${item.color} rounded-2xl md:rounded-[2rem] flex items-center justify-center shadow-2xl transform group-hover:scale-110 group-hover:rotate-6 transition-all duration-500 border border-white/20 relative`}>
+                        {item.icon}
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[7px] md:text-[10px] text-white/40 font-black uppercase tracking-[0.2em] mb-1 md:mb-2">{item.label}</p>
+                        <h4 className="text-white font-display font-black text-xs md:text-xl italic tracking-tight uppercase leading-none">{item.title}</h4>
+                      </div>
+                      <div className="absolute top-2 right-2 md:top-4 md:right-4">
+                        <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
+                      </div>
+                    </motion.button>
+                  ))}
+                  { [appSettings.psl_enabled, appSettings.ipl_enabled, appSettings.free_movies_enabled, appSettings.free_series_enabled].every(e => !e) && (
+                    <div className="col-span-full py-20 text-center space-y-6 animate-in fade-in zoom-in duration-500">
+                      <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mx-auto border border-white/10 shadow-inner">
+                        <AlertCircle className="text-white/10" size={48} />
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-white/40 font-black uppercase tracking-[0.3em] text-xs">Service Maintenance</p>
+                        <p className="text-white/20 text-[10px] uppercase font-medium tracking-widest">Premium Categories are currently private</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="flex justify-center pt-8">
+                  <div className="px-8 py-4 glass rounded-3xl border border-white/10 text-center max-w-sm mx-auto">
+                    <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.2em] italic">
+                      Proprietary Delivery • Ultra-Stream Engine • 4K•SJ Luxury Access
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-8 pb-12">
+                <div className="flex flex-col md:flex-row items-center justify-between px-4 gap-4">
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => setActiveFreeTab('menu')}
+                      className="flex items-center gap-2 text-white/40 hover:text-white font-black uppercase text-xs tracking-widest transition-all bg-white/5 px-6 py-3 rounded-2xl border border-white/10"
+                    >
+                      <ArrowLeft size={18} /> Back to Free Menu
+                    </button>
+                    <button 
+                      onClick={() => setShowAdminLogin(true)}
+                      className="p-3 bg-white/5 hover:bg-cyan-500/20 rounded-2xl transition-all border border-white/10 group shadow-lg"
+                    >
+                      <Settings size={18} className="text-white/40 group-hover:text-cyan-400" />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${activeFreeTab === 'movies' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-purple-500/20 text-purple-400'}`}>
+                      {activeFreeTab === 'movies' ? <Film size={20} /> : <Tv size={20} />}
+                    </div>
+                    <h3 className="text-2xl font-black text-white italic tracking-tighter uppercase">
+                      {activeFreeTab === 'movies' ? 'Free Movies' : 'Free Series'}
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="px-4">
+                  {activeFreeTab === 'movies' ? (
+                    isMoviesLoading ? (
+                      <div className="flex flex-col items-center justify-center py-24 gap-4">
+                        <Loader2 className="animate-spin text-cyan-500" size={48} />
+                        <p className="text-white/40 font-bold uppercase tracking-widest text-xs">Loading Premium Movies...</p>
+                      </div>
+                    ) : freeMovies.length === 0 ? (
+                      <div className="text-center py-20 glass rounded-[3rem] border border-white/5">
+                        <Film size={48} className="text-white/10 mx-auto mb-4" />
+                        <p className="text-white/40 font-bold italic">No free movies found at this time.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+                        {freeMovies.map((movie: any) => (
+                          <motion.div 
+                            key={movie.id}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            whileHover={{ y: -8, scale: 1.02 }}
+                            className="group cursor-pointer"
+                            onClick={() => { setSelectedFreeMovie(movie); }}
+                          >
+                            <div className="aspect-[2/3] rounded-[2rem] overflow-hidden border border-white/10 bg-white/5 relative shadow-2xl">
+                              <img 
+                                src={movie.poster_url} 
+                                alt={movie.name} 
+                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-5">
+                                <h4 className="text-white font-black text-sm italic tracking-tighter line-clamp-2 uppercase leading-tight mb-2 group-hover:text-cyan-400 transition-colors">{movie.name}</h4>
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2 py-0.5 bg-cyan-500/20 border border-cyan-500/40 rounded-lg text-[8px] font-black text-cyan-400 uppercase tracking-widest">Premium</span>
+                                </div>
+                              </div>
+                              <div className="absolute inset-0 bg-cyan-500/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
+                                <div className="w-14 h-14 rounded-full bg-cyan-500 flex items-center justify-center shadow-[0_0_30px_rgba(6,182,212,0.6)] scale-0 group-hover:scale-100 transition-transform duration-500">
+                                  <Play size={28} className="text-white fill-white ml-1" />
+                                </div>
+                              </div>
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    )
+                  ) : (
+                    isSeriesLoading ? (
+                      <div className="flex flex-col items-center justify-center py-24 gap-4">
+                        <Loader2 className="animate-spin text-purple-500" size={48} />
+                        <p className="text-white/40 font-bold uppercase tracking-widest text-xs">Loading Premium Series...</p>
+                      </div>
+                    ) : freeSeries.length === 0 ? (
+                      <div className="text-center py-20 glass rounded-[3rem] border border-white/5">
+                        <Tv size={48} className="text-white/10 mx-auto mb-4" />
+                        <p className="text-white/40 font-bold italic">No free series found at this time.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+                        {freeSeries.map((series: any) => (
+                          <motion.div 
+                            key={series.id}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            whileHover={{ y: -8, scale: 1.02 }}
+                            className="group cursor-pointer"
+                            onClick={() => { setSelectedFreeSeries(series); }}
+                          >
+                            <div className="aspect-[2/3] rounded-[2rem] overflow-hidden border border-white/10 bg-white/5 relative shadow-2xl">
+                              <img 
+                                src={series.poster_url} 
+                                alt={series.name} 
+                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-5">
+                                <h4 className="text-white font-black text-sm italic tracking-tighter line-clamp-2 uppercase leading-tight mb-2 group-hover:text-purple-400 transition-colors">{series.name}</h4>
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2 py-0.5 bg-purple-500/20 border border-purple-500/40 rounded-lg text-[8px] font-black text-purple-400 uppercase tracking-widest">Premium</span>
+                                </div>
+                              </div>
+                              <div className="absolute inset-0 bg-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
+                                <div className="w-14 h-14 rounded-full bg-purple-500 flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.6)] scale-0 group-hover:scale-100 transition-transform duration-500">
+                                  <Play size={28} className="text-white fill-white ml-1" />
+                                </div>
+                              </div>
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    )
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
           <>
             {/* Premium Category Bar */}
             <div className="flex flex-col gap-4 mb-6">
@@ -2104,329 +2374,25 @@ export default function App() {
             <LayoutGrid size={20} className="relative z-10" />
             <span className="text-[9px] font-black uppercase tracking-tighter relative z-10">Live</span>
           </button>
+          <button 
+            onClick={() => { setActiveTab('free'); setActiveFreeTab('menu'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+            className={cn(
+              "relative flex flex-col items-center gap-1 py-2 px-4 rounded-xl transition-all duration-300",
+              activeTab === 'free' ? "text-cyan-400" : "text-white/40 hover:text-white/60"
+            )}
+          >
+            {activeTab === 'free' && (
+              <motion.div layoutId="mobileNav" className="absolute inset-0 bg-white/5 rounded-xl" />
+            )}
+            <Play size={20} className="relative z-10" />
+            <span className="text-[9px] font-black uppercase tracking-tighter relative z-10">Free</span>
+          </button>
         </div>
       </div>
 
-      {/* Premium Free Access Floating Button */}
-      <motion.button
-        initial={{ scale: 0, opacity: 0, rotate: -180 }}
-        animate={{ scale: 1, opacity: 1, rotate: 0 }}
-        whileHover={{ scale: 1.1, rotate: 5 }}
-        whileTap={{ scale: 0.9 }}
-        onClick={() => setShowFreeAccessModal(true)}
-        className="fixed bottom-28 right-6 md:bottom-10 md:right-10 z-[55] w-20 h-20 bg-gradient-to-br from-cyan-400 via-blue-500 to-indigo-600 rounded-2xl shadow-[0_0_50px_rgba(6,182,212,0.4)] flex items-center justify-center border-2 border-white/30 group overflow-hidden gpu"
-      >
-        <div className="absolute inset-0 bg-gradient-to-tr from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-        <div className="absolute -inset-1 bg-gradient-to-r from-transparent via-white/30 to-transparent -skew-x-12 translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-1000" />
-        <div className="flex flex-col items-center justify-center text-center px-1 relative z-10">
-          <Play size={24} className="text-white mb-1 drop-shadow-lg fill-white" />
-          <span className="text-[10px] font-black text-white uppercase tracking-tighter leading-none">Watch Free</span>
-        </div>
-        <div className="absolute -top-1 -right-1 w-7 h-7 bg-red-600 rounded-full border-2 border-white flex items-center justify-center shadow-lg animate-pulse">
-          <span className="text-[8px] font-black text-white">LIVE</span>
-        </div>
-      </motion.button>
+      {/* Tab Content */}
 
-      {/* Premium Free Access Selection Modal */}
-      <AnimatePresence>
-        {showFreeAccessModal && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 gpu">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowFreeAccessModal(false)}
-              className="absolute inset-0 bg-black/95 backdrop-blur-3xl gpu"
-            />
-            <motion.div
-              initial="hidden"
-              animate="visible"
-              exit="exit"
-              variants={{
-                hidden: { opacity: 0, scale: 0.9, y: 30, rotateX: 10 },
-                visible: { 
-                  opacity: 1, 
-                  scale: 1, 
-                  y: 0, 
-                  rotateX: 0,
-                  transition: {
-                    type: "spring",
-                    damping: 25,
-                    stiffness: 300,
-                    staggerChildren: 0.1,
-                    delayChildren: 0.2
-                  }
-                },
-                exit: { 
-                  opacity: 0, 
-                  scale: 0.9, 
-                  y: 30,
-                  transition: { duration: 0.4, ease: [0.23, 1, 0.32, 1] }
-                }
-              }}
-              className="relative w-full max-w-[380px] glass rounded-[3.5rem] overflow-hidden shadow-[0_0_120px_rgba(0,0,0,0.8)] border border-white/20 p-8 flex flex-col items-center gap-8 gpu preserve-3d"
-            >
-              {/* Complex Atmospheric Glows */}
-              <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-500/10 rounded-full blur-[80px] -mr-20 -mt-20" />
-              <div className="absolute bottom-0 left-0 w-48 h-48 bg-purple-600/10 rounded-full blur-[80px] -ml-20 -mb-20" />
-              <div className="absolute inset-0 bg-gradient-to-tr from-white/[0.03] via-transparent to-transparent pointer-events-none" />
-              
-              <div className="absolute top-7 left-7 right-7 flex justify-between items-center z-20">
-                <motion.button 
-                  variants={{ hidden: { opacity: 0, scale: 0 }, visible: { opacity: 1, scale: 1 } }}
-                  whileHover={{ scale: 1.15, rotate: 180, backgroundColor: "rgba(34, 211, 238, 0.2)" }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => setShowAdminLogin(true)}
-                  className="p-2.5 bg-white/5 hover:bg-cyan-500/20 rounded-2xl transition-all border border-white/10 group shadow-lg"
-                >
-                  <Settings size={20} className="text-white/40 group-hover:text-cyan-400 group-hover:drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
-                </motion.button>
-                <motion.button 
-                  variants={{ hidden: { opacity: 0, scale: 0 }, visible: { opacity: 1, scale: 1 } }}
-                  whileHover={{ scale: 1.15, rotate: 90, backgroundColor: "rgba(239, 68, 68, 0.2)" }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => setShowFreeAccessModal(false)}
-                  className="p-2.5 bg-white/5 hover:bg-red-500/20 rounded-2xl transition-all border border-white/10 group shadow-lg"
-                >
-                  <X size={20} className="text-white/40 group-hover:text-red-400" />
-                </motion.button>
-              </div>
 
-              <motion.div 
-                variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}
-                className="text-center relative z-10 w-full pt-6"
-              >
-                <motion.div 
-                  animate={{ 
-                    y: [0, -12, 0],
-                    rotate: [0, 10, -10, 0],
-                    boxShadow: [
-                      "0 0 30px rgba(34,211,238,0.2)",
-                      "0 0 60px rgba(34,211,238,0.5)",
-                      "0 0 30px rgba(34,211,238,0.2)"
-                    ]
-                  }}
-                  transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-                  className="w-20 h-20 bg-gradient-to-br from-cyan-400 via-blue-600 to-indigo-700 rounded-[2.2rem] flex items-center justify-center mx-auto mb-6 border border-white/30 relative group overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-tr from-white/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <Crown className="text-white relative z-10 drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]" size={42} />
-                </motion.div>
-                <h2 className="text-4xl font-black text-white tracking-[-0.08em] leading-none mb-3 italic">
-                  FREE <span className="text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.4)]">ACCESS</span>
-                </h2>
-                <motion.div 
-                  animate={{ opacity: [0.6, 1, 0.6], scale: [0.98, 1, 0.98] }}
-                  transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-                  className="flex justify-center"
-                >
-                  <span className="px-5 py-1.5 bg-cyan-500/10 border border-cyan-500/30 rounded-full text-[10px] font-black text-cyan-400 uppercase tracking-[0.4em] flex items-center gap-2 shadow-inner">
-                    <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,211,238,1)]" />
-                    Ultra Experience
-                  </span>
-                </motion.div>
-              </motion.div>
-
-              <div className="grid grid-cols-2 gap-5 w-full relative z-10">
-                {[
-                  { 
-                    label: 'LIVE CRICKET', 
-                    title: 'PSL', 
-                    icon: <span className="text-lg font-black text-white italic">PSL</span>, 
-                    color: 'from-green-400 to-green-700', 
-                    bg: 'from-green-500/20 via-green-900/10',
-                    border: 'green-500/30',
-                    onClick: () => { setSelectedPslLanguage('urdu'); setShowPSLPlayer(true); setShowFreeAccessModal(false); }
-                  },
-                  { 
-                    label: 'LIVE IPL', 
-                    title: 'IPL', 
-                    icon: <img src="https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Indian_Premier_League_Official_Logo.svg/1200px-Indian_Premier_League_Official_Logo.svg.png" className="w-full h-full object-contain p-2" referrerPolicy="no-referrer" />, 
-                    color: 'from-blue-400 to-blue-700', 
-                    bg: 'from-blue-500/20 via-blue-900/10',
-                    border: 'blue-500/30',
-                    onClick: () => { setShowIPLPlayer(true); setShowFreeAccessModal(false); }
-                  },
-                  { 
-                    label: 'MOVIES', 
-                    title: 'CINEMA', 
-                    icon: <Film size={34} className="text-white" />, 
-                    color: 'from-cyan-400 to-blue-600', 
-                    bg: 'from-cyan-500/20 via-indigo-900/10',
-                    border: 'cyan-500/30',
-                    onClick: () => { setShowFreeMoviesModal(true); setShowFreeAccessModal(false); }
-                  },
-                  { 
-                    label: 'SERIES', 
-                    title: 'BINGE', 
-                    icon: <Tv size={34} className="text-white" />, 
-                    color: 'from-purple-400 to-indigo-600', 
-                    bg: 'from-purple-500/20 via-indigo-900/10',
-                    border: 'purple-500/30',
-                    onClick: () => { setShowFreeSeriesModal(true); setShowFreeAccessModal(false); }
-                  }
-                ].map((item, i) => (
-                  <motion.button
-                    key={i}
-                    variants={{
-                      hidden: { opacity: 0, y: 30, scale: 0.8 },
-                      visible: { opacity: 1, y: 0, scale: 1 }
-                    }}
-                    whileHover={{ y: -10, scale: 1.05, rotateZ: i % 2 === 0 ? 2 : -2 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={item.onClick}
-                    className={`col-span-1 group relative aspect-[4/5] bg-gradient-to-br ${item.bg} to-transparent border border-${item.border} rounded-[3rem] p-6 flex flex-col items-center justify-center transition-all duration-500 overflow-hidden shadow-2xl backdrop-blur-md`}
-                  >
-                    <div className="absolute inset-0 bg-white/[0.05] opacity-0 group-hover:opacity-100 transition-opacity" />
-                    <div className="absolute -inset-full bg-gradient-to-br from-white/10 to-transparent opacity-0 group-hover:opacity-100 group-hover:animate-pulse -rotate-45 pointer-events-none" />
-                    
-                    <div className={`w-16 h-16 bg-gradient-to-br ${item.color} rounded-[1.8rem] flex items-center justify-center shadow-2xl mb-4 transform group-hover:scale-110 group-hover:rotate-6 transition-all duration-500 border border-white/20 relative`}>
-                      <div className="absolute inset-0 bg-white/30 rounded-[1.8rem] blur-md opacity-0 group-hover:opacity-50 transition-opacity" />
-                      {item.icon}
-                    </div>
-                    <div className="text-center relative z-10">
-                      <p className="text-[9px] text-white/40 font-black uppercase tracking-[0.25em] mb-1.5">{item.label}</p>
-                      <h4 className="text-white font-black text-sm italic tracking-tighter truncate leading-none uppercase">{item.title}</h4>
-                    </div>
-                  </motion.button>
-                ))}
-              </div>
-
-              <motion.div 
-                variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }}
-                className="relative z-10 w-full mb-2"
-              >
-                <p className="text-[10px] text-white/20 text-center font-bold tracking-[0.2em] px-8 leading-relaxed italic uppercase">
-                  Proprietary Delivery • Ultra-Stream Engine
-                </p>
-              </motion.div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Free Movies Modal */}
-      <AnimatePresence>
-        {showFreeMoviesModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 gpu">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowFreeMoviesModal(false)}
-              className="absolute inset-0 bg-black/95 backdrop-blur-md gpu"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              onClick={(e) => e.stopPropagation()}
-              className="relative w-full max-w-5xl glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 flex flex-col max-h-[90vh] gpu"
-            >
-              <div className="p-6 flex items-center justify-between border-b border-white/10 bg-white/5">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center border border-cyan-400/50 shadow-lg">
-                    <Film size={24} className="text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-2xl font-display font-black text-white italic tracking-tight uppercase">Free Premium Movies</h3>
-                    <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold">Limited Time Free Access Collection</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => setShowFreeMoviesModal(false)}
-                  className="p-3 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
-                >
-                  <X size={28} />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-6 no-scrollbar">
-                {isMoviesLoading ? (
-                  <div className="flex flex-col items-center justify-center py-20 text-center">
-                    <Loader2 className="animate-spin text-cyan-500 mb-4" size={40} />
-                    <p className="text-white/40 text-sm font-bold uppercase tracking-widest">Loading Movies...</p>
-                  </div>
-                ) : freeMovies.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-20 text-center">
-                    <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-4 border border-white/10">
-                      <Film size={40} className="text-white/20" />
-                    </div>
-                    <h4 className="text-white font-bold text-lg">No Movies Added Yet</h4>
-                    <p className="text-white/40 text-sm max-w-xs mx-auto">Check back later for newly added free premium movies.</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
-                    {freeMovies.map((movie, idx) => (
-                      <motion.div 
-                        key={`${movie.id}-${idx}`}
-                        whileHover={{ scale: 1.05, y: -5 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => setSelectedFreeMovie(movie)}
-                        className="group cursor-pointer space-y-3"
-                      >
-                        <div className="relative aspect-[2/3] rounded-2xl overflow-hidden shadow-2xl border border-white/10 group-hover:border-cyan-500/50 transition-all duration-300">
-                          <img 
-                            src={movie.poster_url} 
-                            alt={movie.name}
-                            className="w-full h-full object-cover"
-                            referrerPolicy="no-referrer"
-                            onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/movie/400/600?blur=2'; }}
-                          />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-100 transition-all duration-300 flex flex-col justify-end p-4">
-                            <div className="flex flex-col gap-2 transform translate-y-0 transition-transform duration-300">
-                              {movie.play_url.toLowerCase().includes('.mkv') && (
-                                <div className="bg-orange-500/20 border border-orange-500/30 rounded-lg p-1.5 mb-1">
-                                  <p className="text-[8px] text-orange-400 font-bold text-center uppercase leading-tight">
-                                    MKV Format: VLC Recommended
-                                  </p>
-                                </div>
-                              )}
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedFreeMovie(movie);
-                                }}
-                                className="w-full bg-cyan-500 text-black py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20"
-                              >
-                                <Play size={12} fill="currentColor" /> Play Online
-                              </button>
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const filename = `${movie.name || 'movie'}.${movie.play_url.split('.').pop() || 'mp4'}`;
-                                  triggerDownload(movie.download_url, filename);
-                                }}
-                                className="w-full bg-white/10 hover:bg-white/20 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 border border-white/10 backdrop-blur-sm"
-                              >
-                                <Download size={12} /> Download
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                        <h4 className="text-xs md:text-sm font-bold text-white line-clamp-1 group-hover:text-cyan-400 transition-colors px-1">{movie.name}</h4>
-                      </motion.div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="p-6 bg-cyan-500/5 border-t border-cyan-500/10 flex flex-col items-center gap-3">
-                <a 
-                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest"
-                >
-                  <MessageCircle size={20} fill="white" />
-                  Request More Movies
-                </a>
-                <p className="text-[10px] text-white/20 uppercase tracking-[0.3em] font-bold italic">Powered by 4K•SJ Premium Engine</p>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* Free Movie Player Modal */}
       <AnimatePresence>
@@ -2763,123 +2729,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Free Series Modal */}
-      <AnimatePresence>
-        {showFreeSeriesModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 gpu">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowFreeSeriesModal(false)}
-              className="absolute inset-0 bg-black/95 backdrop-blur-md gpu"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              onClick={(e) => e.stopPropagation()}
-              className="relative w-full max-w-5xl glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 flex flex-col max-h-[90vh] gpu"
-            >
-              <div className="p-6 flex items-center justify-between border-b border-white/10 bg-white/5">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl flex items-center justify-center border border-purple-400/50 shadow-lg">
-                    <Tv size={24} className="text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-2xl font-display font-black text-white italic tracking-tight uppercase">Free Web Series</h3>
-                    <p className="text-white/40 text-[10px] uppercase tracking-widest font-bold">Premium Binge Collection</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => setShowFreeSeriesModal(false)}
-                  className="p-3 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
-                >
-                  <X size={28} />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-6 no-scrollbar">
-                {isSeriesLoading ? (
-                  <div className="flex flex-col items-center justify-center py-20 text-center">
-                    <Loader2 className="animate-spin text-purple-500 mb-4" size={40} />
-                    <p className="text-white/40 text-sm font-bold uppercase tracking-widest">Loading Series...</p>
-                  </div>
-                ) : freeSeries.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-20 text-center">
-                    <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-4 border border-white/10">
-                      <Tv size={40} className="text-white/20" />
-                    </div>
-                    <h4 className="text-white font-bold text-lg">No Series Added Yet</h4>
-                    <p className="text-white/40 text-sm max-w-xs mx-auto">Check back later for newly added free web series.</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
-                    {freeSeries.map((series, idx) => (
-                      <motion.div 
-                        key={`${series.id}-${idx}`}
-                        whileHover={{ scale: 1.05, y: -5 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => setSelectedFreeSeries(series)}
-                        className="group cursor-pointer space-y-3"
-                      >
-                        <div className="relative aspect-[2/3] rounded-2xl overflow-hidden shadow-2xl border border-white/10 group-hover:border-purple-500/50 transition-all duration-300">
-                          <img 
-                            src={series.poster_url} 
-                            alt={series.name}
-                            className="w-full h-full object-cover"
-                            referrerPolicy="no-referrer"
-                            onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/series/400/600?blur=1'; }}
-                          />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-100 transition-all duration-300 flex flex-col justify-end p-4">
-                            <div className="flex flex-col gap-2 transform translate-y-0 transition-transform duration-300">
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedFreeSeries(series);
-                                }}
-                                className="w-full bg-purple-500 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-purple-500/20"
-                              >
-                                <Play size={12} fill="currentColor" /> Watch Now
-                              </button>
-                              {series.download_url && (
-                                <a 
-                                  href={series.download_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="w-full bg-white/10 hover:bg-white/20 text-white py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 border border-white/10 backdrop-blur-sm"
-                                >
-                                  <Download size={12} /> Download
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <h4 className="text-xs md:text-sm font-bold text-white line-clamp-1 group-hover:text-purple-400 transition-colors px-1">{series.name}</h4>
-                      </motion.div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="p-6 bg-purple-500/5 border-t border-purple-500/10 flex flex-col items-center gap-3">
-                <a 
-                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest"
-                >
-                  <MessageCircle size={20} fill="white" />
-                  Request Web Series
-                </a>
-                <p className="text-[10px] text-white/20 uppercase tracking-[0.3em] font-bold italic">Powered by 4K•SJ Premium Engine</p>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
       {/* Free Series Player Modal */}
       <AnimatePresence>
         {selectedFreeSeries && (
@@ -3029,8 +2878,7 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-3">
                   <button 
-                    onClick={async () => {
-                      await auth.signOut();
+                    onClick={() => {
                       setIsAdminLoggedIn(false);
                     }}
                     className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-red-500/20"
@@ -3048,7 +2896,7 @@ export default function App() {
 
               <div className="p-6 bg-black/40 border-b border-white/5">
                 <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 overflow-x-auto no-scrollbar">
-                  {(['psl', 'ipl', 'free_movies', 'free_series'] as const).map((tab) => (
+                  {(['psl', 'ipl', 'app', 'free_movies', 'free_series'] as const).map((tab) => (
                     <button 
                       key={tab}
                       onClick={() => setActiveAdminTab(tab)}
@@ -3058,7 +2906,7 @@ export default function App() {
                           : 'text-white/40 hover:text-white hover:bg-white/5'
                       }`}
                     >
-                      {tab.replace('free_', '').toUpperCase()}
+                      {tab === 'app' ? 'General' : tab.replace('free_', '').toUpperCase()}
                     </button>
                   ))}
                 </div>
@@ -3066,6 +2914,88 @@ export default function App() {
 
               <div className="p-6 flex-1 overflow-y-auto no-scrollbar max-h-[60vh]">
                 <div className="flex flex-col gap-6">
+                  {activeAdminTab === 'app' && (
+                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* PSL Toggle */}
+                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-black text-cyan-400 uppercase tracking-widest">PSL Settings</h4>
+                          <button 
+                            onClick={() => setNewAppSettings(prev => ({ ...prev, psl_enabled: !prev.psl_enabled }))}
+                            className={cn("w-12 h-6 rounded-full relative transition-all duration-300", newAppSettings.psl_enabled ? "bg-cyan-500" : "bg-white/10")}
+                          >
+                            <motion.div animate={{ x: newAppSettings.psl_enabled ? 26 : 2 }} className="w-5 h-5 bg-white rounded-full absolute top-0.5" />
+                          </button>
+                        </div>
+                        <input 
+                          type="text" 
+                          value={newAppSettings.psl_title || ''}
+                          onChange={(e) => setNewAppSettings(prev => ({ ...prev, psl_title: e.target.value }))}
+                          placeholder="Category Title"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500/50"
+                        />
+                      </div>
+                      {/* IPL Toggle */}
+                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-black text-blue-400 uppercase tracking-widest">IPL Settings</h4>
+                          <button 
+                            onClick={() => setNewAppSettings(prev => ({ ...prev, ipl_enabled: !prev.ipl_enabled }))}
+                            className={cn("w-12 h-6 rounded-full relative transition-all duration-300", newAppSettings.ipl_enabled ? "bg-blue-500" : "bg-white/10")}
+                          >
+                            <motion.div animate={{ x: newAppSettings.ipl_enabled ? 26 : 2 }} className="w-5 h-5 bg-white rounded-full absolute top-0.5" />
+                          </button>
+                        </div>
+                        <input 
+                          type="text" 
+                          value={newAppSettings.ipl_title || ''}
+                          onChange={(e) => setNewAppSettings(prev => ({ ...prev, ipl_title: e.target.value }))}
+                          placeholder="Category Title"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500/50"
+                        />
+                      </div>
+                      {/* Free Movies Toggle */}
+                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-black text-indigo-400 uppercase tracking-widest">Free Movies</h4>
+                          <button 
+                            onClick={() => setNewAppSettings(prev => ({ ...prev, free_movies_enabled: !prev.free_movies_enabled }))}
+                            className={cn("w-12 h-6 rounded-full relative transition-all duration-300", newAppSettings.free_movies_enabled ? "bg-indigo-500" : "bg-white/10")}
+                          >
+                            <motion.div animate={{ x: newAppSettings.free_movies_enabled ? 26 : 2 }} className="w-5 h-5 bg-white rounded-full absolute top-0.5" />
+                          </button>
+                        </div>
+                        <input 
+                          type="text" 
+                          value={newAppSettings.free_movies_title || ''}
+                          onChange={(e) => setNewAppSettings(prev => ({ ...prev, free_movies_title: e.target.value }))}
+                          placeholder="Category Title"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500/50"
+                        />
+                      </div>
+                      {/* Free Series Toggle */}
+                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-black text-purple-400 uppercase tracking-widest">Free Series</h4>
+                          <button 
+                            onClick={() => setNewAppSettings(prev => ({ ...prev, free_series_enabled: !prev.free_series_enabled }))}
+                            className={cn("w-12 h-6 rounded-full relative transition-all duration-300", newAppSettings.free_series_enabled ? "bg-purple-500" : "bg-white/10")}
+                          >
+                            <motion.div animate={{ x: newAppSettings.free_series_enabled ? 26 : 2 }} className="w-5 h-5 bg-white rounded-full absolute top-0.5" />
+                          </button>
+                        </div>
+                        <input 
+                          type="text" 
+                          value={newAppSettings.free_series_title || ''}
+                          onChange={(e) => setNewAppSettings(prev => ({ ...prev, free_series_title: e.target.value }))}
+                          placeholder="Category Title"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-purple-500/50"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
                   {activeAdminTab === 'psl' && (
                     <div className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

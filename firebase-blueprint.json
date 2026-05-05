@@ -17,6 +17,14 @@
           "type": "string",
           "description": "The current IPL Live stream URL"
         },
+        "psl_enabled": { "type": "boolean" },
+        "ipl_enabled": { "type": "boolean" },
+        "free_movies_enabled": { "type": "boolean" },
+        "free_series_enabled": { "type": "boolean" },
+        "psl_title": { "type": "string" },
+        "ipl_title": { "type": "string" },
+        "free_movies_title": { "type": "string" },
+        "free_series_title": { "type": "string" },
         "updatedAt": {
           "type": "string",
           "format": "date-time",
@@ -37,6 +45,19 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "poster_url", "play_url"]
+    },
+    "free_series": {
+      "title": "Free Series",
+      "description": "Custom series added for free access",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "poster_url": { "type": "string" },
+        "play_url": { "type": "string" },
+        "download_url": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "poster_url", "play_url"]
     }
   },
   "firestore": {
@@ -48,9 +69,17 @@
       "schema": "settings",
       "description": "The document containing the IPL Live stream URL"
     },
+    "/settings/app": {
+      "schema": "settings",
+      "description": "Global application feature toggles and titles"
+    },
     "/free_movies/{movieId}": {
       "schema": "free_movies",
       "description": "Collection of free movies"
+    },
+    "/free_series/{seriesId}": {
+      "schema": "free_series",
+      "description": "Collection of free series"
     }
   }
 }

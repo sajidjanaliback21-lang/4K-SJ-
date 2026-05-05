@@ -7,23 +7,24 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return request.auth != null && 
-             request.auth.token.email != null && 
-             (request.auth.token.email.lower() == "sjstoreuk17@gmail.com" || 
-              request.auth.token.email == "sjstoreuk17@gmail.com");
+      // Security removed as per user request to use simple password only
+      return true;
     }
 
     // Settings Collection
     match /settings/{settingId} {
-      // Anyone can read the PSL URL
       allow read: if true;
-      
-      // Only the admin can update it
       allow write: if isAdmin();
     }
 
     // Free Movies Collection
     match /free_movies/{movieId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Free Series Collection
+    match /free_series/{seriesId} {
       allow read: if true;
       allow write: if isAdmin();
     }
