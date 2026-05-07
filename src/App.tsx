@@ -163,6 +163,7 @@ export default function App() {
   const [isSeriesLoading, setIsSeriesLoading] = useState(true);
   const [editingMovieId, setEditingMovieId] = useState<string | null>(null);
   const [editingSeriesId, setEditingSeriesId] = useState<string | null>(null);
+
   const [newFreeMovie, setNewFreeMovie] = useState({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
   const [newFreeSeries, setNewFreeSeries] = useState({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
   const [selectedPslLanguage, setSelectedPslLanguage] = useState<'urdu' | 'english' | 'custom' | null>(null);
@@ -190,6 +191,20 @@ export default function App() {
   const [showWebPlayer, setShowWebPlayer] = useState(false);
   const [webPlayUrl, setWebPlayUrl] = useState('');
   const [webPlayTitle, setWebPlayTitle] = useState('');
+
+  // Helper to determine if the bottom navigation should be hidden
+  const shouldHideNav = !!(
+    selectedItem || 
+    selectedFreeMovie || 
+    selectedFreeSeries || 
+    showPSLPlayer || 
+    showIPLPlayer || 
+    showWebPlayer ||
+    showLoginModal ||
+    showAdminLogin ||
+    showDownloadConfirm ||
+    (activeTab === 'live' && playingLiveStream)
+  );
   const [newPslUrlUrdu, setNewPslUrlUrdu] = useState(pslUrlUrdu);
   const [newPslUrlEnglish, setNewPslUrlEnglish] = useState(pslUrlEnglish);
   const [newPslChannel3Name, setNewPslChannel3Name] = useState(pslChannel3Name);
@@ -1540,7 +1555,19 @@ export default function App() {
                       id: 'ipl',
                       label: 'IPL LIVE', 
                       title: appSettings.ipl_title || 'IPL', 
-                      icon: <img src="https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Indian_Premier_League_Official_Logo.svg/1200px-Indian_Premier_League_Official_Logo.svg.png" className="w-10 h-10 md:w-14 md:h-14 object-contain brightness-110 contrast-125" referrerPolicy="no-referrer" />, 
+                      icon: (
+                        <img 
+                          src="https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Indian_Premier_League_Official_Logo.svg/500px-Indian_Premier_League_Official_Logo.svg.png" 
+                          className="w-10 h-10 md:w-14 md:h-14 object-contain brightness-110 contrast-125" 
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            if (target.src !== 'https://www.iplt20.com/assets/images/IPL-logo-new.png') {
+                              target.src = 'https://www.iplt20.com/assets/images/IPL-logo-new.png';
+                            }
+                          }}
+                        />
+                      ), 
                       color: 'from-blue-400 to-indigo-600', 
                       glow: 'shadow-blue-500/20',
                       border: 'border-blue-500/20',
@@ -2346,57 +2373,66 @@ export default function App() {
       </AnimatePresence>
 
       {/* Next-Level Mobile Floating Navigation - Ultra-Optimized & Premium UI */}
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] md:hidden w-auto pointer-events-none px-4">
-        <div className="relative flex items-center gap-1 p-2 bg-black/80 border border-white/10 rounded-[3rem] shadow-[0_25px_50px_-12px_rgba(0,0,0,1)] backdrop-blur-3xl pointer-events-auto ring-1 ring-white/10">
-          {[
-            { id: 'home', label: 'HOME', icon: Home, color: 'cyan' },
-            { id: 'movies', label: 'MOVIES', icon: Clapperboard, color: 'blue' },
-            { id: 'series', label: 'WEB SERIES', icon: Tv, color: 'purple' },
-            { id: 'live', label: 'LIVE TV', icon: Zap, color: 'orange' },
-            { id: 'free', label: 'FREE', icon: Gift, color: 'yellow' }
-          ].map((item) => {
-            const isActive = activeTab === item.id;
-            const Icon = item.icon;
+      <AnimatePresence>
+        {!shouldHideNav && (
+          <motion.div 
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] md:hidden w-auto pointer-events-none px-4"
+          >
+            <div className="relative flex items-center gap-1 p-2 bg-black/80 border border-white/10 rounded-[3rem] shadow-[0_25px_50px_-12px_rgba(0,0,0,1)] backdrop-blur-3xl pointer-events-auto ring-1 ring-white/10">
+              {[
+                { id: 'home', label: 'HOME', icon: Home, color: 'cyan' },
+                { id: 'movies', label: 'MOVIES', icon: Clapperboard, color: 'blue' },
+                { id: 'series', label: 'WEB SERIES', icon: Tv, color: 'purple' },
+                { id: 'live', label: 'LIVE TV', icon: Zap, color: 'orange' },
+                { id: 'free', label: 'FREE', icon: Gift, color: 'yellow' }
+              ].map((item) => {
+                const isActive = activeTab === item.id;
+                const Icon = item.icon;
 
-            return (
-              <button
-                key={item.id}
-                onClick={() => {
-                  if (item.id === 'movies') setSelectedMovieCategory('0');
-                  if (item.id === 'series') setSelectedSeriesCategory('0');
-                  if (item.id === 'live') setSelectedLiveCategory('0');
-                  if (item.id === 'free') setActiveFreeTab('menu');
-                  setActiveTab(item.id as any);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className="relative flex flex-col items-center justify-center w-[72px] h-14 transition-transform active:scale-95"
-              >
-                <div className={cn(
-                  "relative z-10 flex flex-col items-center gap-1 transition-all duration-300",
-                  isActive ? "opacity-100" : "opacity-40"
-                )}>
-                  <div className="p-1 rounded-xl">
-                    <Icon 
-                      size={20} 
-                      className={cn(
-                        "transition-all duration-300",
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      if (item.id === 'movies') setSelectedMovieCategory('0');
+                      if (item.id === 'series') setSelectedSeriesCategory('0');
+                      if (item.id === 'live') setSelectedLiveCategory('0');
+                      if (item.id === 'free') setActiveFreeTab('menu');
+                      setActiveTab(item.id as any);
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className="relative flex flex-col items-center justify-center w-[72px] h-14 transition-transform active:scale-95"
+                  >
+                    <div className={cn(
+                      "relative z-10 flex flex-col items-center gap-1 transition-all duration-300",
+                      isActive ? "opacity-100" : "opacity-40"
+                    )}>
+                      <div className="p-1 rounded-xl">
+                        <Icon 
+                          size={20} 
+                          className={cn(
+                            "transition-all duration-300",
+                            isActive ? `text-${item.color}-400` : "text-white"
+                          )} 
+                        />
+                      </div>
+                      <span className={cn(
+                        "text-[8px] font-black uppercase tracking-wider leading-none transition-all duration-300",
                         isActive ? `text-${item.color}-400` : "text-white"
-                      )} 
-                    />
-                  </div>
-                  <span className={cn(
-                    "text-[8px] font-black uppercase tracking-wider leading-none transition-all duration-300",
-                    isActive ? `text-${item.color}-400` : "text-white"
-                  )}>
-                    {item.label}
-                  </span>
-                </div>
-
-              </button>
-            )
-          })}
-        </div>
-      </div>
+                      )}>
+                        {item.label}
+                      </span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Tab Content */}
 
