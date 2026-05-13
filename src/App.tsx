@@ -515,9 +515,6 @@ export default function App() {
   useEffect(() => {
     const initData = async () => {
       setLoadingHome(true);
-      setLoadingMovies(true);
-      setLoadingSeries(true);
-      setLoadingLive(true);
       setError(null);
       setIntroProgress(5);
 
@@ -545,7 +542,8 @@ export default function App() {
         setLiveCategories([{ category_id: '0', category_name: 'All Channels', parent_id: 0 }, ...lCats]);
         setIntroProgress(35);
 
-        // 2. Fetch Movies
+        // 2. Fetch Home Data (Movies & Series sequentially to avoid 429)
+        setLoadingMovies(true);
         let mItems: Stream[] = [];
         try {
           mItems = await xtreamApi.getMovies(creds, '0');
@@ -558,7 +556,10 @@ export default function App() {
           setLoadingMovies(false);
         }
 
-        // 3. Fetch Series
+        // Small delay between heavy requests
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        setLoadingSeries(true);
         let sItems: Series[] = [];
         try {
           sItems = await xtreamApi.getSeries(creds, '0');
@@ -571,19 +572,10 @@ export default function App() {
           setLoadingSeries(false);
         }
 
-        // 4. Fetch Live TV
-        try {
-          const lItems = await xtreamApi.getLiveStreams(creds, '0');
-          setLiveItems(lItems);
-          setTotalLiveCount(lItems.length);
-          setIntroProgress(90);
-        } catch (lErr) {
-          console.error("Failed to fetch live streams", lErr);
-        } finally {
-          setLoadingLive(false);
-        }
+        // Live items are fetched only when tab active or after a longer delay
+        setIntroProgress(90);
 
-        // 5. Set Home Data
+        // 3. Set Home Data
         if (mItems.length > 0 || sItems.length > 0) {
           const sortedMovies = [...mItems].sort((a, b) => (parseInt(b.added) || 0) - (parseInt(a.added) || 0));
           const sortedSeries = [...sItems].sort((a, b) => (parseInt(b.last_modified) || 0) - (parseInt(a.last_modified) || 0));
@@ -597,7 +589,10 @@ export default function App() {
           localStorage.setItem('iptv_home_cache', JSON.stringify(newData));
           setIntroProgress(100);
         } else if (homeData.popularMovies.length === 0) {
-          setError("No content found on the server. Please check your IPTV subscription.");
+          // If completely empty after wait, show error
+          if (!loadingMovies && !loadingSeries) {
+            setError("No content found on the server. Please check your IPTV subscription.");
+          }
           setIntroProgress(100);
         }
       } catch (err: any) {
@@ -606,9 +601,6 @@ export default function App() {
         setIntroProgress(100);
       } finally {
         setLoadingHome(false);
-        setLoadingMovies(false);
-        setLoadingSeries(false);
-        setLoadingLive(false);
       }
     };
 
@@ -618,7 +610,9 @@ export default function App() {
 
   // Fetch Movie items when category changes
   useEffect(() => {
-    if (isInitialMount.current && selectedMovieCategory === '0') return;
+    // Skip if it's initial mount and category is 0 (already fetched in initData)
+    // Also skip if we already have items for category 0
+    if (selectedMovieCategory === '0' && movieItems.length > 0) return;
 
     const fetchMovies = async () => {
       setLoadingMovies(true);
@@ -638,7 +632,8 @@ export default function App() {
 
   // Fetch Series items when category changes
   useEffect(() => {
-    if (isInitialMount.current && selectedSeriesCategory === '0') return;
+    // Skip if it's initial mount and category is 0 (already fetched in initData)
+    if (selectedSeriesCategory === '0' && seriesItems.length > 0) return;
 
     const fetchSeries = async () => {
       setLoadingSeries(true);
@@ -656,9 +651,11 @@ export default function App() {
     fetchSeries();
   }, [creds, selectedSeriesCategory]);
 
-  // Fetch Live TV items when category changes
+  // Fetch Live TV items when category changes or when live tab is active and items are empty
   useEffect(() => {
-    if (isInitialMount.current && selectedLiveCategory === '0') return;
+    // Only fetch if tab is live OR if it's category change
+    if (activeTab !== 'live' && selectedLiveCategory === '0') return;
+    if (selectedLiveCategory === '0' && liveItems.length > 0) return;
 
     const fetchLive = async () => {
       setLoadingLive(true);
@@ -666,6 +663,7 @@ export default function App() {
       try {
         const data = await xtreamApi.getLiveStreams(creds, selectedLiveCategory);
         setLiveItems(data);
+        setTotalLiveCount(data.length);
       } catch (err: any) {
         console.error("Failed to fetch live streams", err);
         setError(err.message || "Failed to fetch channels for this category.");
@@ -674,7 +672,7 @@ export default function App() {
       }
     };
     fetchLive();
-  }, [creds, selectedLiveCategory]);
+  }, [creds, selectedLiveCategory, activeTab]);
 
   const handleItemClick = (item: any) => {
     setSelectedItem(item);
@@ -968,7 +966,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-[#020617] text-white selection:bg-cyan-500/30 selection:text-cyan-200">
       <AnimatePresence>
         {showIntro && (
           <IntroLoading 
@@ -982,7 +980,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Header */}
-      <header className="sticky top-0 z-50 glass-dark px-4 md:px-6 py-3 md:py-4 flex items-center justify-between border-b border-white/5">
+      <header className="sticky top-0 z-50 glass-dark px-4 md:px-6 py-3 md:py-4 safe-top flex items-center justify-between border-b border-white/5">
         <div className="flex items-center gap-4 md:gap-8">
           <div className="flex flex-col -space-y-1">
             <h1 className="text-xl md:text-2xl font-display font-bold text-gradient tracking-tighter flex items-center italic">
@@ -1310,6 +1308,7 @@ export default function App() {
                           responsive: true,
                           fluid: true,
                           is_embed: false,
+                          isLive: true,
                           sources: [{
                             src: `${creds.host.replace(/\/$/, '')}/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.ts`,
                             type: 'video/mp2t'
@@ -1557,13 +1556,13 @@ export default function App() {
                       title: appSettings.ipl_title || 'IPL', 
                       icon: (
                         <img 
-                          src="https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Indian_Premier_League_Official_Logo.svg/500px-Indian_Premier_League_Official_Logo.svg.png" 
+                          src="https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Indian_Premier_League_Official_Logo.svg/200px-Indian_Premier_League_Official_Logo.svg.png" 
                           className="w-10 h-10 md:w-14 md:h-14 object-contain brightness-110 contrast-125" 
                           referrerPolicy="no-referrer"
                           onError={(e) => {
                             const target = e.target as HTMLImageElement;
-                            if (target.src !== 'https://www.iplt20.com/assets/images/IPL-logo-new.png') {
-                              target.src = 'https://www.iplt20.com/assets/images/IPL-logo-new.png';
+                            if (target.src !== 'https://www.iplt20.com/assets/images/IPL-logo-new-old.png') {
+                              target.src = 'https://www.iplt20.com/assets/images/IPL-logo-new-old.png';
                             }
                           }}
                         />
@@ -2190,6 +2189,7 @@ export default function App() {
                   options={{
                     autoplay: true,
                     controls: true,
+                    isLive: !!(selectedItem as any)?.stream_type && (selectedItem as any).stream_type === 'live',
                     sources: [{
                       src: webPlayUrl,
                       type: webPlayUrl.toLowerCase().includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'
@@ -2456,7 +2456,7 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
               className="relative w-full max-w-5xl glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 flex flex-col"
             >
-              <div className="p-4 flex items-center justify-between border-b border-white/10 bg-white/5">
+              <div className="p-4 safe-top flex items-center justify-between border-b border-white/10 bg-white/5">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-cyan-500 rounded-lg flex items-center justify-center border border-cyan-400 shadow-lg">
                     <Play size={20} className="text-black fill-black" />
@@ -2490,6 +2490,7 @@ export default function App() {
                       poster: selectedFreeMovie.poster_url,
                       is_embed: selectedFreeMovie.is_embed,
                       skipProxy: true,
+                      isLive: false,
                       sources: [{
                         src: selectedFreeMovie.play_url,
                         type: selectedFreeMovie.play_url.includes('.m3u8') ? 'application/x-mpegURL' : 
@@ -2563,7 +2564,7 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
               className="relative w-[95vw] md:w-full md:max-w-5xl glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 flex flex-col gpu"
             >
-              <div className="p-4 flex items-center justify-between border-b border-white/10 bg-white/5">
+              <div className="p-4 safe-top flex items-center justify-between border-b border-white/10 bg-white/5">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center border border-green-500 shadow-lg shadow-green-600/20">
                     <span className="text-xs font-black text-white">PSL</span>
@@ -2588,7 +2589,7 @@ export default function App() {
 
               <div className="relative w-full aspect-video bg-black overflow-hidden min-h-[220px] md:min-h-[400px]">
                 {pslOptions.sources[0].src ? (
-                  <VideoPlayer key={pslOptions.sources[0].src} options={pslOptions} />
+                  <VideoPlayer key={pslOptions.sources[0].src} options={{...pslOptions, isLive: true}} />
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/60 backdrop-blur-sm">
                     <Loader2 className="animate-spin text-cyan-500" size={40} />
@@ -2668,14 +2669,15 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
               className="relative w-[95vw] md:w-full md:max-w-5xl glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 flex flex-col gpu"
             >
-              <div className="p-4 flex items-center justify-between border-b border-white/10 bg-white/5">
+              <div className="p-4 safe-top flex items-center justify-between border-b border-white/10 bg-white/5">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-blue-600 shadow-lg shadow-white/10 overflow-hidden">
                     <img 
-                      src="https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Indian_Premier_League_Official_Logo.svg/1200px-Indian_Premier_League_Official_Logo.svg.png" 
+                      src="https://upload.wikimedia.org/wikipedia/en/thumb/8/84/Indian_Premier_League_Official_Logo.svg/200px-Indian_Premier_League_Official_Logo.svg.png" 
                       alt="IPL" 
                       className="w-full h-full object-contain p-1"
                       referrerPolicy="no-referrer"
+                      onError={(e) => { (e.target as HTMLImageElement).src = 'https://www.iplt20.com/assets/images/IPL-logo-new-old.png'; }}
                     />
                   </div>
                   <div>
@@ -2700,7 +2702,7 @@ export default function App() {
                 {iplOptions.sources[0].src ? (
                   <VideoPlayer 
                     key={iplOptions.sources[0].src}
-                    options={iplOptions}
+                    options={{...iplOptions, isLive: true}}
                   />
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/60 backdrop-blur-sm">
@@ -2791,7 +2793,7 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
               className="relative w-full max-w-5xl glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 flex flex-col max-h-[95vh] gpu"
             >
-              <div className="p-4 flex items-center justify-between border-b border-white/10 bg-white/5">
+              <div className="p-4 safe-top flex items-center justify-between border-b border-white/10 bg-white/5">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center border border-purple-500 shadow-lg group">
                     <Tv size={20} className="text-white group-hover:rotate-12 transition-transform" />
@@ -2830,6 +2832,7 @@ export default function App() {
                       controls: true,
                       responsive: true,
                       fluid: true,
+                      isLive: false,
                       poster: selectedFreeSeries.poster_url,
                       is_embed: selectedFreeSeries.is_embed,
                       skipProxy: true,

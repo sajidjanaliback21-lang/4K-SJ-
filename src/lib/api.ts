@@ -7,9 +7,18 @@ export const DEFAULT_CREDENTIALS: XtreamCredentials = {
   password: '62246624',
 };
 
-const proxyRequest = async (params: any) => {
-  const response = await axios.get('/api/proxy', { params });
-  return response.data;
+const proxyRequest = async (params: any, retries = 3, backoff = 1000): Promise<any> => {
+  try {
+    const response = await axios.get('/api/proxy', { params });
+    return response.data;
+  } catch (error: any) {
+    if (error.response?.status === 429 && retries > 0) {
+      console.warn(`Got 429, retrying in ${backoff}ms... (${retries} retries left)`);
+      await new Promise(resolve => setTimeout(resolve, backoff));
+      return proxyRequest(params, retries - 1, backoff * 2);
+    }
+    throw error;
+  }
 };
 
 export const xtreamApi = {

@@ -7,6 +7,10 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Simple in-memory cache for proxy requests
+const cache = new Map<string, { data: any; expiry: number }>();
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes cache duration
+
 async function startServer() {
   const app = express();
   // Use PORT from environment (Hugging Face uses 7860, AI Studio uses 3000)
@@ -18,6 +22,16 @@ async function startServer() {
   app.get("/api/proxy", async (req, res) => {
     const { url, ...params } = req.query;
     if (!url) return res.status(400).json({ error: "URL is required" });
+
+    const fullUrl = url as string;
+    const cacheKey = fullUrl + JSON.stringify(params);
+
+    // Check cache
+    const cached = cache.get(cacheKey);
+    if (cached && cached.expiry > Date.now()) {
+      console.log(`Serving from cache: ${fullUrl}`);
+      return res.json(cached.data);
+    }
 
     console.log(`Proxying request to: ${url}`);
     try {
@@ -32,9 +46,24 @@ async function startServer() {
           'Host': targetUrl.host,
         }
       });
+      
+      // Store in cache if successful
+      if (response.status === 200) {
+        cache.set(cacheKey, {
+          data: response.data,
+          expiry: Date.now() + CACHE_TTL
+        });
+      }
+
       console.log(`Successfully fetched data from: ${url} (Size: ${JSON.stringify(response.data).length} bytes)`);
       res.json(response.data);
     } catch (error: any) {
+      // If we got a 429 and have stale cache, serve it anyway as fallback
+      if (error.response?.status === 429 && cached) {
+        console.warn(`Got 429, serving stale cache for: ${fullUrl}`);
+        return res.json(cached.data);
+      }
+
       console.error(`Proxy error for ${url}:`, error.message);
       const status = error.response?.status || 500;
       const data = error.response?.data || { error: "Failed to fetch from IPTV server", details: error.message };
