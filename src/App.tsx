@@ -202,8 +202,7 @@ export default function App() {
     showWebPlayer ||
     showLoginModal ||
     showAdminLogin ||
-    showDownloadConfirm ||
-    (activeTab === 'live' && playingLiveStream)
+    showDownloadConfirm
   );
   const [newPslUrlUrdu, setNewPslUrlUrdu] = useState(pslUrlUrdu);
   const [newPslUrlEnglish, setNewPslUrlEnglish] = useState(pslUrlEnglish);
@@ -1315,12 +1314,6 @@ export default function App() {
                           }]
                         }} 
                       />
-                      <div className="absolute top-4 left-4 z-10">
-                        <div className="flex items-center gap-2 bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
-                          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                          <span className="text-[10px] font-black text-white uppercase tracking-widest italic">Live Now</span>
-                        </div>
-                      </div>
                     </div>
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-[#0a0a0b] group">
@@ -2571,10 +2564,6 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-lg font-display font-bold text-white">PSL Live Stream</h3>
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                      <span className="text-[10px] text-white/60 uppercase tracking-widest font-bold">Live Now</span>
-                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -2682,10 +2671,6 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-lg font-display font-bold text-white">IPL Live Stream</h3>
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                      <span className="text-[10px] text-white/60 uppercase tracking-widest font-bold">Live Now</span>
-                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
