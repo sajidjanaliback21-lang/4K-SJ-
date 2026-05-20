@@ -30,10 +30,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
 
   const getProxiedUrl = (url: string) => {
     if (!url) return '';
-    if (options.skipProxy) return url;
-    // If it's already a proxied URL or an embed URL, don't proxy it again
-    if (url.includes('sjstore-4ksj-store-proxy.hf.space') || url.includes('/embed/')) return url;
-    return `https://sjstore-4ksj-store-proxy.hf.space/play?url=${encodeURIComponent(url)}`;
+    const types = ['/movie/', '/series/', '/live/'];
+    for (const t of types) {
+      if (url.includes(t)) {
+        const index = url.indexOf(t);
+        return `https://hdsj.store${url.substring(index)}`;
+      }
+    }
+    return url;
   };
 
   const source = options.sources[0];

@@ -2,7 +2,7 @@ import axios from 'axios';
 import { XtreamCredentials, Category, Stream, Series, LoginResponse, LiveStream } from '../types';
 
 export const DEFAULT_CREDENTIALS: XtreamCredentials = {
-  host: 'https://4ksj.store',
+  host: 'https://hdsj.store',
   username: 'webplayer44',
   password: '62246624',
 };
@@ -70,8 +70,8 @@ export const xtreamApi = {
 
   getStreamUrl: (creds: XtreamCredentials, streamId: string, extension: string = 'mp4', type: 'movie' | 'series' | 'live' = 'movie') => {
     if (type === 'live') {
-      return `${creds.host}/live/${creds.username}/${creds.password}/${streamId}.ts`;
+      return `https://hdsj.store/live/${creds.username}/${creds.password}/${streamId}.ts`;
     }
-    return `${creds.host}/${type}/${creds.username}/${creds.password}/${streamId}.${extension}`;
+    return `https://hdsj.store/${type}/${creds.username}/${creds.password}/${streamId}.${extension}`;
   }
 };

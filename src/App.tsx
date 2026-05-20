@@ -858,17 +858,12 @@ export default function App() {
       return;
     }
 
-    // Ensure host is valid
-    let host = creds.host.trim();
-    if (!host || !creds.username || !creds.password) {
-      alert("Please enter a valid server host, username, and password in settings.");
+    if (!creds.username || !creds.password) {
+      alert("Please enter a valid username and password in settings.");
       return;
     }
-    if (!host.startsWith('http')) {
-      host = `http://${host}`;
-    }
-    // Remove trailing slash if exists
-    host = host.replace(/\/$/, '');
+    // Always use hdsj.store for all playback and download URLs as per critical update requirement
+    const host = 'https://hdsj.store';
 
     const isLive = !!(item as any).stream_type && (item as any).stream_type === 'live';
     const isSeries = !!(episodeId || (item as any).series_id);
@@ -1309,7 +1304,7 @@ export default function App() {
                           is_embed: false,
                           isLive: true,
                           sources: [{
-                            src: `${creds.host.replace(/\/$/, '')}/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.ts`,
+                            src: `https://hdsj.store/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.ts`,
                             type: 'video/mp2t'
                           }]
                         }} 
@@ -1357,7 +1352,7 @@ export default function App() {
                         {copiedId === playingLiveStream.stream_id ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
                       </button>
                       <button 
-                        onClick={() => window.location.href = formatVlcUrl(`${creds.host.replace(/\/$/, '')}/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.ts`)}
+                        onClick={() => window.location.href = formatVlcUrl(`https://hdsj.store/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.ts`)}
                         className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg font-black text-[9px] transition-all shadow-lg shadow-orange-500/20 uppercase tracking-widest italic"
                       >
                         <Play size={12} fill="white" /> VLC
