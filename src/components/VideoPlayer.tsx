@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Artplayer from 'artplayer';
 import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldCheck, Cpu, Globe } from 'lucide-react';
+import { ShieldCheck, Cpu, Globe, Sliders, X, SkipForward } from 'lucide-react';
 
 interface VideoPlayerProps {
   options: {
@@ -17,9 +18,12 @@ interface VideoPlayerProps {
   };
   onReady?: (player: Artplayer) => void;
   onClose?: () => void;
+  playingEpisode?: any;
+  nextEpisode?: any;
+  onPlayNext?: () => void;
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) => {
+const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose, playingEpisode, nextEpisode, onPlayNext }) => {
   const artRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<Artplayer | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -27,6 +31,135 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
   const lastClickTimeRef = useRef<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingText, setLoadingText] = useState('LOADING VIDEO...');
+  const [showEqPanel, setShowEqPanel] = useState(false);
+  const [bassGain, setBassGain] = useState(0);
+  const [midGain, setMidGain] = useState(0);
+  const [trebleGain, setTrebleGain] = useState(0);
+  const [eqPortalTarget, setEqPortalTarget] = useState<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+
+  const getAudioGraph = (artPlayer: Artplayer) => {
+    // @ts-ignore
+    if (artPlayer.audioCtx) {
+      return {
+        // @ts-ignore
+        audioCtx: artPlayer.audioCtx,
+        // @ts-ignore
+        gainNode: artPlayer.gainNode,
+        // @ts-ignore
+        eqFilters: artPlayer.eqFilters
+      };
+    }
+
+    const video = artPlayer.video;
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    const audioCtx = new AudioCtx();
+    const sNode = audioCtx.createMediaElementSource(video);
+
+    const f1 = audioCtx.createBiquadFilter();
+    f1.type = 'lowshelf';
+    f1.frequency.value = 150; // Bass
+    f1.gain.value = 0;
+
+    const f2 = audioCtx.createBiquadFilter();
+    f2.type = 'peaking';
+    f2.frequency.value = 1000; // Mids
+    f2.Q.value = 1;
+    f2.gain.value = 0;
+
+    const f3 = audioCtx.createBiquadFilter();
+    f3.type = 'highshelf';
+    f3.frequency.value = 6000; // Treble
+    f3.gain.value = 0;
+
+    const gainNode = audioCtx.createGain();
+    gainNode.gain.value = 1;
+
+    sNode.connect(f1);
+    f1.connect(f2);
+    f2.connect(f3);
+    f3.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    // Store references
+    // @ts-ignore
+    artPlayer.audioCtx = audioCtx;
+    // @ts-ignore
+    artPlayer.gainNode = gainNode;
+    // @ts-ignore
+    artPlayer.eqFilters = { bass: f1, mid: f2, treble: f3 };
+
+    return { audioCtx, gainNode, eqFilters: { bass: f1, mid: f2, treble: f3 } };
+  };
+
+  const openEqPanel = () => {
+    if (playerRef.current) {
+      try {
+        const graph = getAudioGraph(playerRef.current);
+        if (graph && graph.eqFilters) {
+          setBassGain(graph.eqFilters.bass.gain.value);
+          setMidGain(graph.eqFilters.mid.gain.value);
+          setTrebleGain(graph.eqFilters.treble.gain.value);
+        }
+      } catch (e) {
+        console.error('Failed to initialize AudioContext for EQ:', e);
+      }
+    }
+    setShowEqPanel(true);
+  };
+
+  const handleEqChange = (type: 'bass' | 'mid' | 'treble', val: number) => {
+    if (type === 'bass') setBassGain(val);
+    if (type === 'mid') setMidGain(val);
+    if (type === 'treble') setTrebleGain(val);
+
+    if (playerRef.current) {
+      try {
+        const graph = getAudioGraph(playerRef.current);
+        if (graph && graph.eqFilters) {
+          const filter = graph.eqFilters[type];
+          if (filter) {
+            filter.gain.value = val;
+          }
+        }
+      } catch (e) {
+        console.error('EQ write error:', e);
+      }
+    }
+  };
+
+  const applyPreset = (presetName: string) => {
+    let b = 0, m = 0, t = 0;
+    if (presetName === 'flat') {
+      b = 0; m = 0; t = 0;
+    } else if (presetName === 'bass') {
+      b = 8; m = 0; t = 2;
+    } else if (presetName === 'vocal') {
+      b = -4; m = 6; t = 2;
+    } else if (presetName === 'cinema') {
+      b = 5; m = -2; t = 4;
+    } else if (presetName === 'loudness') {
+      b = 4; m = 3; t = 4;
+    }
+
+    setBassGain(b);
+    setMidGain(m);
+    setTrebleGain(t);
+
+    if (playerRef.current) {
+      try {
+        const graph = getAudioGraph(playerRef.current);
+        if (graph && graph.eqFilters) {
+          graph.eqFilters.bass.gain.value = b;
+          graph.eqFilters.mid.gain.value = m;
+          graph.eqFilters.treble.gain.value = t;
+        }
+      } catch (e) {
+        console.error('EQ apply preset error:', e);
+      }
+    }
+  };
 
   const getProxiedUrl = (url: string) => {
     if (!url) return '';
@@ -160,25 +293,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
             { html: 'Max Boost (300%)', value: 3 },
           ],
           onSelect: (item: any) => {
-            const video = art.video;
-            // Web Audio API for Volume Boost
             try {
-              // @ts-ignore
-              if (!art.gainNode) {
-                const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-                const audioCtx = new AudioContext();
-                const source = audioCtx.createMediaElementSource(video);
-                const gainNode = audioCtx.createGain();
-                source.connect(gainNode);
-                gainNode.connect(audioCtx.destination);
-                // @ts-ignore
-                art.gainNode = gainNode;
-                // @ts-ignore
-                art.audioCtx = audioCtx;
+              const graph = getAudioGraph(art);
+              if (graph && graph.gainNode) {
+                graph.gainNode.gain.value = item.value;
+                art.notice.show = `Volume Boost: ${Math.round(item.value * 100)}%`;
               }
-              // @ts-ignore
-              art.gainNode.gain.value = item.value;
-              art.notice.show = `Volume Boost: ${Math.round(item.value * 100)}%`;
             } catch (e) {
               console.error('Volume boost error:', e);
               art.notice.show = 'Volume boost not supported in this browser';
@@ -202,6 +322,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
             if (onClose) onClose();
           },
         },
+        {
+          name: 'react-portal-layer',
+          html: '<div class="react-portal-layer-container" style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;"></div>',
+          style: {
+            position: 'absolute',
+            inset: '0',
+            width: '100%',
+            height: '100%',
+            pointerEvents: 'none',
+            zIndex: '99',
+          }
+        }
       ],
       customType: {
         ts: function (video: HTMLVideoElement, url: string, art: Artplayer) {
@@ -625,9 +757,39 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
     });
 
     playerRef.current = art;
+    
+    // Find our custom react portal layer container to safely anchor custom overlays and avoid clipping
+    const portalLayer = art.template.$container.querySelector('.react-portal-layer-container') as HTMLDivElement;
+    if (portalLayer) {
+      setEqPortalTarget(portalLayer);
+    } else {
+      setEqPortalTarget(art.template.$container);
+    }
+
+    // Track state transitions to show overlays in full viewport or absolute layer correctly
+    art.on('fullscreen', (state) => {
+      setIsFullscreen(state);
+    });
+    art.on('fullscreenWeb', (state) => {
+      setIsFullscreen(state);
+    });
+    art.on('control', (visible) => {
+      setControlsVisible(visible);
+    });
+
+    art.on('video:ended', () => {
+      if (onPlayNext) {
+        art.notice.show = "Playing next episode...";
+        setTimeout(() => {
+          onPlayNext();
+        }, 1500);
+      }
+    });
+
     if (onReady) onReady(art);
 
     return () => {
+      setEqPortalTarget(null);
       if (hlsRef.current) hlsRef.current.destroy();
       if (mpegtsRef.current) {
         mpegtsRef.current.unload();
@@ -759,6 +921,270 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose }) 
         />
       ) : (
         <div ref={artRef} className="w-full h-full artplayer-app" />
+      )}
+
+      {/* Floating EQ Toggle Button inside our custom portal layer inside Artplayer */}
+      {eqPortalTarget && createPortal(
+        <AnimatePresence>
+          {controlsVisible && !isLoading && !isEmbeddable(originalUrl) && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="absolute top-[20px] right-[20px] z-[99] pointer-events-auto"
+            >
+              <button 
+                type="button"
+                onClick={openEqPanel}
+                className="p-2.5 bg-black/55 hover:bg-[#00D1FF]/20 text-white hover:text-[#00D1FF] rounded-full flex items-center justify-center backdrop-blur-md border border-white/10 transition-all cursor-pointer shadow-lg shadow-black/30"
+                title="Open Custom Equalizer"
+              >
+                <Sliders className="w-5 h-5" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        eqPortalTarget
+      )}
+
+      {/* Floating Episode Number Pill above bottom controls - only shown during controls visible & when web series is playing */}
+      {eqPortalTarget && playingEpisode && createPortal(
+        <AnimatePresence>
+          {controlsVisible && !isLoading && (
+            <motion.div
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 15 }}
+              className="absolute bottom-[65px] md:bottom-[75px] left-[15px] md:left-[24px] z-[99] pointer-events-none"
+            >
+              <div className="flex items-center gap-2 px-3.5 py-1.5 bg-black/85 backdrop-blur-md rounded-full border border-white/10 shadow-[0_4px_25px_rgba(0,0,0,0.65)]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#00D1FF] animate-pulse shadow-[0_0_8px_#00D1FF]" />
+                <span className="text-[8px] md:text-[10px] text-white/50 font-black uppercase tracking-[0.2em] font-sans">
+                  You are watching
+                </span>
+                <span className="text-[9px] md:text-[11px] font-black uppercase tracking-wider text-[#00D1FF] drop-shadow-[0_0_6px_rgba(0,209,255,0.55)]">
+                  Episode {playingEpisode.episode_num}
+                </span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        eqPortalTarget
+      )}
+
+      {/* Floating Next Episode Action Button - only shown during controls visible & when next episode is available */}
+      {eqPortalTarget && nextEpisode && onPlayNext && createPortal(
+        <AnimatePresence>
+          {controlsVisible && !isLoading && (
+            <motion.div
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 15 }}
+              className="absolute bottom-[65px] md:bottom-[75px] right-[15px] md:right-[24px] z-[99] pointer-events-auto"
+            >
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPlayNext();
+                }}
+                className="flex items-center gap-2 px-3 md:px-4 py-1.5 md:py-2 bg-gradient-to-r from-[#00D1FF] to-[#00bdf1] hover:from-[#00e1ff] hover:to-[#00D1FF] text-black font-black tracking-widest text-[9px] md:text-[11px] uppercase rounded-xl md:rounded-2xl border border-cyan-400/40 shadow-[0_0_20px_rgba(0,209,255,0.4)] cursor-pointer transition-all duration-300 hover:scale-105 active:scale-95 flex-row"
+                title={`Play Next Episode (${nextEpisode.episode ? nextEpisode.episode.episode_num : nextEpisode.episode_num})`}
+              >
+                <span>Play Next: Ep {nextEpisode.episode ? nextEpisode.episode.episode_num : nextEpisode.episode_num}</span>
+                <SkipForward className="w-3.5 h-3.5 md:w-4 md:h-4 fill-black text-black" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        eqPortalTarget
+      )}
+
+      {/* Equalizer Panel Portal: Renders to document.body on normal screen (avoids overflow:hidden clipping) and eqPortalTarget in fullscreen */}
+      {showEqPanel && (isFullscreen ? eqPortalTarget : (typeof document !== 'undefined' ? document.body : null)) && createPortal(
+        <AnimatePresence>
+          {showEqPanel && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className={`${isFullscreen ? 'absolute' : 'fixed'} inset-0 ${isFullscreen ? 'z-[199]' : 'z-[99999]'} bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 select-none pointer-events-auto`}
+              onClick={() => setShowEqPanel(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                transition={{ type: "spring", duration: 0.4 }}
+                className="w-full max-w-[340px] md:max-w-sm max-h-[95vh] sm:max-h-[85vh] bg-[#0c0c0e]/95 border border-[#00D1FF]/30 rounded-2xl p-4 sm:p-5 shadow-[0_0_50px_rgba(0,209,255,0.25)] flex flex-col gap-3 relative overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Glow background */}
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-1.5 bg-[#00D1FF]/40 blur-xl rounded-full pointer-events-none" />
+                
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                  <div className="flex items-center gap-2 text-[#00D1FF]">
+                    <Sliders className="w-4 h-4 drop-shadow-[0_0_8px_rgba(0,209,255,0.55)]" />
+                    <span className="font-extrabold tracking-[0.2em] text-[10px] sm:text-xs uppercase font-sans">
+                      CUSTOM EQUALIZER
+                    </span>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => setShowEqPanel(false)}
+                    className="text-white/60 hover:text-white bg-white/5 hover:bg-white/10 p-1 rounded-full transition-all cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Scrollable Container (critical for short viewports/mobile landscapes so elements are 100% visible) */}
+                <div className="flex-1 overflow-y-auto pr-1 space-y-4 touch-pan-y max-h-[60vh] sm:max-h-none scrollbar-thin scrollbar-thumb-white/15 scrollbar-track-transparent">
+                  {/* Slider Slates */}
+                  <div className="flex flex-col gap-3.5 py-1">
+                    {/* Bass Slider */}
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-[11px] font-bold tracking-wider">
+                        <span className="text-white/60 uppercase text-[10px] sm:text-[11px]">Bass (150Hz)</span>
+                        <span className={bassGain > 0 ? "text-[#00D1FF]" : bassGain < 0 ? "text-rose-500" : "text-white/40"}>
+                          {bassGain > 0 ? `+${bassGain}` : bassGain} dB
+                        </span>
+                      </div>
+                      <div className="relative flex items-center h-5">
+                        <input 
+                          type="range"
+                          min="-12"
+                          max="12"
+                          step="1"
+                          value={bassGain}
+                          onChange={(e) => handleEqChange('bass', Number(e.target.value))}
+                          className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#00D1FF] duration-150 focus:outline-none touch-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Mids Slider */}
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-[11px] font-bold tracking-wider">
+                        <span className="text-white/60 uppercase text-[10px] sm:text-[11px]">Mids (1kHz)</span>
+                        <span className={midGain > 0 ? "text-[#00D1FF]" : midGain < 0 ? "text-rose-500" : "text-white/40"}>
+                          {midGain > 0 ? `+${midGain}` : midGain} dB
+                        </span>
+                      </div>
+                      <div className="relative flex items-center h-5">
+                        <input 
+                          type="range"
+                          min="-12"
+                          max="12"
+                          step="1"
+                          value={midGain}
+                          onChange={(e) => handleEqChange('mid', Number(e.target.value))}
+                          className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#00D1FF] duration-150 focus:outline-none touch-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Treble Slider */}
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-[11px] font-bold tracking-wider">
+                        <span className="text-white/60 uppercase text-[10px] sm:text-[11px]">Treble (6kHz)</span>
+                        <span className={trebleGain > 0 ? "text-[#00D1FF]" : trebleGain < 0 ? "text-rose-500" : "text-white/40"}>
+                          {trebleGain > 0 ? `+${trebleGain}` : trebleGain} dB
+                        </span>
+                      </div>
+                      <div className="relative flex items-center h-5">
+                        <input 
+                          type="range"
+                          min="-12"
+                          max="12"
+                          step="1"
+                          value={trebleGain}
+                          onChange={(e) => handleEqChange('treble', Number(e.target.value))}
+                          className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#00D1FF] duration-150 focus:outline-none touch-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Presets Grid */}
+                  <div className="space-y-2 pt-3 border-t border-white/5">
+                    <span className="text-[9px] text-white/30 tracking-wider uppercase font-bold block">
+                      Presets Quick-Access
+                    </span>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <button 
+                        type="button"
+                        onClick={() => applyPreset('flat')}
+                        className={`px-2 py-1.5 sm:py-2 rounded-xl border text-[9px] sm:text-[10px] font-extrabold transition-all uppercase tracking-wider cursor-pointer ${
+                          bassGain === 0 && midGain === 0 && trebleGain === 0
+                            ? "bg-[#00D1FF]/10 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_8px_rgba(0,209,255,0.1)]"
+                            : "bg-white/5 text-white/60 border-transparent hover:bg-white/10 hover:text-white"
+                        }`}
+                      >
+                        Flat
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => applyPreset('bass')}
+                        className={`px-2 py-1.5 sm:py-2 rounded-xl border text-[9px] sm:text-[10px] font-extrabold transition-all uppercase tracking-wider cursor-pointer ${
+                          bassGain === 8 && midGain === 0 && trebleGain === 2
+                            ? "bg-[#00D1FF]/10 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_8px_rgba(0,209,255,0.1)]"
+                            : "bg-white/5 text-white/60 border-transparent hover:bg-white/10 hover:text-white"
+                        }`}
+                      >
+                        Bass
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => applyPreset('vocal')}
+                        className={`px-2 py-1.5 sm:py-2 rounded-xl border text-[9px] sm:text-[10px] font-extrabold transition-all uppercase tracking-wider cursor-pointer ${
+                          bassGain === -4 && midGain === 6 && trebleGain === 2
+                            ? "bg-[#00D1FF]/10 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_8px_rgba(0,209,255,0.1)]"
+                            : "bg-white/5 text-white/60 border-transparent hover:bg-white/10 hover:text-white"
+                        }`}
+                      >
+                        Vocal
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => applyPreset('cinema')}
+                        className={`px-2 py-1.5 sm:py-2 rounded-xl border text-[9px] sm:text-[10px] font-extrabold transition-all uppercase tracking-wider cursor-pointer ${
+                          bassGain === 5 && midGain === -2 && trebleGain === 4
+                            ? "bg-[#00D1FF]/10 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_8px_rgba(0,209,255,0.1)]"
+                            : "bg-white/5 text-white/60 border-transparent hover:bg-white/10 hover:text-white"
+                        }`}
+                      >
+                        Cinema
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => applyPreset('loudness')}
+                        className={`px-2 py-1.5 sm:py-2 rounded-xl border text-[9px] sm:text-[10px] font-extrabold transition-all uppercase tracking-wider cursor-pointer ${
+                          bassGain === 4 && midGain === 3 && trebleGain === 4
+                            ? "bg-[#00D1FF]/10 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_8px_rgba(0,209,255,0.15)]"
+                            : "bg-white/5 text-white/60 border-transparent hover:bg-white/10 hover:text-white"
+                        }`}
+                      >
+                        Loud
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Exit/Close trigger */}
+                <button 
+                  type="button"
+                  onClick={() => setShowEqPanel(false)}
+                  className="w-full mt-2 bg-[#00D1FF] hover:bg-[#00e1ff] text-black font-black tracking-widest text-[10px] sm:text-[11px] uppercase py-2.5 sm:py-3 rounded-xl transition-all shadow-lg shadow-[#00D1FF]/20 cursor-pointer"
+                >
+                  Done
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        isFullscreen ? eqPortalTarget! : document.body
       )}
     </div>
   );

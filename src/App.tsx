@@ -191,6 +191,60 @@ export default function App() {
   const [showWebPlayer, setShowWebPlayer] = useState(false);
   const [webPlayUrl, setWebPlayUrl] = useState('');
   const [webPlayTitle, setWebPlayTitle] = useState('');
+  const [playingEpisode, setPlayingEpisode] = useState<any>(null);
+
+  const handleCloseWebPlayer = () => {
+    setShowWebPlayer(false);
+    setPlayingEpisode(null);
+  };
+
+  const getNextEpisode = (currentEp: any) => {
+    if (!currentEp || !seriesInfo || !seriesInfo.episodes) return null;
+    const currentSeason = currentEp.season || selectedSeason;
+    if (!currentSeason) return null;
+
+    const currentSeasonEps = seriesInfo.episodes[currentSeason];
+    if (!currentSeasonEps) return null;
+
+    // Find current episode index in currentSeasonEps
+    const currentIndex = currentSeasonEps.findIndex(
+      (ep: any) => String(ep.id) === String(currentEp.id)
+    );
+
+    if (currentIndex !== -1 && currentIndex < currentSeasonEps.length - 1) {
+      return {
+        episode: currentSeasonEps[currentIndex + 1],
+        season: currentSeason
+      };
+    }
+
+    // Try next season
+    const seasons = Object.keys(seriesInfo.episodes).sort((a, b) => Number(a) - Number(b));
+    const currentSeasonIdx = seasons.indexOf(currentSeason);
+    if (currentSeasonIdx !== -1 && currentSeasonIdx < seasons.length - 1) {
+      const nextSeason = seasons[currentSeasonIdx + 1];
+      const nextSeasonEps = seriesInfo.episodes[nextSeason];
+      if (nextSeasonEps && nextSeasonEps.length > 0) {
+        return {
+          episode: nextSeasonEps[0],
+          season: nextSeason
+        };
+      }
+    }
+
+    return null;
+  };
+
+  const handlePlayNextEpisode = () => {
+    const nextEpInfo = getNextEpisode(playingEpisode);
+    if (nextEpInfo) {
+      const { episode, season } = nextEpInfo;
+      if (season !== selectedSeason) {
+        setSelectedSeason(season);
+      }
+      handleAction('web_play', selectedItem, episode.id, episode.container_extension);
+    }
+  };
 
   // Helper to determine if the bottom navigation should be hidden
   const shouldHideNav = !!(
@@ -897,6 +951,31 @@ export default function App() {
     if (action === 'web_play') {
       setWebPlayUrl(url);
       setWebPlayTitle((item as any).name || (selectedItem as any)?.name || 'Title');
+      
+      // Find and set playingEpisode metadata if it's a web series
+      if (isSeries && seriesInfo?.episodes) {
+        let matchedEpisode = null;
+        for (const seasonNo of Object.keys(seriesInfo.episodes)) {
+          const eps = seriesInfo.episodes[seasonNo];
+          const match = eps?.find((e: any) => String(e.id) === String(streamId));
+          if (match) {
+            matchedEpisode = {
+              ...match,
+              season: seasonNo
+            };
+            break;
+          }
+        }
+        if (matchedEpisode) {
+          setPlayingEpisode(matchedEpisode);
+        } else {
+          // Fallback if seriesInfo doesn't contain the episode ID
+          setPlayingEpisode({ episode_num: 'Active', title: 'Web Episode' });
+        }
+      } else {
+        setPlayingEpisode(null);
+      }
+
       setShowWebPlayer(true);
       return;
     }
@@ -2138,7 +2217,7 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowWebPlayer(false)}
+              onClick={handleCloseWebPlayer}
               className="absolute inset-0 bg-black/90 backdrop-blur-2xl gpu"
             />
             <motion.div
@@ -2159,12 +2238,14 @@ export default function App() {
                     </h3>
                     <div className="flex items-center gap-2">
                       <span className="w-1.5 h-1.5 bg-[#00D1FF] rounded-full animate-pulse shadow-[0_0_10px_#00D1FF]" />
-                      <p className="text-[9px] md:text-sm text-[#00D1FF] font-black uppercase tracking-[0.25em] drop-shadow-md">Theater Mode 4K</p>
+                      <p className="text-[9px] md:text-sm text-[#00D1FF] font-black uppercase tracking-[0.25em] drop-shadow-md">
+                        {playingEpisode ? `Episode ${playingEpisode.episode_num} is playing` : "Theater Mode 4K"}
+                      </p>
                     </div>
                   </div>
                 </div>
                 <button 
-                  onClick={() => setShowWebPlayer(false)}
+                  onClick={handleCloseWebPlayer}
                   className="p-2.5 md:p-5 bg-black/50 hover:bg-red-500/95 text-white rounded-xl md:rounded-2xl backdrop-blur-2xl border border-white/20 transition-all duration-300 hover:scale-110 active:scale-90 group pointer-events-auto shadow-xl"
                 >
                   <X size={20} className="md:w-7 md:h-7 group-hover:rotate-90 transition-transform duration-500" />
@@ -2183,7 +2264,10 @@ export default function App() {
                       type: webPlayUrl.toLowerCase().includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'
                     }]
                   }} 
-                  onClose={() => setShowWebPlayer(false)}
+                  onClose={handleCloseWebPlayer}
+                  playingEpisode={playingEpisode}
+                  nextEpisode={getNextEpisode(playingEpisode)}
+                  onPlayNext={handlePlayNextEpisode}
                 />
               </div>
             </motion.div>
