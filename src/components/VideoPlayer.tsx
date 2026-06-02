@@ -4,7 +4,7 @@ import Artplayer from 'artplayer';
 import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldCheck, Cpu, Globe, Sliders, X, SkipForward } from 'lucide-react';
+import { ShieldCheck, Cpu, Globe, Sliders, X, SkipForward, List, Tv } from 'lucide-react';
 
 interface VideoPlayerProps {
   options: {
@@ -21,9 +21,20 @@ interface VideoPlayerProps {
   playingEpisode?: any;
   nextEpisode?: any;
   onPlayNext?: () => void;
+  episodesMap?: Record<string, any[]>;
+  onSelectEpisode?: (episode: any, seasonNum: string) => void;
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose, playingEpisode, nextEpisode, onPlayNext }) => {
+const VideoPlayer: React.FC<VideoPlayerProps> = ({ 
+  options, 
+  onReady, 
+  onClose, 
+  playingEpisode, 
+  nextEpisode, 
+  onPlayNext,
+  episodesMap,
+  onSelectEpisode
+}) => {
   const artRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<Artplayer | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -32,12 +43,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose, pl
   const [isLoading, setIsLoading] = useState(true);
   const [loadingText, setLoadingText] = useState('LOADING VIDEO...');
   const [showEqPanel, setShowEqPanel] = useState(false);
+  const [showEpisodesPanel, setShowEpisodesPanel] = useState(false);
+  const [panelSeason, setPanelSeason] = useState<string>('');
   const [bassGain, setBassGain] = useState(0);
   const [midGain, setMidGain] = useState(0);
   const [trebleGain, setTrebleGain] = useState(0);
   const [eqPortalTarget, setEqPortalTarget] = useState<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
+
+  const openEpisodesPanel = () => {
+    if (episodesMap) {
+      const currentSeason = playingEpisode?.season || Object.keys(episodesMap).sort((a, b) => Number(a) - Number(b))[0] || '';
+      setPanelSeason(currentSeason);
+    }
+    setShowEpisodesPanel(true);
+  };
 
   const getAudioGraph = (artPlayer: Artplayer) => {
     // @ts-ignore
@@ -188,6 +209,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose, pl
            lowerUrl.includes('/embed/');
   };
 
+  const onCloseRef = useRef(onClose);
+  const onReadyRef = useRef(onReady);
+  const onPlayNextRef = useRef(onPlayNext);
+  const optionsRef = useRef(options);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+    onReadyRef.current = onReady;
+    onPlayNextRef.current = onPlayNext;
+    optionsRef.current = options;
+  });
+
   useEffect(() => {
     if (!artRef.current || !sourceUrl || isEmbeddable(originalUrl)) return;
 
@@ -255,7 +288,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose, pl
           html: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>',
           tooltip: 'Back',
           click: function() {
-            if (onClose) onClose();
+            if (onCloseRef.current) onCloseRef.current();
           },
         },
       ],
@@ -319,7 +352,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose, pl
             zIndex: '20',
           },
           click: function() {
-            if (onClose) onClose();
+            if (onCloseRef.current) onCloseRef.current();
           },
         },
         {
@@ -778,15 +811,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose, pl
     });
 
     art.on('video:ended', () => {
-      if (onPlayNext) {
+      if (onPlayNextRef.current) {
         art.notice.show = "Playing next episode...";
         setTimeout(() => {
-          onPlayNext();
+          onPlayNextRef.current?.();
         }, 1500);
       }
     });
 
-    if (onReady) onReady(art);
+    if (onReadyRef.current) onReadyRef.current(art);
 
     return () => {
       setEqPortalTarget(null);
@@ -823,6 +856,36 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose, pl
         playerRef.current.destroy();
       }
     };
+  }, []);
+
+  // Listen for subsequent URL changes to switch player source dynamically
+  // and preserve fullscreen state perfectly!
+  const isFirstMount = useRef(true);
+  useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      return;
+    }
+    if (playerRef.current && sourceUrl && !isEmbeddable(originalUrl)) {
+      setIsLoading(true);
+      setLoadingText('LOADING VIDEO...');
+      
+      const newLowerUrl = sourceUrl.toLowerCase();
+      const newIsHls = newLowerUrl.includes('.m3u8') || (source?.type === 'application/x-mpegURL');
+      const newIsTs = newLowerUrl.includes('.ts') || (source?.type === 'video/mp2t');
+      const newIsMkv = newLowerUrl.includes('.mkv');
+      
+      const newType = newIsHls ? 'm3u8' : 
+                      (newLowerUrl.includes('.mp4') ? 'mp4' : 
+                      (newLowerUrl.includes('.webm') ? 'webm' : 
+                      (newIsMkv ? 'mkv' : (newIsTs ? 'ts' : undefined))));
+      
+      playerRef.current.switchUrl(sourceUrl, newType).then(() => {
+        console.log("Artplayer successfully switched source url:", sourceUrl);
+      }).catch(err => {
+        console.error("switchUrl error:", err);
+      });
+    }
   }, [sourceUrl]);
 
   return (
@@ -940,6 +1003,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose, pl
                 title="Open Custom Equalizer"
               >
                 <Sliders className="w-5 h-5" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        eqPortalTarget
+      )}
+
+      {/* Floating Episodes Button inside our custom portal layer exactly below EQ button */}
+      {eqPortalTarget && episodesMap && onSelectEpisode && createPortal(
+        <AnimatePresence>
+          {controlsVisible && !isLoading && !isEmbeddable(originalUrl) && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="absolute top-[75px] right-[20px] z-[99] pointer-events-auto"
+            >
+              <button 
+                type="button"
+                onClick={openEpisodesPanel}
+                className="p-2.5 bg-black/55 hover:bg-[#00D1FF]/20 text-white hover:text-[#00D1FF] rounded-full flex items-center justify-center backdrop-blur-md border border-white/10 transition-all cursor-pointer shadow-lg shadow-black/30"
+                title="Browse Episodes"
+              >
+                <List className="w-5 h-5" />
               </button>
             </motion.div>
           )}
@@ -1185,6 +1272,122 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ options, onReady, onClose, pl
           )}
         </AnimatePresence>,
         isFullscreen ? eqPortalTarget! : document.body
+      )}
+
+      {/* Episodes Sliding Panel Drawer Portal: always render inside eqPortalTarget so it's fully responsive & works in full screen */}
+      {showEpisodesPanel && episodesMap && onSelectEpisode && eqPortalTarget && createPortal(
+        <AnimatePresence>
+          {showEpisodesPanel && (
+            <div className="absolute inset-0 z-[149] pointer-events-none select-none">
+              {/* Back scrim clickable to close */}
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.6 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowEpisodesPanel(false)}
+                className="absolute inset-0 bg-black/60 z-[149] pointer-events-auto cursor-pointer"
+              />
+              
+              {/* Sliding drawer container */}
+              <motion.div
+                initial={{ x: "100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "100%" }}
+                transition={{ type: "spring", damping: 30, stiffness: 220 }}
+                className="absolute right-0 top-0 bottom-0 max-w-[90vw] w-[320px] md:w-[380px] h-full z-[150] bg-[#0c0c0e]/95 border-l border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.95)] flex flex-col p-4 sm:p-5 pointer-events-auto select-none backdrop-blur-xl"
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-white/5 pb-3 shrink-0">
+                  <div className="flex items-center gap-2 text-[#00D1FF]">
+                    <Tv className="w-4 h-4 drop-shadow-[0_0_8px_rgba(0,209,255,0.55)]" />
+                    <span className="font-extrabold tracking-[0.2em] text-[10px] sm:text-xs uppercase font-sans">
+                      Browse Episodes
+                    </span>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => setShowEpisodesPanel(false)}
+                    className="text-white/60 hover:text-white bg-white/5 hover:bg-white/10 p-1.5 rounded-full transition-all cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Seasons Toggle */}
+                {Object.keys(episodesMap).length > 0 && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto py-2.5 border-b border-white/5 shrink-0 no-scrollbar">
+                    {Object.keys(episodesMap).sort((a,b)=>Number(a)-Number(b)).map((seasonNum) => (
+                      <button
+                        key={`panel-season-${seasonNum}`}
+                        type="button"
+                        onClick={() => setPanelSeason(seasonNum)}
+                        className={`px-3 py-1 rounded-full text-[9px] md:text-[10px] uppercase font-bold tracking-wider transition-all border shrink-0 cursor-pointer ${
+                          panelSeason === seasonNum
+                            ? "bg-[#00D1FF]/10 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_10px_rgba(0,209,255,0.2)]"
+                            : "bg-white/5 text-white/50 border-white/5 hover:border-white/20 hover:text-white"
+                        }`}
+                      >
+                        Season {seasonNum}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Episode Items */}
+                <div className="flex-1 overflow-y-auto pr-1 py-3 space-y-2 no-scrollbar scroll-smooth">
+                  {episodesMap[panelSeason || '']?.map((episode: any, idx: number) => {
+                    const isCurrent = String(episode.id) === String(playingEpisode?.id);
+                    return (
+                      <button
+                        key={`panel-ep-${episode.id}-${idx}`}
+                        type="button"
+                        onClick={() => {
+                          if (onSelectEpisode) {
+                            onSelectEpisode(episode, panelSeason);
+                          }
+                          setShowEpisodesPanel(false);
+                        }}
+                        className={`w-full flex items-center justify-between p-2.5 rounded-xl border text-left transition-all duration-300 transform hover:scale-[1.01] active:scale-[0.99] cursor-pointer group shrink-0 ${
+                          isCurrent
+                            ? "bg-gradient-to-r from-[#00D1FF]/15 to-cyan-500/5 text-white border-[#00D1FF]/45 shadow-[0_0_15px_rgba(0,209,255,0.15)]"
+                            : "bg-white/5 text-white/80 border-white/5 hover:bg-white/10 hover:border-white/15"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0 pr-2">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-[10px] md:text-xs shrink-0 transition-all ${
+                            isCurrent 
+                              ? "bg-[#00D1FF] text-black shadow-[0_0_10px_rgba(0,209,255,0.4)]" 
+                              : "bg-white/10 text-white/80 group-hover:bg-white/20"
+                          }`}>
+                            {episode.episode_num}
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className={`text-[11px] md:text-xs font-bold line-clamp-1 transition-colors ${
+                              isCurrent ? "text-[#00D1FF]" : "text-white group-hover:text-cyan-400"
+                            }`}>
+                              {episode.title}
+                            </span>
+                            <span className="text-[8px] md:text-[9px] text-white/40 uppercase tracking-widest font-mono">
+                              Episode {episode.episode_num}
+                            </span>
+                          </div>
+                        </div>
+                        
+                        {isCurrent && (
+                          <span className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-[#00D1FF]/10 text-[#00D1FF] border border-[#00D1FF]/20 text-[7px] md:text-[8px] font-black uppercase tracking-widest animate-pulse">
+                            <span className="w-1 h-1 rounded-full bg-[#00D1FF]" />
+                            Playing
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        eqPortalTarget
       )}
     </div>
   );

@@ -38,6 +38,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { xtreamApi, DEFAULT_CREDENTIALS } from './lib/api';
 import { XtreamCredentials, Category, Stream, Series, LiveStream } from './types';
+import axios from 'axios';
 import VideoPlayer from './components/VideoPlayer';
 import IntroLoading from './components/IntroLoading';
 import { db, auth } from './firebase';
@@ -165,7 +166,11 @@ export default function App() {
   const [editingSeriesId, setEditingSeriesId] = useState<string | null>(null);
 
   const [newFreeMovie, setNewFreeMovie] = useState({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
-  const [newFreeSeries, setNewFreeSeries] = useState({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
+  const [newFreeSeries, setNewFreeSeries] = useState({ name: '', poster_url: '', play_url: '', download_url: '', playlist_url: '', is_embed: false });
+  const [freeSeriesEpisodesMap, setFreeSeriesEpisodesMap] = useState<Record<string, any[]> | null>(null);
+  const [playingFreeEpisode, setPlayingFreeEpisode] = useState<any>(null);
+  const [freeSeriesActiveUrl, setFreeSeriesActiveUrl] = useState<string>('');
+  const [isM3uLoading, setIsM3uLoading] = useState(false);
   const [selectedPslLanguage, setSelectedPslLanguage] = useState<'urdu' | 'english' | 'custom' | null>(null);
   const [pslUrlUrdu, setPslUrlUrdu] = useState('');
   const [pslUrlEnglish, setPslUrlEnglish] = useState('');
@@ -243,6 +248,35 @@ export default function App() {
         setSelectedSeason(season);
       }
       handleAction('web_play', selectedItem, episode.id, episode.container_extension);
+    }
+  };
+
+  const handleSelectEpisode = (episode: any, seasonNum: string) => {
+    if (seasonNum !== selectedSeason) {
+      setSelectedSeason(seasonNum);
+    }
+    handleAction('web_play', selectedItem, episode.id, episode.container_extension);
+  };
+
+  const handlePlayFullSeries = () => {
+    if (!seriesInfo || !seriesInfo.episodes) return;
+    
+    // Sort seasons numerically
+    const seasons = Object.keys(seriesInfo.episodes).sort((a, b) => Number(a) - Number(b));
+    if (seasons.length === 0) return;
+    
+    // Use selected season if it has episodes, otherwise resort to first season
+    const targetSeason = (selectedSeason && seriesInfo.episodes[selectedSeason]?.length > 0)
+      ? selectedSeason
+      : seasons[0];
+      
+    const episodes = seriesInfo.episodes[targetSeason];
+    if (episodes && episodes.length > 0) {
+      const firstEp = episodes[0];
+      if (targetSeason !== selectedSeason) {
+        setSelectedSeason(targetSeason);
+      }
+      handleAction('web_play', selectedItem, firstEp.id, firstEp.container_extension);
     }
   };
 
@@ -848,9 +882,197 @@ export default function App() {
     }
   };
 
+  const parseM3uPlaylist = (m3uText: string, seriesName: string): Record<string, any[]> => {
+    const lines = m3uText.split('\n');
+    const episodesBySeason: Record<string, any[]> = {};
+    
+    let currentGroup = '1';
+    let title = '';
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      
+      if (line.startsWith('#EXTINF:')) {
+        // Parse info line
+        // Check group-title attrs
+        const groupMatch = line.match(/group-title="([^"]+)"/i);
+        if (groupMatch) {
+          const seasonNoMatch = groupMatch[1].match(/Season\s*(\d+)/i);
+          currentGroup = seasonNoMatch ? seasonNoMatch[1] : groupMatch[1];
+        } else {
+          const tvgNameMatch = line.match(/tvg-name="([^"]+)"/i);
+          if (tvgNameMatch) {
+            const seasonNoMatch = tvgNameMatch[1].match(/Season\s*(\d+)/i);
+            if (seasonNoMatch) currentGroup = seasonNoMatch[1];
+          }
+        }
+        
+        // Match string after comma (Episode title)
+        const commaIdx = line.indexOf(',');
+        if (commaIdx !== -1) {
+          title = line.substring(commaIdx + 1).trim();
+        } else {
+          title = '';
+        }
+      } else if (line.startsWith('#')) {
+        continue;
+      } else {
+        // It's a streaming link
+        const playUrl = line;
+        if (playUrl.startsWith('http')) {
+          let seasonNum = currentGroup;
+          
+          // Try to discover season from title if group title wasn't numeric
+          const seasonInTitle = title.match(/S(?:eason)?\s*(\d+)/i);
+          if (seasonInTitle) {
+            seasonNum = seasonInTitle[1];
+          }
+          
+          let numericSeason = seasonNum.replace(/[^\d]/g, '');
+          if (!numericSeason) {
+            numericSeason = "1";
+          }
+          
+          // Get episode number
+          let epNum = '1';
+          const epInTitle = title.match(/(?:E(?:pisode)?|Ep)\s*(\d+)/i) || title.match(/(?:^|\s|_)(\d+)(?:\s|_|$)/);
+          if (epInTitle) {
+            epNum = epInTitle[1];
+          } else {
+            const existingLen = episodesBySeason[numericSeason]?.length || 0;
+            epNum = String(existingLen + 1);
+          }
+
+          // Format clean episode title if empty
+          let cleanTitle = title || `Episode ${epNum}`;
+          // Clean up redundantly long paths if the title matches stream names
+          if (cleanTitle.startsWith('http') || cleanTitle.length > 80) {
+            cleanTitle = `Episode ${epNum}`;
+          }
+          
+          if (!episodesBySeason[numericSeason]) {
+            episodesBySeason[numericSeason] = [];
+          }
+          
+          episodesBySeason[numericSeason].push({
+            id: `${numericSeason}-${epNum}-${episodesBySeason[numericSeason].length}`,
+            title: cleanTitle,
+            episode_num: epNum,
+            play_url: playUrl,
+            container_extension: playUrl.split('?')[0].split('.').pop() || 'mp4',
+          });
+        }
+      }
+    }
+    
+    // Sort seasons and episodes
+    const sortedMap: Record<string, any[]> = {};
+    Object.keys(episodesBySeason).sort((a,b)=>Number(a)-Number(b)).forEach(season => {
+      sortedMap[season] = episodesBySeason[season].sort((a,b) => Number(a.episode_num) - Number(b.episode_num));
+    });
+    
+    return sortedMap;
+  };
+
+  const handlePlayFreeSeries = async (series: any) => {
+    setSelectedFreeSeries(series);
+    if (series.playlist_url) {
+      setIsM3uLoading(true);
+      setFreeSeriesEpisodesMap(null);
+      setPlayingFreeEpisode(null);
+      setFreeSeriesActiveUrl('');
+      try {
+        const response = await axios.get(`/api/proxy?url=${encodeURIComponent(series.playlist_url)}`);
+        let m3uText = '';
+        if (typeof response.data === 'string') {
+          m3uText = response.data;
+        } else if (response.data && typeof response.data.data === 'string') {
+          m3uText = response.data.data;
+        } else {
+          m3uText = JSON.stringify(response.data);
+        }
+        
+        const parsedMap = parseM3uPlaylist(m3uText, series.name);
+        setFreeSeriesEpisodesMap(parsedMap);
+        
+        const seasons = Object.keys(parsedMap).sort((a,b)=>Number(a)-Number(b));
+        if (seasons.length > 0) {
+          const firstSeason = seasons[0];
+          const firstEp = parsedMap[firstSeason]?.[0];
+          if (firstEp) {
+            setPlayingFreeEpisode({
+              ...firstEp,
+              season: firstSeason
+            });
+            setFreeSeriesActiveUrl(firstEp.play_url);
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching or parsing M3U list:", err);
+        // Fallback to single link if parsing fails or CORS proxy returns blank
+        setFreeSeriesEpisodesMap(null);
+        setPlayingFreeEpisode(null);
+        setFreeSeriesActiveUrl(series.play_url || '');
+      } finally {
+        setIsM3uLoading(false);
+      }
+    } else {
+      setFreeSeriesEpisodesMap(null);
+      setPlayingFreeEpisode(null);
+      setFreeSeriesActiveUrl(series.play_url || '');
+    }
+  };
+
+  const getNextFreeEpisode = (currentEp: any) => {
+    if (!currentEp || !freeSeriesEpisodesMap) return null;
+    
+    const currentSeason = currentEp.season || '1';
+    const currentSeasonEps = freeSeriesEpisodesMap[currentSeason] || [];
+    const currentIndex = currentSeasonEps.findIndex((e: any) => String(e.id) === String(currentEp.id));
+    
+    if (currentIndex !== -1 && currentIndex < currentSeasonEps.length - 1) {
+      return {
+        ...currentSeasonEps[currentIndex + 1],
+        season: currentSeason
+      };
+    }
+    
+    // Move to next season
+    const seasons = Object.keys(freeSeriesEpisodesMap).sort((a, b) => Number(a) - Number(b));
+    const nextSeasonIdx = seasons.indexOf(currentSeason) + 1;
+    if (nextSeasonIdx < seasons.length) {
+      const nextSeason = seasons[nextSeasonIdx];
+      const nextSeasonEps = freeSeriesEpisodesMap[nextSeason] || [];
+      if (nextSeasonEps.length > 0) {
+        return {
+          ...nextSeasonEps[0],
+          season: nextSeason
+        };
+      }
+    }
+    return null;
+  };
+
+  const handlePlayNextFreeEpisode = () => {
+    const nextEp = getNextFreeEpisode(playingFreeEpisode);
+    if (nextEp) {
+      setPlayingFreeEpisode(nextEp);
+      setFreeSeriesActiveUrl(nextEp.play_url);
+    }
+  };
+
+  const handleSelectFreeEpisode = (episode: any, seasonNum: string) => {
+    setPlayingFreeEpisode({
+      ...episode,
+      season: seasonNum
+    });
+    setFreeSeriesActiveUrl(episode.play_url);
+  };
+
   const handleAddFreeSeries = async () => {
-    if (!newFreeSeries.name || !newFreeSeries.play_url || !newFreeSeries.poster_url) {
-      alert("Please fill all required fields");
+    if (!newFreeSeries.name || !newFreeSeries.poster_url || (!newFreeSeries.play_url && !newFreeSeries.playlist_url)) {
+      alert("Please fill name, poster URL, and either Streaming Link or Playlist M3U URL");
       return;
     }
     try {
@@ -866,7 +1088,7 @@ export default function App() {
           createdAt: new Date().toISOString()
         });
       }
-      setNewFreeSeries({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
+      setNewFreeSeries({ name: '', poster_url: '', play_url: '', download_url: '', playlist_url: '', is_embed: false });
     } catch (error) {
       console.error("Error saving free series:", error);
     }
@@ -1823,7 +2045,7 @@ export default function App() {
                             animate={{ opacity: 1, y: 0 }}
                             whileHover={{ y: -8, scale: 1.02 }}
                             className="group cursor-pointer"
-                            onClick={() => { setSelectedFreeSeries(series); }}
+                            onClick={() => { handlePlayFreeSeries(series); }}
                           >
                             <div className="aspect-[2/3] rounded-[2rem] overflow-hidden border border-white/10 bg-white/5 relative shadow-2xl">
                               <img 
@@ -2254,7 +2476,7 @@ export default function App() {
 
               <div className="flex-1 w-full h-full bg-black relative">
                 <VideoPlayer 
-                  key={webPlayUrl}
+                  key={selectedItem?.stream_id || selectedItem?.id || 'premium-player'}
                   options={{
                     autoplay: true,
                     controls: true,
@@ -2268,6 +2490,8 @@ export default function App() {
                   playingEpisode={playingEpisode}
                   nextEpisode={getNextEpisode(playingEpisode)}
                   onPlayNext={handlePlayNextEpisode}
+                  episodesMap={seriesInfo?.episodes}
+                  onSelectEpisode={handleSelectEpisode}
                 />
               </div>
             </motion.div>
@@ -2881,6 +3105,12 @@ export default function App() {
               </div>
 
               <div className="relative w-full aspect-video bg-black overflow-hidden flex-1 group">
+                {isM3uLoading && (
+                  <div className="absolute inset-0 bg-black/85 backdrop-blur-md z-[131] flex flex-col items-center justify-center gap-4">
+                    <Loader2 className="animate-spin text-purple-400" size={54} />
+                    <p className="text-[#00D1FF] font-black uppercase tracking-[0.2em] text-[10px] md:text-xs">Parsing Series Playlist M3U...</p>
+                  </div>
+                )}
                 {selectedFreeSeries.is_embed ? (
                   <iframe
                     src={selectedFreeSeries.play_url}
@@ -2889,23 +3119,35 @@ export default function App() {
                     referrerPolicy="no-referrer"
                   />
                 ) : (
-                  <VideoPlayer 
-                    key={selectedFreeSeries.play_url}
-                    options={{
-                      autoplay: true,
-                      controls: true,
-                      responsive: true,
-                      fluid: true,
-                      isLive: false,
-                      poster: selectedFreeSeries.poster_url,
-                      is_embed: selectedFreeSeries.is_embed,
-                      skipProxy: true,
-                      sources: [{
-                        src: selectedFreeSeries.play_url,
-                        type: selectedFreeSeries.play_url.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'
-                      }]
-                    }} 
-                  />
+                  (!isM3uLoading && (freeSeriesActiveUrl || selectedFreeSeries.play_url)) ? (
+                    <VideoPlayer 
+                      key={selectedFreeSeries.id}
+                      options={{
+                        autoplay: true,
+                        controls: true,
+                        responsive: true,
+                        fluid: true,
+                        isLive: false,
+                        poster: selectedFreeSeries.poster_url,
+                        is_embed: selectedFreeSeries.is_embed,
+                        skipProxy: true,
+                        sources: [{
+                          src: freeSeriesActiveUrl || selectedFreeSeries.play_url,
+                          type: (freeSeriesActiveUrl || selectedFreeSeries.play_url).includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'
+                        }]
+                      }} 
+                      playingEpisode={playingFreeEpisode}
+                      nextEpisode={getNextFreeEpisode(playingFreeEpisode)}
+                      onPlayNext={handlePlayNextFreeEpisode}
+                      episodesMap={freeSeriesEpisodesMap || undefined}
+                      onSelectEpisode={handleSelectFreeEpisode}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-white/45 bg-black gap-2">
+                       <Tv size={42} className="text-white/20" />
+                       <span className="text-[10px] font-black uppercase tracking-widest text-[#00D1FF]/60">Streaming Source Empty</span>
+                    </div>
+                  )
                 )}
               </div>
 
@@ -3243,6 +3485,19 @@ export default function App() {
                         />
                       </div>
 
+                      {activeAdminTab === 'free_series' && (
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Playlist M3U URL (Optional)</label>
+                          <input 
+                            type="text" 
+                            value={newFreeSeries.playlist_url || ''}
+                            onChange={(e) => setNewFreeSeries({...newFreeSeries, playlist_url: e.target.value})}
+                            placeholder="e.g. https://lb3.hdsj.store/series_links/sipder/playlist.m3u"
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                        </div>
+                      )}
+
                       <div className="flex items-center gap-4">
                         <div className="flex-1 space-y-2">
                           <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Download Link (Optional)</label>
@@ -3302,7 +3557,14 @@ export default function App() {
                                       setNewFreeMovie({ ...item });
                                     } else {
                                       setEditingSeriesId(item.id);
-                                      setNewFreeSeries({ ...item });
+                                      setNewFreeSeries({
+                                        name: item.name || '',
+                                        poster_url: item.poster_url || '',
+                                        play_url: item.play_url || '',
+                                        download_url: item.download_url || '',
+                                        playlist_url: item.playlist_url || '',
+                                        is_embed: !!item.is_embed
+                                      });
                                     }
                                   }}
                                   className="w-8 h-8 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 flex items-center justify-center transition-all"
