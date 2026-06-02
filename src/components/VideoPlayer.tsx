@@ -4,7 +4,7 @@ import Artplayer from 'artplayer';
 import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldCheck, Cpu, Globe, Sliders, X, SkipForward, List, Tv } from 'lucide-react';
+import { ShieldCheck, Cpu, Globe, Sliders, X, SkipForward, List, Tv, Download, Gauge, RotateCcw, Pencil, Check, Zap } from 'lucide-react';
 
 interface VideoPlayerProps {
   options: {
@@ -23,6 +23,7 @@ interface VideoPlayerProps {
   onPlayNext?: () => void;
   episodesMap?: Record<string, any[]>;
   onSelectEpisode?: (episode: any, seasonNum: string) => void;
+  onDownloadEpisode?: (episode: any) => void;
 }
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ 
@@ -33,24 +34,60 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   nextEpisode, 
   onPlayNext,
   episodesMap,
-  onSelectEpisode
+  onSelectEpisode,
+  onDownloadEpisode
 }) => {
   const artRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<Artplayer | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const mpegtsRef = useRef<any>(null);
   const lastClickTimeRef = useRef<number>(0);
+  const userSelectedSpeedRef = useRef<number>(1.0);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingText, setLoadingText] = useState('LOADING VIDEO...');
   const [showEqPanel, setShowEqPanel] = useState(false);
   const [showEpisodesPanel, setShowEpisodesPanel] = useState(false);
+  const [showSpeedPanel, setShowSpeedPanel] = useState(false);
+  const [currentSpeed, setCurrentSpeed] = useState(1.0);
+  const [isEditingSpeed, setIsEditingSpeed] = useState(false);
+  const [manualSpeedInput, setManualSpeedInput] = useState('1.00');
   const [panelSeason, setPanelSeason] = useState<string>('');
   const [bassGain, setBassGain] = useState(0);
   const [midGain, setMidGain] = useState(0);
   const [trebleGain, setTrebleGain] = useState(0);
+  const [volumeBoost, setVolumeBoost] = useState(1.0);
+
+  const handleVolumeBoostChange = (val: number) => {
+    const rounded = Number(val.toFixed(2));
+    setVolumeBoost(rounded);
+    if (playerRef.current) {
+      try {
+        const graph = getAudioGraph(playerRef.current);
+        if (graph && graph.gainNode) {
+          graph.gainNode.gain.value = rounded;
+          playerRef.current.notice.show = `Volume Boost: ${Math.round(rounded * 100)}%`;
+        }
+      } catch (e) {
+        console.error('Volume boost write error:', e);
+      }
+    }
+  };
   const [eqPortalTarget, setEqPortalTarget] = useState<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const areControlsShown = controlsVisible && !showEqPanel && !showSpeedPanel && !showEpisodesPanel && isFullscreen;
+
+  const updatePlaybackSpeed = (speed: number) => {
+    const clamped = Math.max(0.25, Math.min(4.0, Number(speed)));
+    const formatted = Number(clamped.toFixed(2));
+    setCurrentSpeed(formatted);
+    userSelectedSpeedRef.current = formatted;
+    setManualSpeedInput(clamped.toFixed(2));
+    if (playerRef.current) {
+      playerRef.current.playbackRate = formatted;
+      playerRef.current.notice.show = `Speed: ${clamped.toFixed(2)}x`;
+    }
+  };
 
   const openEpisodesPanel = () => {
     if (episodesMap) {
@@ -118,10 +155,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (playerRef.current) {
       try {
         const graph = getAudioGraph(playerRef.current);
-        if (graph && graph.eqFilters) {
-          setBassGain(graph.eqFilters.bass.gain.value);
-          setMidGain(graph.eqFilters.mid.gain.value);
-          setTrebleGain(graph.eqFilters.treble.gain.value);
+        if (graph) {
+          if (graph.eqFilters) {
+            setBassGain(graph.eqFilters.bass.gain.value);
+            setMidGain(graph.eqFilters.mid.gain.value);
+            setTrebleGain(graph.eqFilters.treble.gain.value);
+          }
+          if (graph.gainNode) {
+            setVolumeBoost(graph.gainNode.gain.value);
+          }
         }
       } catch (e) {
         console.error('Failed to initialize AudioContext for EQ:', e);
@@ -199,6 +241,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const sourceUrl = getProxiedUrl(originalUrl);
   const isEmbed = options.is_embed || false;
 
+  const isLiveStream = React.useMemo(() => {
+    const isHls = originalUrl.toLowerCase().includes('.m3u8') || source?.type === 'application/x-mpegURL';
+    const isTs = originalUrl.toLowerCase().includes('.ts') || source?.type === 'video/mp2t';
+    return !!(options.isLive || isHls || isTs || originalUrl?.includes('/live/'));
+  }, [originalUrl, options.isLive, source]);
+
   const isEmbeddable = (url: string) => {
     if (isEmbed) return true;
     const lowerUrl = url.toLowerCase();
@@ -243,7 +291,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       autoMini: false,
       loop: false,
       flip: false,
-      playbackRate: true, 
+      playbackRate: false, 
       aspectRatio: false,
       setting: true,
       pip: true,
@@ -270,7 +318,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         'x5-video-player-type': 'h5',
         'x5-video-orientation': 'landscape|portrait',
         controlsList: 'nodownload nofullscreen noremoteplayback',
-        disablePictureInPicture: true,
+        disablePictureInPicture: false,
       } as any,
       subtitle: {
         url: '',
@@ -311,30 +359,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             } else {
               art.video.style.objectFit = 'contain';
               art.aspectRatio = item.value;
-            }
-            return item.html;
-          },
-        },
-        {
-          html: 'Volume Boost',
-          width: 200,
-          tooltip: 'Normal',
-          selector: [
-            { html: 'Normal (100%)', value: 1 },
-            { html: 'Turbo (150%)', value: 1.5 },
-            { html: 'Extreme (200%)', value: 2 },
-            { html: 'Max Boost (300%)', value: 3 },
-          ],
-          onSelect: (item: any) => {
-            try {
-              const graph = getAudioGraph(art);
-              if (graph && graph.gainNode) {
-                graph.gainNode.gain.value = item.value;
-                art.notice.show = `Volume Boost: ${Math.round(item.value * 100)}%`;
-              }
-            } catch (e) {
-              console.error('Volume boost error:', e);
-              art.notice.show = 'Volume boost not supported in this browser';
             }
             return item.html;
           },
@@ -661,7 +685,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const stopFastForward = () => {
       if (!isFastForwarding) return;
       isFastForwarding = false;
-      art.playbackRate = 1;
+      const originalSpeed = userSelectedSpeedRef.current;
+      art.playbackRate = originalSpeed;
       art.controls.show = true; // Show controls again
       const indicator = art.layers['speed-indicator'];
       if (indicator) {
@@ -669,7 +694,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const container = indicator.querySelector('.speed-indicator-container') as HTMLElement;
         if (container) container.style.display = 'none';
       }
-      art.notice.show = 'Normal Speed';
+      art.notice.show = originalSpeed === 1.0 ? 'Normal Speed' : `Speed: ${originalSpeed.toFixed(2)}x`;
     };
 
     // Use native listeners for long press reliability and gesture blocking
@@ -802,12 +827,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Track state transitions to show overlays in full viewport or absolute layer correctly
     art.on('fullscreen', (state) => {
       setIsFullscreen(state);
+      if (!state) {
+        setShowEqPanel(false);
+        setShowSpeedPanel(false);
+        setShowEpisodesPanel(false);
+      }
     });
     art.on('fullscreenWeb', (state) => {
       setIsFullscreen(state);
+      if (!state) {
+        setShowEqPanel(false);
+        setShowSpeedPanel(false);
+        setShowEpisodesPanel(false);
+      }
     });
     art.on('control', (visible) => {
       setControlsVisible(visible);
+    });
+
+    art.on('video:ratechange', () => {
+      setCurrentSpeed(art.playbackRate);
     });
 
     art.on('video:ended', () => {
@@ -983,13 +1022,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           referrerPolicy="no-referrer"
         />
       ) : (
-        <div ref={artRef} className="w-full h-full artplayer-app" />
+        <div 
+          ref={artRef} 
+          className={`w-full h-full artplayer-app ${
+            (showEqPanel || showSpeedPanel || showEpisodesPanel) ? 'hide-player-controls' : ''
+          }`} 
+        />
       )}
 
       {/* Floating EQ Toggle Button inside our custom portal layer inside Artplayer */}
       {eqPortalTarget && createPortal(
         <AnimatePresence>
-          {controlsVisible && !isLoading && !isEmbeddable(originalUrl) && (
+          {areControlsShown && !isLoading && !isEmbeddable(originalUrl) && (
             <motion.div
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -1010,10 +1054,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         eqPortalTarget
       )}
 
-      {/* Floating Episodes Button inside our custom portal layer exactly below EQ button */}
-      {eqPortalTarget && episodesMap && onSelectEpisode && createPortal(
+      {/* Floating Play Speed Button inside our custom portal layer inside Artplayer */}
+      {eqPortalTarget && !isLiveStream && createPortal(
         <AnimatePresence>
-          {controlsVisible && !isLoading && !isEmbeddable(originalUrl) && (
+          {areControlsShown && !isLoading && !isEmbeddable(originalUrl) && (
             <motion.div
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -1022,8 +1066,42 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             >
               <button 
                 type="button"
+                onClick={() => {
+                  setManualSpeedInput(currentSpeed.toFixed(2));
+                  setIsEditingSpeed(false);
+                  setShowSpeedPanel(true);
+                }}
+                className="flex items-center justify-center bg-black/65 hover:bg-[#00D1FF]/20 text-white hover:text-[#00D1FF] rounded-full backdrop-blur-md border border-white/10 hover:border-[#00D1FF]/40 transition-all duration-300 cursor-pointer shadow-lg shadow-black/40 gap-1.5 w-[85px] h-10 hover:scale-105 active:scale-95 px-2.5"
+                title="Play Speed"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-[18px] h-[18px] text-[#00D1FF] drop-shadow-[0_0_5px_rgba(0,209,255,0.7)] flex-shrink-0 animate-pulse">
+                  <path d="M4 15a8 8 0 1 1 1.05 4.5" />
+                  <path d="M12 15h.01" strokeWidth="4" />
+                  <path d="M12 15l2.5-4.5" stroke="currentColor" strokeWidth="2.5" />
+                </svg>
+                <span className="text-[11px] font-bold tracking-tight font-mono select-none text-white/90">
+                  {currentSpeed.toFixed(2)}x
+                </span>
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        eqPortalTarget
+      )}
+      {/* Floating Episodes Button inside our custom portal layer exactly below EQ button */}
+      {eqPortalTarget && episodesMap && onSelectEpisode && createPortal(
+        <AnimatePresence>
+          {areControlsShown && !isLoading && !isEmbeddable(originalUrl) && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="absolute top-[130px] right-[20px] z-[99] pointer-events-auto"
+            >
+              <button 
+                type="button"
                 onClick={openEpisodesPanel}
-                className="p-2.5 bg-black/55 hover:bg-[#00D1FF]/20 text-white hover:text-[#00D1FF] rounded-full flex items-center justify-center backdrop-blur-md border border-white/10 transition-all cursor-pointer shadow-lg shadow-black/30"
+                className="w-10 h-10 bg-black/65 hover:bg-[#00D1FF]/20 text-white hover:text-[#00D1FF] rounded-full flex items-center justify-center backdrop-blur-md border border-white/10 transition-all cursor-pointer shadow-lg shadow-black/30"
                 title="Browse Episodes"
               >
                 <List className="w-5 h-5" />
@@ -1037,7 +1115,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Floating Episode Number Pill above bottom controls - only shown during controls visible & when web series is playing */}
       {eqPortalTarget && playingEpisode && createPortal(
         <AnimatePresence>
-          {controlsVisible && !isLoading && (
+          {areControlsShown && !isLoading && (
             <motion.div
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1062,7 +1140,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Floating Next Episode Action Button - only shown during controls visible & when next episode is available */}
       {eqPortalTarget && nextEpisode && onPlayNext && createPortal(
         <AnimatePresence>
-          {controlsVisible && !isLoading && (
+          {areControlsShown && !isLoading && (
             <motion.div
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1095,175 +1173,470 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className={`${isFullscreen ? 'absolute' : 'fixed'} inset-0 ${isFullscreen ? 'z-[199]' : 'z-[99999]'} bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 select-none pointer-events-auto`}
+              className={`${isFullscreen ? 'absolute' : 'fixed'} inset-0 ${isFullscreen ? 'z-[199]' : 'z-[99999]'} bg-black/10 flex items-center justify-center landscape:justify-end md:justify-end p-3 sm:p-4 landscape:pr-8 md:pr-16 select-none pointer-events-auto`}
               onClick={() => setShowEqPanel(false)}
             >
+              <div className="flex flex-row items-stretch gap-3" onClick={(e) => e.stopPropagation()}>
+                {/* Column 1: Vertical Volume Boost Control */}
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0, x: isFullscreen ? -30 : -10 }}
+                  animate={{ scale: 1, opacity: 1, x: 0 }}
+                  exit={{ scale: 0.95, opacity: 0, x: isFullscreen ? -30 : -10 }}
+                  transition={{ type: "spring", damping: 25, stiffness: 350 }}
+                  className="w-[72px] sm:w-[80px] bg-[#0c0c0e]/95 backdrop-blur-2xl border border-amber-500/35 rounded-2xl p-3 shadow-[0_0_50px_rgba(245,158,11,0.25)] flex flex-col items-center gap-2.5 relative overflow-hidden select-none"
+                >
+                  {/* Glow effect */}
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-amber-500/40 blur-lg rounded-full pointer-events-none" />
+
+                  {/* Header info */}
+                  <div className="flex flex-col items-center text-center shrink-0">
+                    <Zap className="w-4 h-4 text-amber-400 animate-pulse drop-shadow-[0_0_6px_rgba(245,158,11,0.6)] mb-0.5" />
+                    <span className="text-[7.5px] text-white/50 tracking-wider uppercase font-extrabold font-sans">
+                      BOOST
+                    </span>
+                    <span className="text-xs font-mono font-black text-amber-400 mt-0.5">
+                      {Math.round(volumeBoost * 100)}%
+                    </span>
+                  </div>
+
+                  {/* High Quality Interactivity Area */}
+                  <div 
+                    className="flex-1 w-full flex flex-col items-center justify-between relative cursor-ns-resize group select-none py-1.5"
+                    onPointerDown={(e) => {
+                      const el = e.currentTarget;
+                      el.setPointerCapture(e.pointerId);
+                      
+                      const handleDrag = (ev: PointerEvent) => {
+                        const rect = el.getBoundingClientRect();
+                        const val01 = Math.max(0, Math.min(1, (rect.bottom - ev.clientY) / rect.height));
+                        handleVolumeBoostChange(1.0 + val01 * 3.0);
+                      };
+                      
+                      const handleRelease = (ev: PointerEvent) => {
+                        try {
+                          el.releasePointerCapture(ev.pointerId);
+                        } catch(err) {}
+                        el.removeEventListener('pointermove', handleDrag);
+                        el.removeEventListener('pointerup', handleRelease);
+                        el.removeEventListener('pointercancel', handleRelease);
+                      };
+                      
+                      el.addEventListener('pointermove', handleDrag);
+                      el.addEventListener('pointerup', handleRelease);
+                      el.addEventListener('pointercancel', handleRelease);
+                      
+                      const rect = el.getBoundingClientRect();
+                      const val01 = Math.max(0, Math.min(1, (rect.bottom - e.clientY) / rect.height));
+                      handleVolumeBoostChange(1.0 + val01 * 3.0);
+                    }}
+                  >
+                    {/* Tick markers */}
+                    <div className="absolute inset-y-1.5 left-1 sm:left-2 flex flex-col justify-between text-[6.5px] font-mono text-white/25 pointer-events-none h-full select-none">
+                      <span>400</span>
+                      <span>325</span>
+                      <span>250</span>
+                      <span>175</span>
+                      <span>100</span>
+                    </div>
+
+                    {/* Visual slider track */}
+                    <div className="w-2.5 h-full bg-white/5 border border-white/10 rounded-full relative overflow-hidden flex items-end ml-4 sm:ml-5 shadow-inner">
+                      {/* Active level fill */}
+                      <div 
+                        className="w-full bg-gradient-to-t from-amber-600 via-amber-400 to-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.6)] transition-all duration-75 origin-bottom" 
+                        style={{ height: `${((volumeBoost - 1) / 3) * 100}%` }}
+                      />
+                      
+                      {/* Draggable pointer head visual overlay */}
+                      <div 
+                        className="absolute left-0 right-0 h-1.5 bg-white border-y border-amber-500 shadow-[0_0_10px_rgba(255,255,255,0.9)] transition-all duration-75 cursor-ns-resize"
+                        style={{ bottom: `calc(${((volumeBoost - 1) / 3) * 100}% - 3px)` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Power status phrase */}
+                  <div className="text-center shrink-0">
+                    <span className="text-[7.5px] text-white/50 font-mono tracking-tighter uppercase block font-black">
+                      {volumeBoost > 3.0 ? 'ULTRA BOOST' : volumeBoost > 2.0 ? 'EXTREME' : volumeBoost > 1.05 ? 'TURBO' : 'NORMAL'}
+                    </span>
+                  </div>
+                </motion.div>
+
+                {/* Column 2: The Main Custom Equalizer Box */}
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0, x: isFullscreen ? 50 : 20 }}
+                  animate={{ scale: 1, opacity: 1, x: 0 }}
+                  exit={{ scale: 0.95, opacity: 0, x: isFullscreen ? 50 : 20 }}
+                  transition={{ type: "spring", damping: 25, stiffness: 350 }}
+                  className="w-full max-w-[310px] bg-[#0c0c0e]/95 backdrop-blur-2xl border border-cyan-500/35 rounded-2xl p-4 shadow-[0_0_50px_rgba(0,209,255,0.35)] flex flex-col gap-3 relative overflow-hidden"
+                >
+                  {/* Glow background */}
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-1.5 bg-[#00D1FF]/40 blur-xl rounded-full pointer-events-none" />
+                  
+                  {/* Header */}
+                  <div className="flex items-center justify-between border-b border-white/5 pb-2 shrink-0">
+                    <div className="flex items-center gap-2 text-[#00D1FF]">
+                      <Sliders className="w-4 h-4 drop-shadow-[0_0_8px_rgba(0,209,255,0.55)]" />
+                      <span className="font-extrabold tracking-[0.2em] text-[10px] uppercase font-sans">
+                        CUSTOM EQUALIZER
+                      </span>
+                    </div>
+                    <button 
+                      type="button"
+                      onClick={() => setShowEqPanel(false)}
+                      className="text-white/60 hover:text-white bg-white/5 hover:bg-white/10 p-1 rounded-full transition-all cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Scrollable Container */}
+                  <div className="flex-1 overflow-y-auto pr-0.5 space-y-3.5 child-no-shrink touch-pan-y scrollbar-thin scrollbar-thumb-white/15 scrollbar-track-transparent">
+                    {/* Slider Slates */}
+                    <div className="flex flex-col gap-2.5 py-0.5">
+                      {/* Bass Slider (Row Layout) */}
+                      <div className="flex items-center justify-between gap-3 bg-white/[0.02] border border-white/5 rounded-xl p-2.5">
+                        <div className="flex flex-col min-w-[70px]">
+                          <span className="text-white/80 font-bold uppercase text-[9px] tracking-wider">Bass</span>
+                          <span className="text-[8px] text-white/30 font-semibold uppercase font-sans">150Hz</span>
+                        </div>
+                        <div className="flex-1 flex items-center gap-2">
+                          <input 
+                            type="range"
+                            min="-12"
+                            max="12"
+                            step="1"
+                            value={bassGain}
+                            onChange={(e) => handleEqChange('bass', Number(e.target.value))}
+                            className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#00D1FF] duration-150 focus:outline-none touch-none"
+                          />
+                          <span className={`text-[10px] font-mono font-bold min-w-[36px] text-right ${bassGain > 0 ? "text-[#00D1FF]" : bassGain < 0 ? "text-rose-500" : "text-white/40"}`}>
+                            {bassGain > 0 ? `+${bassGain}` : bassGain}dB
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Mids Slider (Row Layout) */}
+                      <div className="flex items-center justify-between gap-3 bg-white/[0.02] border border-white/5 rounded-xl p-2.5">
+                        <div className="flex flex-col min-w-[70px]">
+                          <span className="text-white/80 font-bold uppercase text-[9px] tracking-wider">Mids</span>
+                          <span className="text-[8px] text-white/30 font-semibold uppercase font-sans">1kHz</span>
+                        </div>
+                        <div className="flex-1 flex items-center gap-2">
+                          <input 
+                            type="range"
+                            min="-12"
+                            max="12"
+                            step="1"
+                            value={midGain}
+                            onChange={(e) => handleEqChange('mid', Number(e.target.value))}
+                            className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#00D1FF] duration-150 focus:outline-none touch-none"
+                          />
+                          <span className={`text-[10px] font-mono font-bold min-w-[36px] text-right ${midGain > 0 ? "text-[#00D1FF]" : midGain < 0 ? "text-rose-500" : "text-white/40"}`}>
+                            {midGain > 0 ? `+${midGain}` : midGain}dB
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Treble Slider (Row Layout) */}
+                      <div className="flex items-center justify-between gap-3 bg-white/[0.02] border border-white/5 rounded-xl p-2.5">
+                        <div className="flex flex-col min-w-[70px]">
+                          <span className="text-white/80 font-bold uppercase text-[9px] tracking-wider">Treble</span>
+                          <span className="text-[8px] text-white/30 font-semibold uppercase font-sans">6kHz</span>
+                        </div>
+                        <div className="flex-1 flex items-center gap-2">
+                          <input 
+                            type="range"
+                            min="-12"
+                            max="12"
+                            step="1"
+                            value={trebleGain}
+                            onChange={(e) => handleEqChange('treble', Number(e.target.value))}
+                            className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#00D1FF] duration-150 focus:outline-none touch-none"
+                          />
+                          <span className={`text-[10px] font-mono font-bold min-w-[36px] text-right ${trebleGain > 0 ? "text-[#00D1FF]" : trebleGain < 0 ? "text-rose-500" : "text-white/40"}`}>
+                            {trebleGain > 0 ? `+${trebleGain}` : trebleGain}dB
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Presets Grid */}
+                    <div className="space-y-1.5 pt-2 border-t border-white/5">
+                      <span className="text-[9px] text-white/30 tracking-wider uppercase font-black block">
+                        Presets Quick-Access
+                      </span>
+                      <div className="grid grid-cols-5 gap-1">
+                        <button 
+                          type="button"
+                          onClick={() => applyPreset('flat')}
+                          className={`py-1.5 rounded-lg border text-[8px] font-black transition-all uppercase tracking-widest cursor-pointer ${
+                            bassGain === 0 && midGain === 0 && trebleGain === 0
+                              ? "bg-[#00D1FF]/15 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_8px_rgba(0,209,255,0.1)]"
+                              : "bg-white/5 text-white/60 border-transparent hover:bg-white/10 hover:text-white"
+                          }`}
+                        >
+                          Flat
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => applyPreset('bass')}
+                          className={`py-1.5 rounded-lg border text-[8px] font-black transition-all uppercase tracking-widest cursor-pointer ${
+                            bassGain === 8 && midGain === 0 && trebleGain === 2
+                              ? "bg-[#00D1FF]/15 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_8px_rgba(0,209,255,0.1)]"
+                              : "bg-white/5 text-white/60 border-transparent hover:bg-white/10 hover:text-white"
+                          }`}
+                        >
+                          Bass
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => applyPreset('vocal')}
+                          className={`py-1.5 rounded-lg border text-[8px] font-black transition-all uppercase tracking-widest cursor-pointer ${
+                            bassGain === -4 && midGain === 6 && trebleGain === 2
+                              ? "bg-[#00D1FF]/15 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_8px_rgba(0,209,255,0.1)]"
+                              : "bg-white/5 text-white/60 border-transparent hover:bg-white/10 hover:text-white"
+                          }`}
+                        >
+                          Vocal
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => applyPreset('cinema')}
+                          className={`py-1.5 rounded-lg border text-[8px] font-black transition-all uppercase tracking-widest cursor-pointer ${
+                            bassGain === 5 && midGain === -2 && trebleGain === 4
+                              ? "bg-[#00D1FF]/15 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_8px_rgba(0,209,255,0.1)]"
+                              : "bg-white/5 text-white/60 border-transparent hover:bg-white/10 hover:text-white"
+                          }`}
+                        >
+                          Cine
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => applyPreset('loudness')}
+                          className={`py-1.5 rounded-lg border text-[8px] font-black transition-all uppercase tracking-widest cursor-pointer ${
+                            bassGain === 4 && midGain === 3 && trebleGain === 4
+                              ? "bg-[#00D1FF]/15 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_8px_rgba(0,209,255,0.15)]"
+                              : "bg-white/5 text-white/60 border-transparent hover:bg-white/10 hover:text-white"
+                          }`}
+                        >
+                          Loud
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Exit/Close trigger */}
+                  <button 
+                    type="button"
+                    onClick={() => setShowEqPanel(false)}
+                    className="w-full bg-[#00D1FF] hover:bg-[#00e1ff] text-black font-black tracking-widest text-[10px] uppercase py-2.5 rounded-xl transition-all shadow-lg shadow-[#00D1FF]/20 cursor-pointer shrink-0"
+                  >
+                    Done
+                  </button>
+                </motion.div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        isFullscreen ? eqPortalTarget! : document.body
+      )}
+
+      {/* Custom Speed Panel Portal: Renders to document.body on normal screen and eqPortalTarget in fullscreen */}
+      {showSpeedPanel && (isFullscreen ? eqPortalTarget : (typeof document !== 'undefined' ? document.body : null)) && createPortal(
+        <AnimatePresence>
+          {showSpeedPanel && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className={`${isFullscreen ? 'absolute' : 'fixed'} inset-0 ${isFullscreen ? 'z-[199]' : 'z-[99999]'} bg-black/10 flex items-center justify-center landscape:justify-end md:justify-end p-3 sm:p-4 landscape:pr-8 md:pr-16 select-none pointer-events-auto`}
+              onClick={() => setShowSpeedPanel(false)}
+            >
               <motion.div
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.9, opacity: 0 }}
-                transition={{ type: "spring", duration: 0.4 }}
-                className="w-full max-w-[340px] md:max-w-sm max-h-[95vh] sm:max-h-[85vh] bg-[#0c0c0e]/95 border border-[#00D1FF]/30 rounded-2xl p-4 sm:p-5 shadow-[0_0_50px_rgba(0,209,255,0.25)] flex flex-col gap-3 relative overflow-hidden"
+                initial={{ scale: 0.95, opacity: 0, x: isFullscreen ? 50 : 20 }}
+                animate={{ scale: 1, opacity: 1, x: 0 }}
+                exit={{ scale: 0.95, opacity: 0, x: isFullscreen ? 50 : 20 }}
+                transition={{ type: "spring", damping: 25, stiffness: 350 }}
+                className="w-full max-w-[310px] bg-[#0c0c0e]/95 backdrop-blur-2xl border border-cyan-500/35 rounded-2xl p-4 shadow-[0_0_50px_rgba(0,209,255,0.35)] flex flex-col gap-3 relative overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
               >
-                {/* Glow background */}
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-1.5 bg-[#00D1FF]/40 blur-xl rounded-full pointer-events-none" />
-                
+                {/* Visual Ambient Speed Glow Arc in the background */}
+                <div className="absolute top-[-50px] left-1/2 -translate-x-1/2 w-64 h-32 bg-cyan-500/10 blur-[50px] rounded-full pointer-events-none" />
+
                 {/* Header */}
-                <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                  <div className="flex items-center gap-2 text-[#00D1FF]">
-                    <Sliders className="w-4 h-4 drop-shadow-[0_0_8px_rgba(0,209,255,0.55)]" />
-                    <span className="font-extrabold tracking-[0.2em] text-[10px] sm:text-xs uppercase font-sans">
-                      CUSTOM EQUALIZER
+                <div className="flex items-center justify-between border-b border-white/5 pb-2 shrink-0">
+                  <div className="flex items-center gap-2 text-cyan-400">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-cyan-400">
+                      <path d="M4 15a8 8 0 1 1 1.05 4.5" />
+                      <path d="M12 15h.01" strokeWidth="4" />
+                      <path d="M12 15l2.5-4.5" stroke="currentColor" strokeWidth="2.5" />
+                    </svg>
+                    <span className="font-extrabold tracking-[0.2em] text-[10px] uppercase font-sans">
+                      PLAYBACK CONTROL
                     </span>
                   </div>
                   <button 
                     type="button"
-                    onClick={() => setShowEqPanel(false)}
+                    onClick={() => setShowSpeedPanel(false)}
                     className="text-white/60 hover:text-white bg-white/5 hover:bg-white/10 p-1 rounded-full transition-all cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
 
-                {/* Scrollable Container (critical for short viewports/mobile landscapes so elements are 100% visible) */}
-                <div className="flex-1 overflow-y-auto pr-1 space-y-4 touch-pan-y max-h-[60vh] sm:max-h-none scrollbar-thin scrollbar-thumb-white/15 scrollbar-track-transparent">
-                  {/* Slider Slates */}
-                  <div className="flex flex-col gap-3.5 py-1">
-                    {/* Bass Slider */}
-                    <div className="space-y-1.5">
-                      <div className="flex justify-between text-[11px] font-bold tracking-wider">
-                        <span className="text-white/60 uppercase text-[10px] sm:text-[11px]">Bass (150Hz)</span>
-                        <span className={bassGain > 0 ? "text-[#00D1FF]" : bassGain < 0 ? "text-rose-500" : "text-white/40"}>
-                          {bassGain > 0 ? `+${bassGain}` : bassGain} dB
-                        </span>
-                      </div>
-                      <div className="relative flex items-center h-5">
-                        <input 
-                          type="range"
-                          min="-12"
-                          max="12"
-                          step="1"
-                          value={bassGain}
-                          onChange={(e) => handleEqChange('bass', Number(e.target.value))}
-                          className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#00D1FF] duration-150 focus:outline-none touch-none"
+                {/* Main stack containing speed control options */}
+                <div className="flex-1 space-y-3.5 flex flex-col justify-start overflow-y-auto pr-0.5 scrollbar-thin scrollbar-thumb-white/15 scrollbar-track-transparent">
+                  
+                  {/* Compact Speed Display Indicator Area */}
+                  <div className="bg-[#060913]/65 border border-white/5 rounded-xl p-3 flex flex-col items-center justify-center min-h-[90px] relative overflow-hidden shrink-0">
+                    <div className="absolute inset-0 bg-gradient-to-t from-cyan-500/5 to-transparent pointer-events-none" />
+                    {isEditingSpeed ? (
+                      <div className="flex items-center gap-1.5 bg-black/8 w-full max-w-[190px] justify-between p-1 px-2 border border-cyan-500/35 rounded-lg shadow-[0_0_15px_rgba(0,209,255,0.15)]">
+                        <input
+                          type="text"
+                          value={manualSpeedInput}
+                          onChange={(e) => setManualSpeedInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const val = parseFloat(manualSpeedInput);
+                              if (!isNaN(val)) updatePlaybackSpeed(val);
+                              setIsEditingSpeed(false);
+                            }
+                          }}
+                          className="bg-transparent text-[#00D1FF] text-center text-base outline-none font-black font-mono w-20 tracking-tight"
+                          autoFocus
                         />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const val = parseFloat(manualSpeedInput);
+                            if (!isNaN(val)) updatePlaybackSpeed(val);
+                            setIsEditingSpeed(false);
+                          }}
+                          className="p-1 px-2.5 bg-[#00D1FF] hover:bg-cyan-400 text-black font-extrabold rounded-md transition-all cursor-pointer text-[9px] uppercase font-black"
+                        >
+                          SET
+                        </button>
                       </div>
-                    </div>
-
-                    {/* Mids Slider */}
-                    <div className="space-y-1.5">
-                      <div className="flex justify-between text-[11px] font-bold tracking-wider">
-                        <span className="text-white/60 uppercase text-[10px] sm:text-[11px]">Mids (1kHz)</span>
-                        <span className={midGain > 0 ? "text-[#00D1FF]" : midGain < 0 ? "text-rose-500" : "text-white/40"}>
-                          {midGain > 0 ? `+${midGain}` : midGain} dB
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setManualSpeedInput(currentSpeed.toFixed(2));
+                          setIsEditingSpeed(true);
+                        }}
+                        className="flex flex-col items-center justify-center group cursor-pointer w-full"
+                        title="Click to enter manual speed"
+                      >
+                        <span className="text-3xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-cyan-400 drop-shadow-[0_0_12px_rgba(0,209,255,0.35)] font-mono leading-none">
+                          {currentSpeed.toFixed(2)}x
                         </span>
-                      </div>
-                      <div className="relative flex items-center h-5">
-                        <input 
-                          type="range"
-                          min="-12"
-                          max="12"
-                          step="1"
-                          value={midGain}
-                          onChange={(e) => handleEqChange('mid', Number(e.target.value))}
-                          className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#00D1FF] duration-150 focus:outline-none touch-none"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Treble Slider */}
-                    <div className="space-y-1.5">
-                      <div className="flex justify-between text-[11px] font-bold tracking-wider">
-                        <span className="text-white/60 uppercase text-[10px] sm:text-[11px]">Treble (6kHz)</span>
-                        <span className={trebleGain > 0 ? "text-[#00D1FF]" : trebleGain < 0 ? "text-rose-500" : "text-white/40"}>
-                          {trebleGain > 0 ? `+${trebleGain}` : trebleGain} dB
-                        </span>
-                      </div>
-                      <div className="relative flex items-center h-5">
-                        <input 
-                          type="range"
-                          min="-12"
-                          max="12"
-                          step="1"
-                          value={trebleGain}
-                          onChange={(e) => handleEqChange('treble', Number(e.target.value))}
-                          className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-[#00D1FF] duration-150 focus:outline-none touch-none"
-                        />
-                      </div>
-                    </div>
+                        
+                        <div className="mt-2.5 px-3 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-400/30 hover:border-cyan-400/60 rounded-full flex items-center justify-center gap-1.5 transition-all duration-300">
+                          <Pencil className="w-3 h-3 text-cyan-400" />
+                          <span className="text-[8px] text-[#00D1FF] font-black uppercase tracking-widest font-sans leading-none">
+                            Type Custom Speed
+                          </span>
+                        </div>
+                      </button>
+                    )}
                   </div>
 
-                  {/* Presets Grid */}
-                  <div className="space-y-2 pt-3 border-t border-white/5">
-                    <span className="text-[9px] text-white/30 tracking-wider uppercase font-bold block">
-                      Presets Quick-Access
+                  {/* Tactile Micro Adjuster Row */}
+                  <div className="grid grid-cols-3 gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => updatePlaybackSpeed(currentSpeed - 0.05)}
+                      className="py-1.5 rounded-xl bg-white/5 hover:bg-red-500/10 border border-white/5 hover:border-red-500/30 text-white/80 hover:text-red-400 flex flex-col items-center justify-center transition-all cursor-pointer active:scale-95"
+                      title="Slow down 0.05x"
+                    >
+                      <span className="text-sm font-bold font-sans leading-none">&minus;</span>
+                      <span className="text-[7.5px] uppercase tracking-wider text-white/30 font-black block mt-0.5 leading-none font-sans">0.05x Slow</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => updatePlaybackSpeed(1.0)}
+                      className="py-1.5 rounded-xl bg-white/5 hover:bg-cyan-500/10 border border-white/5 hover:border-cyan-500/30 text-white/50 hover:text-cyan-400 flex flex-col items-center justify-center transition-all cursor-pointer active:scale-95 gap-0.5"
+                      title="Reset to 1.00x"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span className="text-[7.5px] uppercase tracking-wider text-white/30 font-black block leading-none font-sans">Normal</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => updatePlaybackSpeed(currentSpeed + 0.05)}
+                      className="py-1.5 rounded-xl bg-white/5 hover:bg-emerald-500/10 border border-white/5 hover:border-emerald-500/30 text-white/80 hover:text-emerald-400 flex flex-col items-center justify-center transition-all cursor-pointer active:scale-95"
+                      title="Speed up 0.05x"
+                    >
+                      <span className="text-sm font-bold font-sans leading-none">&#x002B;</span>
+                      <span className="text-[7.5px] uppercase tracking-wider text-white/30 font-black block mt-0.5 leading-none font-sans">0.05x Fast</span>
+                    </button>
+                  </div>
+
+                  {/* Speed Presets Grid */}
+                  <div className="space-y-1.5 shrink-0">
+                    <span className="text-[9px] text-white/30 font-black uppercase tracking-wider block leading-none">
+                      Speed Presets
                     </span>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <button 
-                        type="button"
-                        onClick={() => applyPreset('flat')}
-                        className={`px-2 py-1.5 sm:py-2 rounded-xl border text-[9px] sm:text-[10px] font-extrabold transition-all uppercase tracking-wider cursor-pointer ${
-                          bassGain === 0 && midGain === 0 && trebleGain === 0
-                            ? "bg-[#00D1FF]/10 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_8px_rgba(0,209,255,0.1)]"
-                            : "bg-white/5 text-white/60 border-transparent hover:bg-white/10 hover:text-white"
-                        }`}
-                      >
-                        Flat
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => applyPreset('bass')}
-                        className={`px-2 py-1.5 sm:py-2 rounded-xl border text-[9px] sm:text-[10px] font-extrabold transition-all uppercase tracking-wider cursor-pointer ${
-                          bassGain === 8 && midGain === 0 && trebleGain === 2
-                            ? "bg-[#00D1FF]/10 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_8px_rgba(0,209,255,0.1)]"
-                            : "bg-white/5 text-white/60 border-transparent hover:bg-white/10 hover:text-white"
-                        }`}
-                      >
-                        Bass
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => applyPreset('vocal')}
-                        className={`px-2 py-1.5 sm:py-2 rounded-xl border text-[9px] sm:text-[10px] font-extrabold transition-all uppercase tracking-wider cursor-pointer ${
-                          bassGain === -4 && midGain === 6 && trebleGain === 2
-                            ? "bg-[#00D1FF]/10 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_8px_rgba(0,209,255,0.1)]"
-                            : "bg-white/5 text-white/60 border-transparent hover:bg-white/10 hover:text-white"
-                        }`}
-                      >
-                        Vocal
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => applyPreset('cinema')}
-                        className={`px-2 py-1.5 sm:py-2 rounded-xl border text-[9px] sm:text-[10px] font-extrabold transition-all uppercase tracking-wider cursor-pointer ${
-                          bassGain === 5 && midGain === -2 && trebleGain === 4
-                            ? "bg-[#00D1FF]/10 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_8px_rgba(0,209,255,0.1)]"
-                            : "bg-white/5 text-white/60 border-transparent hover:bg-white/10 hover:text-white"
-                        }`}
-                      >
-                        Cinema
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => applyPreset('loudness')}
-                        className={`px-2 py-1.5 sm:py-2 rounded-xl border text-[9px] sm:text-[10px] font-extrabold transition-all uppercase tracking-wider cursor-pointer ${
-                          bassGain === 4 && midGain === 3 && trebleGain === 4
-                            ? "bg-[#00D1FF]/10 text-[#00D1FF] border-[#00D1FF]/40 shadow-[0_0_8px_rgba(0,209,255,0.15)]"
-                            : "bg-white/5 text-white/60 border-transparent hover:bg-white/10 hover:text-white"
-                        }`}
-                      >
-                        Loud
-                      </button>
+                    <div className="grid grid-cols-4 gap-1">
+                      {[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 3.0].map((presetVal) => {
+                        const isSelected = currentSpeed === presetVal;
+                        return (
+                          <button
+                            key={presetVal}
+                            type="button"
+                            onClick={() => updatePlaybackSpeed(presetVal)}
+                            className={`py-1.5 rounded-lg text-[9px] font-black font-mono tracking-tight transition-all duration-300 cursor-pointer text-center border active:scale-95 ${
+                              isSelected
+                                ? 'bg-gradient-to-r from-cyan-500 to-cyan-400 text-black border-cyan-400 shadow-[0_0_8px_rgba(0,209,255,0.2)]'
+                                : 'bg-white/[0.03] hover:bg-white/[0.08] text-white/70 hover:text-white border-white/5 hover:border-white/10'
+                            }`}
+                            title={`Set speed to ${presetVal.toFixed(2)}x`}
+                          >
+                            {presetVal === 1.0 ? '1.0x' : `${presetVal}x`}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
+
+                  {/* Fine-Tuning Slider */}
+                  <div className="flex flex-col gap-1 bg-black/40 border border-white/5 rounded-xl p-2 shrink-0">
+                    <div className="flex justify-between items-center text-[7.5px] text-white/30 uppercase tracking-widest font-black font-sans px-0.5">
+                      <span>0.25x</span>
+                      <span className="text-cyan-400 font-mono tracking-wider">Slide to Fine-Tune</span>
+                      <span>4.00x</span>
+                    </div>
+                    <div className="relative flex items-center h-5 px-1 pb-0.5">
+                      <div className="absolute left-1 right-1 h-0.5 bg-white/10 rounded-full pointer-events-none w-full">
+                        <div 
+                          className="absolute left-0 h-full bg-gradient-to-r from-cyan-500 to-[#00D1FF] rounded-full"
+                          style={{ width: `${Math.max(0, Math.min(100, ((currentSpeed - 0.25) / 3.75) * 100))}%` }}
+                        />
+                      </div>
+                      <input 
+                        type="range"
+                        min="0.25"
+                        max="4.0"
+                        step="0.05"
+                        value={currentSpeed}
+                        onChange={(e) => updatePlaybackSpeed(Number(e.target.value))}
+                        className="w-full h-5 bg-transparent appearance-none cursor-pointer accent-[#00D1FF] outline-none relative z-20 touch-none"
+                      />
+                    </div>
+                  </div>
+
                 </div>
 
-                {/* Exit/Close trigger */}
+                {/* Confirm Done trigger */}
                 <button 
                   type="button"
-                  onClick={() => setShowEqPanel(false)}
-                  className="w-full mt-2 bg-[#00D1FF] hover:bg-[#00e1ff] text-black font-black tracking-widest text-[10px] sm:text-[11px] uppercase py-2.5 sm:py-3 rounded-xl transition-all shadow-lg shadow-[#00D1FF]/20 cursor-pointer"
+                  onClick={() => setShowSpeedPanel(false)}
+                  className="w-full bg-[#00D1FF] hover:bg-[#00e1ff] text-black font-black tracking-widest text-[10px] uppercase py-2.5 rounded-xl transition-all shadow-lg shadow-[#00D1FF]/20 cursor-pointer shrink-0"
                 >
                   Done
                 </button>
@@ -1373,12 +1746,31 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                           </div>
                         </div>
                         
-                        {isCurrent && (
-                          <span className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-[#00D1FF]/10 text-[#00D1FF] border border-[#00D1FF]/20 text-[7px] md:text-[8px] font-black uppercase tracking-widest animate-pulse">
-                            <span className="w-1 h-1 rounded-full bg-[#00D1FF]" />
-                            Playing
-                          </span>
-                        )}
+                        <div className="flex items-center gap-2 shrink-0">
+                          {isCurrent && (
+                            <span className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-[#00D1FF]/10 text-[#00D1FF] border border-[#00D1FF]/20 text-[7px] md:text-[8px] font-black uppercase tracking-widest animate-pulse">
+                              <span className="w-1 h-1 rounded-full bg-[#00D1FF]" />
+                              Playing
+                            </span>
+                          )}
+
+                          {onDownloadEpisode && (
+                            <button
+                              type="button"
+                              title="Download Episode"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDownloadEpisode({
+                                  ...episode,
+                                  season: panelSeason
+                                });
+                              }}
+                              className="w-7 h-7 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/25 border border-emerald-500/25 hover:border-emerald-500/40 text-emerald-400 flex items-center justify-center transition-all cursor-pointer hover:scale-105 active:scale-95 shrink-0"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </button>
                     );
                   })}

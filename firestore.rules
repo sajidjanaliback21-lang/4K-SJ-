@@ -29,6 +29,16 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Favorites Collection
+    match /favorites/{favoriteId} {
+      allow read, write: if true;
+    }
+
+    // User Profiles Collection
+    match /user_profiles/{username} {
+      allow read, write: if true;
+    }
+
     // Default Deny
     match /{document=**} {
       allow read, write: if false;

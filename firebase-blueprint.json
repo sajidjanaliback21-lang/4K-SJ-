@@ -58,6 +58,30 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "poster_url", "play_url"]
+    },
+    "favorites": {
+      "title": "Favorites",
+      "description": "User specific favorite movies, series, or live TV channels sync'd across any device",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "itemId": { "type": "string" },
+        "type": { "type": "string" },
+        "addedAt": { "type": "string" }
+      },
+      "required": ["username", "itemId", "type"]
+    },
+    "user_profiles": {
+      "title": "User Profiles",
+      "description": "User-specific profiles containing custom or selected avatars",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "avatarId": { "type": "string" },
+        "customAvatar": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["username"]
     }
   },
   "firestore": {
@@ -80,6 +104,14 @@
     "/free_series/{seriesId}": {
       "schema": "free_series",
       "description": "Collection of free series"
+    },
+    "/favorites/{favoriteId}": {
+      "schema": "favorites",
+      "description": "Collection of user-specific favorite items"
+    },
+    "/user_profiles/{username}": {
+      "schema": "user_profiles",
+      "description": "User profiles with avatars"
     }
   }
 }

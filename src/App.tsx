@@ -32,7 +32,9 @@ import {
   MessageCircle,
   Pencil,
   Settings,
-  Share2
+  Share2,
+  Heart,
+  Plus
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -42,7 +44,7 @@ import axios from 'axios';
 import VideoPlayer from './components/VideoPlayer';
 import IntroLoading from './components/IntroLoading';
 import { db, auth } from './firebase';
-import { doc, onSnapshot, setDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc, where } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 
 enum OperationType {
@@ -96,6 +98,161 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
+const AVATARS = [
+  {
+    id: 'cinephile',
+    name: 'Cinephile Red',
+    render: () => (
+      <svg viewBox="0 0 100 100" className="w-full h-full object-cover rounded-full" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="50" r="48" fill="url(#cinephile-grad)" stroke="#00D1FF" strokeWidth="2.5" />
+        {/* Face skin */}
+        <path d="M28 48 C28 66, 72 66, 72 48 C72 38, 28 38, 28 48Z" fill="#FFE082" />
+        {/* Cool hair/cap */}
+        <path d="M22 44 Q50 20 78 44 C82 32, 18 32, 22 44Z" fill="#FF1744" />
+        <circle cx="50" cy="24" r="5" fill="#FFFFFF" />
+        {/* Retro 3D glasses */}
+        <rect x="29" y="44" width="18" height="10" rx="3" fill="#00E5FF" stroke="#1A1A1A" strokeWidth="2.5" />
+        <rect x="53" y="44" width="18" height="10" rx="3" fill="#FF1744" stroke="#1A1A1A" strokeWidth="2.5" />
+        <rect x="47" y="47" width="6" height="3" fill="#1A1A1A" />
+        {/* Mouth */}
+        <path d="M43 62 Q50 67 57 62" stroke="#1A1A1A" strokeWidth="3" strokeLinecap="round" fill="none" />
+        <defs>
+          <linearGradient id="cinephile-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#0B132B" />
+            <stop offset="100%" stopColor="#3A506B" />
+          </linearGradient>
+        </defs>
+      </svg>
+    )
+  },
+  {
+    id: 'geek',
+    name: 'Cyber Geek',
+    render: () => (
+      <svg viewBox="0 0 100 100" className="w-full h-full object-cover rounded-full" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="50" r="48" fill="url(#geek-grad)" stroke="#14B8A6" strokeWidth="2.5" />
+        {/* Skin */}
+        <path d="M28 50 C28 68, 72 68, 72 50 C72 40, 28 40, 28 50Z" fill="#FFD54F" />
+        {/* Cap with glowing emblem */}
+        <path d="M22 45 Q50 22 78 45 C82 35, 18 35, 22 45Z" fill="#1E293B" />
+        <rect x="42" y="32" width="16" height="6" rx="2" fill="#5EEAD4" />
+        {/* Futuristic visor/glasses */}
+        <rect x="25" y="43" width="50" height="10" rx="4" fill="#14B8A6" stroke="#0F172A" strokeWidth="2" opacity="0.9" />
+        <line x1="25" y1="48" x2="75" y2="48" stroke="#CCFBF1" strokeWidth="1" />
+        {/* Mouth */}
+        <path d="M45 61 H55" stroke="#0F172A" strokeWidth="3" strokeLinecap="round" />
+        <defs>
+          <linearGradient id="geek-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#0B1622" />
+            <stop offset="100%" stopColor="#115E59" />
+          </linearGradient>
+        </defs>
+      </svg>
+    )
+  },
+  {
+    id: 'retro',
+    name: 'Synthwave DJ',
+    render: () => (
+      <svg viewBox="0 0 100 100" className="w-full h-full object-cover rounded-full" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="50" r="48" fill="url(#retro-grad)" stroke="#EC4899" strokeWidth="2.5" />
+        {/* Skin */}
+        <path d="M28 48 C28 66, 72 66, 72 48 C72 38, 28 38, 28 48Z" fill="#FFE082" />
+        {/* Cool Hair */}
+        <path d="M20 45 C15 30, 85 30, 80 45 C84 20, 16 20, 20 45Z" fill="#EC4899" />
+        {/* Retro DJ Sunglasses */}
+        <path d="M25 43 H75 V51 H25 Z" fill="#F43F5E" stroke="#1E1B4B" strokeWidth="2.5" />
+        <line x1="25" y1="47" x2="75" y2="47" stroke="#FEF08A" strokeWidth="1.5" />
+        {/* DJ Headphones */}
+        <path d="M18 40 Q50 12 82 40" stroke="#06B6D4" strokeWidth="5.5" strokeLinecap="round" fill="none" />
+        <rect x="13" y="38" width="8" height="16" rx="3" fill="#06B6D4" />
+        <rect x="79" y="38" width="8" height="16" rx="3" fill="#06B6D4" />
+        {/* Mouth */}
+        <path d="M43 60 Q50 65 57 60" stroke="#111" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+        <defs>
+          <linearGradient id="retro-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#311042" />
+            <stop offset="100%" stopColor="#831843" />
+          </linearGradient>
+        </defs>
+      </svg>
+    )
+  },
+  {
+    id: 'captain',
+    name: 'Visor Captain',
+    render: () => (
+      <svg viewBox="0 0 100 100" className="w-full h-full object-cover rounded-full" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="50" r="48" fill="url(#captain-grad)" stroke="#3B82F6" strokeWidth="2.5" />
+        {/* Skin */}
+        <path d="M28 48 C28 66, 72 66, 72 48 C72 38, 28 38, 28 48Z" fill="#FFCC80" />
+        {/* Cap */}
+        <path d="M15 42 H85 L78 28 H22 Z" fill="#1E3A8A" />
+        <rect x="25" y="36" width="50" height="6" fill="#F59E0B" />
+        <circle cx="50" cy="33" r="4.5" fill="#EF4444" />
+        {/* Futuristic Vision Shield/Glasses */}
+        <path d="M27 45 H73 L71 54 H29 Z" fill="#3B82F6" stroke="#1E1B4B" strokeWidth="2" opacity="0.95" />
+        <circle cx="37" cy="49" r="2.5" fill="#FFE082" />
+        <circle cx="63" cy="49" r="2.5" fill="#FFE082" />
+        {/* Captain Beard */}
+        <path d="M30 58 Q50 78 70 58 Q50 65 30 58Z" fill="#0F172A" />
+        {/* Smirk */}
+        <path d="M44 58 Q50 62 56 58" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" fill="none" />
+        <defs>
+          <linearGradient id="captain-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#0B132E" />
+            <stop offset="100%" stopColor="#1E293B" />
+          </linearGradient>
+        </defs>
+      </svg>
+    )
+  },
+  {
+    id: 'star',
+    name: 'VIP Star',
+    render: () => (
+      <svg viewBox="0 0 100 100" className="w-full h-full object-cover rounded-full" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="50" cy="50" r="48" fill="url(#star-grad)" stroke="#FBBF24" strokeWidth="2.5" />
+        {/* Skin */}
+        <path d="M28 48 C28 66, 72 66, 72 48 C72 38, 28 38, 28 48Z" fill="#FFE082" />
+        {/* Crown/Golden Hair */}
+        <path d="M20 40 L35 25 L50 38 L65 25 L80 40 C85 30, 15 30, 20 40Z" fill="#FBBF24" />
+        {/* Golden Crown Gems */}
+        <circle cx="35" cy="25" r="3" fill="#EF4444" />
+        <circle cx="50" cy="38" r="3" fill="#3B82F6" />
+        <circle cx="65" cy="25" r="3" fill="#EF4444" />
+        {/* Star-shaped cool glasses */}
+        <path d="M24 46 L30 40 L38 46 L35 54 L27 54 Z" fill="#EF4444" stroke="#111" strokeWidth="1.5" />
+        <path d="M62 46 L68 40 L76 46 L73 54 L65 54 Z" fill="#EF4444" stroke="#111" strokeWidth="1.5" />
+        <line x1="38" y1="46" x2="62" y2="46" stroke="#111" strokeWidth="2" />
+        {/* Smile */}
+        <path d="M42 61 Q50 67 58 61" stroke="#111" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+        <defs>
+          <linearGradient id="star-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#1E1B4B" />
+            <stop offset="100%" stopColor="#431407" />
+          </linearGradient>
+        </defs>
+      </svg>
+    )
+  }
+];
+
+const renderAvatar = (avatarId: string, customAvatar: string | null) => {
+  if (customAvatar) {
+    return (
+      <img 
+        src={customAvatar} 
+        alt="Avatar" 
+        className="w-full h-full object-cover rounded-full" 
+        referrerPolicy="no-referrer"
+      />
+    );
+  }
+  const avatarObj = AVATARS.find(a => a.id === avatarId) || AVATARS[0];
+  return avatarObj.render();
+};
+
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -117,6 +274,14 @@ export default function App() {
     return localStorage.getItem('iptv_logged_in') === 'true';
   });
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [userInfo, setUserInfo] = useState<any>(null);
+  const [serverInfo, setServerInfo] = useState<any>(null);
+  const [favorites, setFavorites] = useState<any[]>([]);
+  const [profileData, setProfileData] = useState<any>({
+    avatarId: 'cinephile',
+    customAvatar: null
+  });
   const [activeTab, setActiveTab] = useState<'home' | 'movies' | 'series' | 'live' | 'free'>('home');
   const [activeFreeTab, setActiveFreeTab] = useState<'menu' | 'movies' | 'series'>('menu');
   const [movieCategories, setMovieCategories] = useState<Category[]>([]);
@@ -290,7 +455,8 @@ export default function App() {
     showWebPlayer ||
     showLoginModal ||
     showAdminLogin ||
-    showDownloadConfirm
+    showDownloadConfirm ||
+    showProfileModal
   );
   const [newPslUrlUrdu, setNewPslUrlUrdu] = useState(pslUrlUrdu);
   const [newPslUrlEnglish, setNewPslUrlEnglish] = useState(pslUrlEnglish);
@@ -595,6 +761,92 @@ export default function App() {
     }
   }, [selectedItem, creds]);
 
+  // Synchronize favorites from Firestore
+  useEffect(() => {
+    if (!isLoggedIn || !creds || !creds.username) {
+      setFavorites([]);
+      return;
+    }
+
+    const favoritesRef = collection(db, 'favorites');
+    const q = query(favoritesRef, where('username', '==', creds.username.toLowerCase()));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setFavorites(docs);
+    }, (error) => {
+      console.error("Error subscribing to favorites:", error);
+    });
+
+    return () => unsubscribe();
+  }, [isLoggedIn, creds]);
+
+  // Synchronize user profile from Firestore
+  useEffect(() => {
+    if (!isLoggedIn || !creds || !creds.username) {
+      setProfileData({ avatarId: 'cinephile', customAvatar: null });
+      return;
+    }
+
+    const profileRef = doc(db, 'user_profiles', creds.username.toLowerCase());
+    const unsubscribe = onSnapshot(profileRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setProfileData({
+          avatarId: data.avatarId || 'cinephile',
+          customAvatar: data.customAvatar || null,
+          username: data.username || creds.username
+        });
+      } else {
+        setProfileData({ avatarId: 'cinephile', customAvatar: null });
+      }
+    }, (error) => {
+      console.error("Error subscribing to profile details:", error);
+    });
+
+    return () => unsubscribe();
+  }, [isLoggedIn, creds]);
+
+  const updateProfile = async (avatarId: string, customAvatar: string | null) => {
+    if (!isLoggedIn || !creds || !creds.username) return;
+    try {
+      const docRef = doc(db, 'user_profiles', creds.username.toLowerCase());
+      await setDoc(docRef, {
+        username: creds.username.toLowerCase(),
+        avatarId,
+        customAvatar,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (e) {
+      console.error("Failed to update profile:", e);
+    }
+  };
+
+  const handleCustomAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 800 * 1024) { // limit to ~800KB for firestore document safety
+      alert("Image is too large. Please select an image smaller than 800 KB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (uploadEvent) => {
+      const base64 = uploadEvent.target?.result as string;
+      if (base64) {
+        await updateProfile('custom', base64);
+      }
+    };
+    reader.onerror = (error) => {
+      console.error("Error reading file:", error);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const [error, setError] = useState<string | null>(null);
   const isInitialMount = React.useRef(true);
 
@@ -608,7 +860,11 @@ export default function App() {
       try {
         // 0. Verify credentials first
         try {
-          await xtreamApi.login(creds);
+          const loginRes = await xtreamApi.login(creds);
+          if (loginRes) {
+            if (loginRes.user_info) setUserInfo(loginRes.user_info);
+            if (loginRes.server_info) setServerInfo(loginRes.server_info);
+          }
           setIntroProgress(15);
         } catch (loginErr) {
           console.warn("Login verification failed:", loginErr);
@@ -634,7 +890,8 @@ export default function App() {
         let mItems: Stream[] = [];
         try {
           mItems = await xtreamApi.getMovies(creds, '0');
-          setMovieItems(mItems);
+          const sortedMItems = [...mItems].sort((a, b) => (parseInt(b.added) || 0) - (parseInt(a.added) || 0));
+          setMovieItems(sortedMItems);
           setTotalMovieCount(mItems.length);
           setIntroProgress(55);
         } catch (mErr) {
@@ -650,7 +907,8 @@ export default function App() {
         let sItems: Series[] = [];
         try {
           sItems = await xtreamApi.getSeries(creds, '0');
-          setSeriesItems(sItems);
+          const sortedSItems = [...sItems].sort((a, b) => (parseInt(b.last_modified) || 0) - (parseInt(a.last_modified) || 0));
+          setSeriesItems(sortedSItems);
           setTotalSeriesCount(sItems.length);
           setIntroProgress(75);
         } catch (sErr) {
@@ -697,6 +955,7 @@ export default function App() {
 
   // Fetch Movie items when category changes
   useEffect(() => {
+    if (selectedMovieCategory === 'favorites') return;
     // Skip if it's initial mount and category is 0 (already fetched in initData)
     // Also skip if we already have items for category 0
     if (selectedMovieCategory === '0' && movieItems.length > 0) return;
@@ -706,7 +965,8 @@ export default function App() {
       setError(null);
       try {
         const data = await xtreamApi.getMovies(creds, selectedMovieCategory);
-        setMovieItems(data);
+        const sortedData = [...data].sort((a: any, b: any) => (parseInt(b.added) || 0) - (parseInt(a.added) || 0));
+        setMovieItems(sortedData);
       } catch (err: any) {
         console.error("Failed to fetch movies", err);
         setError(err.message || "Failed to fetch movies for this category.");
@@ -719,6 +979,7 @@ export default function App() {
 
   // Fetch Series items when category changes
   useEffect(() => {
+    if (selectedSeriesCategory === 'favorites') return;
     // Skip if it's initial mount and category is 0 (already fetched in initData)
     if (selectedSeriesCategory === '0' && seriesItems.length > 0) return;
 
@@ -727,7 +988,8 @@ export default function App() {
       setError(null);
       try {
         const data = await xtreamApi.getSeries(creds, selectedSeriesCategory);
-        setSeriesItems(data);
+        const sortedData = [...data].sort((a: any, b: any) => (parseInt(b.last_modified) || 0) - (parseInt(a.last_modified) || 0));
+        setSeriesItems(sortedData);
       } catch (err: any) {
         console.error("Failed to fetch series", err);
         setError(err.message || "Failed to fetch series for this category.");
@@ -740,6 +1002,7 @@ export default function App() {
 
   // Fetch Live TV items when category changes or when live tab is active and items are empty
   useEffect(() => {
+    if (selectedLiveCategory === 'favorites') return;
     // Only fetch if tab is live OR if it's category change
     if (activeTab !== 'live' && selectedLiveCategory === '0') return;
     if (selectedLiveCategory === '0' && liveItems.length > 0) return;
@@ -765,26 +1028,96 @@ export default function App() {
     setSelectedItem(item);
   };
 
+  const isItemFavorite = (item: any) => {
+    if (!item) return false;
+    const itemId = String('stream_id' in item ? item.stream_id : (item.series_id || (item as any).id));
+    return favorites.some((fav: any) => String(fav.itemId) === itemId);
+  };
+
+  const toggleItemFavorite = async (item: any) => {
+    if (!isLoggedIn || !creds || !creds.username || !item) return;
+
+    const itemId = String('stream_id' in item ? item.stream_id : (item.series_id || (item as any).id));
+    const type = 'series_id' in item ? 'series' : ('stream_type' in item && (item as any).stream_type === 'live' ? 'live' : 'movie');
+
+    try {
+      if (isItemFavorite(item)) {
+        const favDoc = favorites.find((fav: any) => String(fav.itemId) === itemId && fav.type === type);
+        if (favDoc && favDoc.id) {
+          await deleteDoc(doc(db, 'favorites', favDoc.id));
+        }
+      } else {
+        const newFav = {
+          username: creds.username.toLowerCase(),
+          itemId: itemId,
+          type: type,
+          itemData: item,
+          addedAt: new Date().toISOString()
+        };
+        const safeDocId = `${creds.username.toLowerCase()}_${type}_${itemId}`.replace(/[^a-zA-Z0-9_]/g, '_');
+        await setDoc(doc(db, 'favorites', safeDocId), newFav);
+      }
+    } catch (e) {
+      console.error("Failed to toggle favorite:", e);
+    }
+  };
+
+  const isFavorite = useMemo(() => isItemFavorite(selectedItem), [selectedItem, favorites]);
+  const toggleFavorite = () => toggleItemFavorite(selectedItem);
+
   const currentItems = useMemo(() => {
+    const currentSelectedCategory = activeTab === 'movies' ? selectedMovieCategory : (activeTab === 'series' ? selectedSeriesCategory : selectedLiveCategory);
+    if (isLoggedIn && currentSelectedCategory === 'favorites') {
+      const typeMap = { 'movies': 'movie', 'series': 'series', 'live': 'live' };
+      const currentType = typeMap[activeTab as 'movies' | 'series' | 'live'] || 'movie';
+      const favsForCurrentTab = favorites
+        .filter((fav: any) => fav.type === currentType)
+        .map((fav: any) => fav.itemData);
+      const filtered = searchQuery 
+        ? favsForCurrentTab.filter((item: any) => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
+        : favsForCurrentTab;
+      return filtered.slice(0, visibleCount);
+    }
+
     const items = activeTab === 'movies' ? movieItems : (activeTab === 'series' ? seriesItems : liveItems);
     const filtered = searchQuery 
       ? items.filter((item: any) => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
       : items;
     return filtered.slice(0, visibleCount);
-  }, [activeTab, movieItems, seriesItems, liveItems, searchQuery, visibleCount]);
+  }, [activeTab, movieItems, seriesItems, liveItems, searchQuery, visibleCount, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, favorites, isLoggedIn]);
 
   const hasMore = useMemo(() => {
+    const currentSelectedCategory = activeTab === 'movies' ? selectedMovieCategory : (activeTab === 'series' ? selectedSeriesCategory : selectedLiveCategory);
+    if (isLoggedIn && currentSelectedCategory === 'favorites') {
+      const typeMap = { 'movies': 'movie', 'series': 'series', 'live': 'live' };
+      const currentType = typeMap[activeTab as 'movies' | 'series' | 'live'] || 'movie';
+      const favsForCurrentTab = favorites
+        .filter((fav: any) => fav.type === currentType)
+        .map((fav: any) => fav.itemData);
+      const filtered = searchQuery 
+        ? favsForCurrentTab.filter((item: any) => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
+        : favsForCurrentTab;
+      return visibleCount < filtered.length;
+    }
+
     const items = activeTab === 'movies' ? movieItems : (activeTab === 'series' ? seriesItems : liveItems);
     const filtered = searchQuery 
       ? items.filter((item: any) => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
       : items;
     return visibleCount < filtered.length;
-  }, [activeTab, movieItems, seriesItems, liveItems, searchQuery, visibleCount]);
+  }, [activeTab, movieItems, seriesItems, liveItems, searchQuery, visibleCount, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, favorites, isLoggedIn]);
 
-  const currentCategories = activeTab === 'movies' ? movieCategories : (activeTab === 'series' ? seriesCategories : liveCategories);
+  const currentCategories = useMemo(() => {
+    const cats = activeTab === 'movies' ? movieCategories : (activeTab === 'series' ? seriesCategories : liveCategories);
+    if (isLoggedIn) {
+      return [{ category_id: 'favorites', category_name: '❤️ Favorites' }, ...cats];
+    }
+    return cats;
+  }, [activeTab, movieCategories, seriesCategories, liveCategories, isLoggedIn]);
+
   const currentSelectedCategory = activeTab === 'movies' ? selectedMovieCategory : (activeTab === 'series' ? selectedSeriesCategory : selectedLiveCategory);
   const setCurrentSelectedCategory = activeTab === 'movies' ? setSelectedMovieCategory : (activeTab === 'series' ? setSelectedSeriesCategory : setSelectedLiveCategory);
-  const currentLoading = activeTab === 'movies' ? loadingMovies : (activeTab === 'series' ? loadingSeries : loadingLive);
+  const currentLoading = currentSelectedCategory === 'favorites' ? false : (activeTab === 'movies' ? loadingMovies : (activeTab === 'series' ? loadingSeries : loadingLive));
 
   // Reset visible items when category or search changes
   useEffect(() => {
@@ -822,6 +1155,8 @@ export default function App() {
       const response = await xtreamApi.login(userCreds);
       if (response.user_info.status === 'Active' || response.user_info.auth === 1) {
         setCreds(userCreds);
+        if (response.user_info) setUserInfo(response.user_info);
+        if (response.server_info) setServerInfo(response.server_info);
         setIsLoggedIn(true);
         setShowLoginModal(false);
         setSelectedItem(null);
@@ -844,9 +1179,51 @@ export default function App() {
 
   const handleLogout = () => {
     setCreds(DEFAULT_CREDENTIALS);
+    setUserInfo(null);
+    setServerInfo(null);
     setIsLoggedIn(false);
     localStorage.removeItem('iptv_creds');
     localStorage.removeItem('iptv_logged_in');
+  };
+
+  const formatExpiryDate = (expDateRaw: any) => {
+    if (!expDateRaw || expDateRaw === 'null' || expDateRaw === '0') {
+      return 'Unlimited / Lifetime';
+    }
+    const timestamp = Number(expDateRaw);
+    if (isNaN(timestamp) || timestamp <= 0) {
+      return expDateRaw || 'Unlimited';
+    }
+    try {
+      const date = new Date(timestamp * 1000);
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    } catch (e) {
+      return expDateRaw;
+    }
+  };
+
+  const formatCreationDate = (createdAtRaw: any) => {
+    if (!createdAtRaw || createdAtRaw === 'null' || createdAtRaw === '0') {
+      return 'N/A';
+    }
+    const timestamp = Number(createdAtRaw);
+    if (isNaN(timestamp) || timestamp <= 0) {
+      return createdAtRaw || 'N/A';
+    }
+    try {
+      const date = new Date(timestamp * 1000);
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    } catch (e) {
+      return createdAtRaw;
+    }
   };
 
   const handleAddFreeMovie = async () => {
@@ -1068,6 +1445,17 @@ export default function App() {
       season: seasonNum
     });
     setFreeSeriesActiveUrl(episode.play_url);
+  };
+
+  const handleDownloadFreeEpisode = (episode: any) => {
+    if (!episode || !episode.play_url) return;
+    const seasonStr = episode.season ? `S${episode.season}` : '';
+    const epStr = episode.episode_num ? `E${episode.episode_num}` : '';
+    const partStr = [seasonStr, epStr].filter(Boolean).join('');
+    const separator = partStr ? ` - ${partStr}` : '';
+    const epTitle = episode.title || `Episode ${episode.episode_num}`;
+    const filename = `${selectedFreeSeries?.name || 'Series'}${separator} - ${epTitle}.${episode.container_extension || 'mp4'}`;
+    triggerDownload(episode.play_url, filename);
   };
 
   const handleAddFreeSeries = async () => {
@@ -1350,11 +1738,25 @@ export default function App() {
           
           {isLoggedIn ? (
             <div className="flex items-center gap-2 md:gap-3">
-              <span className="text-[10px] text-white/40 hidden lg:block">Logged in as: <span className="text-white/80 font-medium">{creds.username}</span></span>
+              <button
+                onClick={() => setShowProfileModal(true)}
+                className="flex items-center gap-2.5 bg-white/5 hover:bg-white/10 border border-white/15 hover:border-white/25 rounded-full pr-4 pl-1.5 py-1.5 transition-all group cursor-pointer"
+                title="View Profile Details"
+                id="profile-trigger-btn"
+              >
+                <div className="w-8 h-8 rounded-full bg-[#083344] overflow-hidden flex items-center justify-center select-none shrink-0 border border-cyan-400/50 shadow-[0_0_8px_rgba(6,182,212,0.3)]">
+                  {renderAvatar(profileData.avatarId, profileData.customAvatar)}
+                </div>
+                <span className="text-xs text-white/90 font-medium group-hover:text-[#00D1FF] transition-colors hidden sm:inline-block">
+                  {creds.username}
+                </span>
+              </button>
+              
               <button 
                 onClick={handleLogout}
                 className="p-2 hover:bg-white/10 rounded-full transition-all hover:rotate-12 text-white/60 hover:text-white"
                 title="Logout"
+                id="logout-btn"
               >
                 <LogOut size={18} className="md:w-5 md:h-5" />
               </button>
@@ -1644,7 +2046,21 @@ export default function App() {
                         <span className="text-[8px] text-cyan-400 font-bold uppercase tracking-widest block opacity-60 leading-none">1080P Signal</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0 font-sans">
+                      {isLoggedIn && (
+                        <button 
+                          onClick={() => toggleItemFavorite(playingLiveStream)}
+                          className={cn(
+                            "p-1.5 sm:p-2 rounded-lg border transition-all cursor-pointer flex items-center justify-center shrink-0 shadow-lg active:scale-95 duration-200",
+                            isItemFavorite(playingLiveStream)
+                              ? "bg-red-500/15 border-red-500/40 text-red-500 hover:bg-red-500/25 shadow-red-500/10"
+                              : "bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10 hover:border-white/20"
+                          )}
+                          title={isItemFavorite(playingLiveStream) ? "Remove from Favorites" : "Add to Favorites"}
+                        >
+                          <Heart size={12} fill={isItemFavorite(playingLiveStream) ? "currentColor" : "none"} />
+                        </button>
+                      )}
                       <button 
                         onClick={() => handleAction('copy', playingLiveStream)}
                         className="p-1.5 sm:p-2 bg-white/5 hover:bg-white/10 rounded-lg transition-all border border-white/10 text-white/60 hover:text-white"
@@ -1662,14 +2078,14 @@ export default function App() {
                   </motion.div>
                 )}
               </div>
-
+ 
               {/* Right Column: Categories & Channels List */}
               <div className="lg:h-[calc(100vh-280px)] min-h-[500px] flex flex-col gap-6">
                 {/* Categories Scroll */}
                 <div className="flex flex-col gap-3">
                   <h3 className="text-xs font-black text-white/30 uppercase tracking-[0.3em] px-2 italic">Categories</h3>
                   <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-                    {liveCategories.map((cat, idx) => (
+                    {currentCategories.map((cat, idx) => (
                       <button
                         key={`iptv-cat-${cat.category_id}-${idx}`}
                         onClick={() => setSelectedLiveCategory(cat.category_id)}
@@ -1685,7 +2101,7 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-
+ 
                 {/* Channels List Grid with Search */}
                 <div className="flex-1 glass rounded-[2.5rem] border border-white/10 overflow-hidden flex flex-col min-h-[400px]">
                   <div className="p-4 border-b border-white/5 bg-white/5 flex flex-col gap-4">
@@ -1693,7 +2109,7 @@ export default function App() {
                       <h3 className="text-xs font-black text-white uppercase tracking-widest italic flex items-center gap-2">
                         <Tv size={14} className="text-cyan-400" /> Live Grid
                       </h3>
-                      <span className="text-[10px] font-bold text-white/30 tracking-tighter">Category: {liveCategories.find(c => c.category_id === selectedLiveCategory)?.category_name || "All"}</span>
+                      <span className="text-[10px] font-bold text-white/30 tracking-tighter">Category: {currentCategories.find(c => c.category_id === selectedLiveCategory)?.category_name || "All"}</span>
                     </div>
                     
                     {/* Channel Search */}
@@ -2122,6 +2538,15 @@ export default function App() {
                             {activeTab === 'movies' ? totalMovieCount : (activeTab === 'series' ? totalSeriesCount : totalLiveCount)} Items
                           </span>
                         )}
+                        {cat.category_id === 'favorites' && (
+                          <span className="text-[8px] md:text-[9px] opacity-60 font-medium mt-0.5">
+                            {(() => {
+                              const typeMap = { 'movies': 'movie', 'series': 'series', 'live': 'live' };
+                              const currentType = typeMap[activeTab as 'movies' | 'series' | 'live'] || 'movie';
+                              return favorites.filter((fav: any) => fav.type === currentType).length;
+                            })()} Saved
+                          </span>
+                        )}
                       </div>
                     </button>
                   ))}
@@ -2271,18 +2696,36 @@ export default function App() {
               </div>
 
               <div className="flex-1 p-5 md:p-8 flex flex-col justify-start space-y-4 md:space-y-6 overflow-y-auto no-scrollbar pb-10 md:pb-8">
-                <div>
-                  <div className="flex items-center gap-2 md:gap-3 mb-1 md:mb-2">
-                    <span className="px-2 py-0.5 bg-cyan-600/20 text-cyan-400 text-[9px] md:text-[10px] font-bold uppercase tracking-widest rounded">
-                      {('series_id' in selectedItem) ? 'Series' : 'Movie'}
-                    </span>
-                    {selectedItem.rating && (
-                      <span className="text-yellow-500 font-bold flex items-center gap-1 text-xs md:text-sm">
-                        ★ {selectedItem.rating}
+                <div className="flex justify-between items-start gap-4">
+                  <div className="space-y-1 md:space-y-2 flex-1">
+                    <div className="flex items-center gap-2 md:gap-3 mb-1">
+                      <span className="px-2 py-0.5 bg-cyan-600/20 text-cyan-400 text-[9px] md:text-[10px] font-bold uppercase tracking-widest rounded">
+                        {('series_id' in selectedItem) ? 'Series' : ('stream_type' in selectedItem && (selectedItem as any).stream_type === 'live' ? 'Live TV' : 'Movie')}
                       </span>
-                    )}
+                      {selectedItem.rating && (
+                        <span className="text-yellow-500 font-bold flex items-center gap-1 text-xs md:text-sm">
+                          ★ {selectedItem.rating}
+                        </span>
+                      )}
+                    </div>
+                    <h2 className="text-xl md:text-4xl font-display font-bold leading-tight line-clamp-2 md:line-clamp-none">{selectedItem.name}</h2>
                   </div>
-                  <h2 className="text-xl md:text-4xl font-display font-bold leading-tight line-clamp-2 md:line-clamp-none">{selectedItem.name}</h2>
+
+                  {isLoggedIn && (
+                    <button
+                      onClick={toggleFavorite}
+                      className={cn(
+                        "p-3 md:p-4 rounded-full border transition-all cursor-pointer flex items-center justify-center shrink-0 self-start shadow-xl active:scale-95 duration-300",
+                        isFavorite
+                          ? "bg-red-500/15 border-red-500/40 text-red-500 hover:bg-red-500/25 shadow-red-500/15"
+                          : "bg-white/5 border-white/10 text-white/50 hover:text-white hover:bg-white/10 hover:border-white/30"
+                      )}
+                      title={isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+                      id="toggle-fav-btn"
+                    >
+                      <Heart size={20} md:size={24} fill={isFavorite ? "currentColor" : "none"} />
+                    </button>
+                  )}
                 </div>
 
                 <p className="text-white/60 text-[10px] md:text-sm leading-relaxed line-clamp-2 md:line-clamp-4">
@@ -2594,6 +3037,318 @@ export default function App() {
                   Register New Account
                 </a>
                 <p className="mt-4 text-[10px] text-white/20 uppercase tracking-tighter">Contact us on WhatsApp to get your premium credentials</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Profile Modal */}
+      <AnimatePresence>
+        {showProfileModal && (
+          <div className="fixed inset-0 z-[75] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowProfileModal(false)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-xl"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 30 }}
+              transition={{ 
+                type: "spring",
+                damping: 20,
+                stiffness: 240
+              }}
+              className="relative w-full max-w-md bg-[#141414]/95 border border-white/10 rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)] z-[76]"
+              id="profile-modal"
+            >
+              {/* Profile Background Banner with Premium Cinematic Cover Photo Illustration */}
+              <div className="h-32 relative overflow-hidden select-none border-b border-white/5">
+                <svg className="absolute inset-0 w-full h-full object-cover" viewBox="0 0 400 120" preserveAspectRatio="none" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  {/* Dark cinematic background */}
+                  <rect width="400" height="120" fill="url(#cover-bg-grad)" />
+                  
+                  {/* Glowing spotlight beams (Retro Hollywood opening night!) */}
+                  <path d="M-80 120 L80 -20 L160 -20 Z" fill="url(#spotlight-glow)" opacity="0.15" />
+                  <path d="M480 120 L320 -20 L240 -20 Z" fill="url(#spotlight-glow)" opacity="0.12" />
+                  
+                  {/* Stylized Retro Cinema Film Roll strip along the bottom */}
+                  <path d="M0 80 H400 V95 H0 Z" fill="#111" opacity="0.8" />
+                  {/* Film Sprocket holes */}
+                  <rect x="5" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="25" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="45" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="65" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="85" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="105" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="125" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="145" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="165" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="185" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="205" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="225" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="245" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="265" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="285" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="305" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="325" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="345" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="365" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                  <rect x="385" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+
+                  <rect x="5" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="25" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="45" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="65" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="85" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="105" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="125" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="145" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="165" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="185" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="205" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="225" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="245" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="265" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="285" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="305" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="325" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="345" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="365" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                  <rect x="385" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+
+                  {/* Floating cinema camera vector icon on the right side */}
+                  <g transform="translate(320, 15)" stroke="#00D1FF" strokeWidth="1.5" fill="none" opacity="0.75" className="animate-pulse">
+                    <rect x="5" y="15" width="22" height="15" rx="3" stroke="#00D1FF" strokeWidth="2" />
+                    <circle cx="10" cy="8" r="7" stroke="#00D1FF" strokeWidth="1.5" />
+                    <circle cx="10" cy="8" r="2" fill="#00D1FF" />
+                    <line x1="10" y1="1" x2="10" y2="15" stroke="#00D1FF" strokeWidth="1" />
+                    
+                    <circle cx="22" cy="8" r="7" stroke="#00D1FF" strokeWidth="1.5" />
+                    <circle cx="22" cy="8" r="2" fill="#00D1FF" />
+                    <line x1="22" y1="1" x2="22" y2="15" stroke="#00D1FF" strokeWidth="1" />
+                    
+                    <path d="M27 20 L35 15 V25 Z" fill="#00D1FF" opacity="0.3" />
+                    <path d="M27 20 L35 15 V25 Z" stroke="#00D1FF" strokeWidth="1.5" />
+                  </g>
+
+                  {/* High-contrast Cinema Tickets on the left side */}
+                  <g transform="translate(30, 12) rotate(-15)" stroke="#F43F5E" strokeWidth="1.5" fill="none" opacity="0.75">
+                    <rect x="0" y="0" width="36" height="20" rx="2" fill="#F43F5E" fillOpacity="0.1" strokeWidth="2" />
+                    <circle cx="0" cy="10" r="3" fill="#0E131F" />
+                    <circle cx="36" cy="10" r="3" fill="#0E131F" />
+                    <line x1="8" y1="4" x2="8" y2="16" stroke="#F43F5E" strokeWidth="1" strokeDasharray="2 2" />
+                    <line x1="28" y1="4" x2="28" y2="16" stroke="#F43F5E" strokeWidth="1" strokeDasharray="2 2" />
+                    <circle cx="18" cy="10" r="2.5" fill="#F43F5E" />
+                  </g>
+
+                  {/* A nice overlapping popcorn bucket in the middle-right */}
+                  <g transform="translate(195, 8)" opacity="0.7">
+                    <path d="M5 26 L10 50 H24 L29 26 Z" fill="#EF4444" />
+                    <path d="M9 26 L12 50 H15 L12 26 Z" fill="#FFF" />
+                    <path d="M17 26 L18 50 H21 L20 26 Z" fill="#FFF" />
+                    <circle cx="10" cy="24" r="5" fill="#FEF08A" />
+                    <circle cx="16" cy="22" r="6" fill="#FEF08A" />
+                    <circle cx="23" cy="24" r="5" fill="#FEF08A" />
+                    <circle cx="13" cy="19" r="4.5" fill="#FDE047" />
+                    <circle cx="19" cy="19" r="5" fill="#FDE047" />
+                  </g>
+                  
+                  {/* Star sparkles in the dark night */}
+                  <g opacity="0.5">
+                    <path d="M120 15 L122 22 L129 24 L122 26 L120 33 L118 26 L111 24 L118 22 Z" fill="#FFE082" />
+                    <path d="M260 40 L261 44 L265 45 L261 46 L260 50 L259 46 L255 45 L259 44 Z" fill="#00D1FF" />
+                  </g>
+
+                  {/* Big glowing "ENTERTAINMENT" lettering background ambient mask */}
+                  <text x="50%" y="112" textAnchor="middle" fill="#FFFFFF" fillOpacity="0.04" fontSize="32" fontWeight="900" letterSpacing="4">VIP CINEMA</text>
+
+                  {/* Modern fading dark vignette gradients */}
+                  <rect width="400" height="120" fill="url(#vignette-grad)" />
+
+                  <defs>
+                    <linearGradient id="cover-bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#0B1528" />
+                      <stop offset="50%" stopColor="#122540" />
+                      <stop offset="100%" stopColor="#1E1E2F" />
+                    </linearGradient>
+                    
+                    <linearGradient id="spotlight-glow" x1="50%" y1="0%" x2="50%" y2="100%">
+                      <stop offset="0%" stopColor="#00D1FF" stopOpacity="0.8" />
+                      <stop offset="100%" stopColor="#000" stopOpacity="0" />
+                    </linearGradient>
+
+                    <linearGradient id="vignette-grad" x1="50%" y1="0%" x2="50%" y2="100%">
+                      <stop offset="0%" stopColor="#000" stopOpacity="0" />
+                      <stop offset="60%" stopColor="#141414" stopOpacity="0.3" />
+                      <stop offset="100%" stopColor="#141414" stopOpacity="1" />
+                    </linearGradient>
+                  </defs>
+                </svg>
+
+                <button 
+                  onClick={() => setShowProfileModal(false)}
+                  className="absolute top-4 right-4 p-2 bg-black/60 hover:bg-black/90 text-white hover:text-[#00D1FF] rounded-full transition-all border border-white/5 cursor-pointer z-[10]"
+                  id="profile-close-btn"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="px-6 pb-6 pt-0 relative">
+                {/* Netflix-Style Square Profile Avatar Overlap - Custom Animated Cartoon Character */}
+                <div className="h-16 flex items-end mb-4 -translate-y-8 select-none">
+                  <div className="w-16 h-16 rounded-2xl bg-[#083344] p-1 shadow-[0_4px_25px_rgba(0,209,255,0.4)] border border-[#00D1FF]/40 overflow-hidden shrink-0 flex items-center justify-center select-none">
+                    {renderAvatar(profileData.avatarId, profileData.customAvatar)}
+                  </div>
+                  <div className="ml-4 pb-0.5">
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#00D1FF]/10 text-[#00D1FF] border border-[#00D1FF]/30 text-[9px] font-black uppercase tracking-widest leading-none mb-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#00D1FF] animate-pulse" />
+                      Premium Account
+                    </span>
+                    <h2 className="text-xl font-black text-white leading-tight">{creds.username}</h2>
+                  </div>
+                </div>
+
+                {/* Beautiful Avatar Choice Row */}
+                <div className="-mt-4 mb-5 space-y-2.5">
+                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#00D1FF] flex justify-between items-center">
+                    <span>Choose Avatar / Profile Picture</span>
+                    {profileData.customAvatar && (
+                      <button 
+                        onClick={() => updateProfile('cinephile', null)}
+                        className="text-[10px] text-red-500 hover:text-red-300 transition-colors font-bold cursor-pointer uppercase font-sans"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </h3>
+                  <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-3 flex flex-col gap-3">
+                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+                      {AVATARS.map((avatar) => {
+                        const isSelected = !profileData.customAvatar && profileData.avatarId === avatar.id;
+                        return (
+                          <button
+                            key={avatar.id}
+                            onClick={() => updateProfile(avatar.id, null)}
+                            className={cn(
+                              "w-11 h-11 rounded-full p-0.5 transition-all relative shrink-0 active:scale-95 cursor-pointer hover:scale-105",
+                              isSelected 
+                                ? "ring-2 ring-[#00D1FF] ring-offset-2 ring-offset-[#141414] scale-105" 
+                                : "opacity-60 hover:opacity-100"
+                            )}
+                            title={avatar.name}
+                          >
+                            {avatar.render()}
+                          </button>
+                        );
+                      })}
+
+                      {/* Custom Upload Button */}
+                      <label 
+                        className={cn(
+                          "w-11 h-11 rounded-full flex flex-col items-center justify-center border-2 border-dashed transition-all relative shrink-0 cursor-pointer active:scale-95 hover:scale-105",
+                          profileData.customAvatar 
+                            ? "border-[#00D1FF] bg-[#00D1FF]/10 ring-2 ring-[#00D1FF] ring-offset-2 ring-offset-[#141414]" 
+                            : "border-white/20 hover:border-white/45 bg-white/[0.02] hover:bg-white/[0.05]"
+                        )}
+                        title="Upload Custom Image"
+                      >
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          onChange={handleCustomAvatarUpload}
+                          className="hidden" 
+                        />
+                        {profileData.customAvatar ? (
+                          <div className="w-full h-full rounded-full overflow-hidden">
+                            <img 
+                              src={profileData.customAvatar} 
+                              alt="Custom" 
+                              className="w-full h-full object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          </div>
+                        ) : (
+                          <Plus size={18} className="text-white/60" />
+                        )}
+                      </label>
+                    </div>
+                    <p className="text-[10px] text-white/40 leading-relaxed font-medium">
+                      Select one of the 5 built-in cartoon avatars or click the <span className="text-[#00D1FF] font-bold">+</span> to upload your own custom photo. Your choice is saved instantly to your account & synced across devices!
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-5">
+                  <div className="space-y-3.5">
+                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#00D1FF]">Subscription Settings</h3>
+                    
+                    {/* Detail Widgets */}
+                    <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 space-y-3.5">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-white/40 font-medium">Account Status</span>
+                        <div className="flex items-center gap-1.5 font-bold text-emerald-400">
+                          <Check size={14} className="stroke-[3]" />
+                          <span>Active / VIP</span>
+                        </div>
+                      </div>
+
+                      <div className="h-[1px] bg-white/5" />
+
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-white/40 font-medium">Expiry Date</span>
+                        <span className="text-white/90 font-bold tracking-wide">
+                          {userInfo ? formatExpiryDate(userInfo.exp_date) : 'Unlimited / Lifetime'}
+                        </span>
+                      </div>
+
+                      <div className="h-[1px] bg-white/5" />
+
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-white/40 font-medium">Max Connections</span>
+                        <span className="text-white/90 font-mono font-bold">
+                          {userInfo ? `${userInfo.active_cons || '0'} / ${userInfo.max_connections || '1'}` : '1 Connection'}
+                        </span>
+                      </div>
+
+                      <div className="h-[1px] bg-white/5" />
+
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-white/40 font-medium">Creation Date</span>
+                        <span className="text-white/80 font-medium">
+                          {userInfo ? formatCreationDate(userInfo.created_at) : 'N/A'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex flex-col gap-3">
+                    <a 
+                      href="https://wa.me/923161611304" 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="w-full h-11 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98] shadow-lg shadow-emerald-500/10"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-black animate-ping" />
+                      Renew / Upgrade Subscription
+                    </a>
+
+                    <button 
+                      onClick={() => {
+                        setShowProfileModal(false);
+                        handleLogout();
+                      }}
+                      className="w-full h-11 bg-white/5 hover:bg-red-500/15 border border-white/10 hover:border-red-500/35 text-white/70 hover:text-red-400 rounded-xl font-bold text-xs flex items-center justify-center transition-all cursor-pointer active:scale-[0.98]"
+                    >
+                      Sign Out from this Device
+                    </button>
+                  </div>
+                </div>
               </div>
             </motion.div>
           </div>
@@ -3141,6 +3896,7 @@ export default function App() {
                       onPlayNext={handlePlayNextFreeEpisode}
                       episodesMap={freeSeriesEpisodesMap || undefined}
                       onSelectEpisode={handleSelectFreeEpisode}
+                      onDownloadEpisode={handleDownloadFreeEpisode}
                     />
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center text-white/45 bg-black gap-2">
