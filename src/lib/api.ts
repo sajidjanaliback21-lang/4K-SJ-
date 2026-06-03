@@ -56,6 +56,11 @@ export const xtreamApi = {
     return proxyRequest({ url });
   },
 
+  getMovieInfo: async (creds: XtreamCredentials, movieId: string): Promise<any> => {
+    const url = `${creds.host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_vod_info&vod_id=${movieId}`;
+    return proxyRequest({ url });
+  },
+
   getLiveCategories: async (creds: XtreamCredentials): Promise<Category[]> => {
     const url = `${creds.host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_live_categories`;
     const data = await proxyRequest({ url });

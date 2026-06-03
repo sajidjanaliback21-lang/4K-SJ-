@@ -333,9 +333,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         {
           name: 'back',
           position: 'left',
-          html: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>',
-          tooltip: 'Back',
+          html: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>',
+          tooltip: 'Close Player',
           click: function() {
+            if (art.fullscreen) {
+              art.fullscreen = false;
+            }
+            if (art.fullscreenWeb) {
+              art.fullscreenWeb = false;
+            }
+            if (document.fullscreenElement) {
+              try {
+                document.exitFullscreen().catch(() => {});
+              } catch (_) {}
+            }
             if (onCloseRef.current) onCloseRef.current();
           },
         },
@@ -367,7 +378,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       layers: [
         {
           name: 'back-button',
-          html: '<div style="padding: 10px; background: rgba(0,0,0,0.5); border-radius: 50%; width: 40px; height: 40px; display: flex; items-center; justify-content: center; backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1); cursor: pointer;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#00D1FF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></div>',
+          html: '<div style="padding: 10px; background: rgba(0,0,0,0.5); border-radius: 50%; width: 40px; height: 40px; display: flex; items-center; justify-content: center; backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1); cursor: pointer;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#00D1FF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></div>',
           style: {
             position: 'absolute',
             top: '20px',
@@ -376,6 +387,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             zIndex: '20',
           },
           click: function() {
+            if (art.fullscreen) {
+              art.fullscreen = false;
+            }
+            if (art.fullscreenWeb) {
+              art.fullscreenWeb = false;
+            }
+            if (document.fullscreenElement) {
+              try {
+                document.exitFullscreen().catch(() => {});
+              } catch (_) {}
+            }
             if (onCloseRef.current) onCloseRef.current();
           },
         },
