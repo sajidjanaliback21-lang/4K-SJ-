@@ -350,6 +350,8 @@ export default function App() {
   const [newFreeMovie, setNewFreeMovie] = useState({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
   const [newFreeSeries, setNewFreeSeries] = useState({ name: '', poster_url: '', play_url: '', download_url: '', playlist_url: '', is_embed: false });
   const [freeSeriesEpisodesMap, setFreeSeriesEpisodesMap] = useState<Record<string, any[]> | null>(null);
+  const [selectedFreeSeason, setSelectedFreeSeason] = useState<string | null>(null);
+  const [freeCopiedId, setFreeCopiedId] = useState<string | null>(null);
   const [playingFreeEpisode, setPlayingFreeEpisode] = useState<any>(null);
   const [freeSeriesActiveUrl, setFreeSeriesActiveUrl] = useState<string>('');
   const [isM3uLoading, setIsM3uLoading] = useState(false);
@@ -1678,6 +1680,7 @@ export default function App() {
 
   const handlePlayFreeSeries = async (series: any) => {
     setSelectedFreeSeries(series);
+    setSelectedFreeSeason(null);
     if (series.playlist_url) {
       setIsM3uLoading(true);
       setFreeSeriesEpisodesMap(null);
@@ -1700,6 +1703,7 @@ export default function App() {
         const seasons = Object.keys(parsedMap).sort((a,b)=>Number(a)-Number(b));
         if (seasons.length > 0) {
           const firstSeason = seasons[0];
+          setSelectedFreeSeason(firstSeason);
           const firstEp = parsedMap[firstSeason]?.[0];
           if (firstEp) {
             setPlayingFreeEpisode({
@@ -2249,8 +2253,8 @@ export default function App() {
                       <p className="text-white/40 text-sm">No local server movies available.</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6">
-                      {homeData.popularMovies.slice(0, 8).map((item, idx) => (
+                    <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4 md:gap-6">
+                      {homeData.popularMovies.slice(0, 12).map((item, idx) => (
                         <motion.div 
                           key={`home-movie-${item.stream_id}-${idx}`}
                           initial={{ opacity: 0, scale: 0.95, y: 15 }}
@@ -2280,9 +2284,8 @@ export default function App() {
                               </div>
                             </div>
                           </div>
-                          <div className="px-1.5">
-                            <h4 className="text-xs md:text-sm font-bold line-clamp-1 group-hover:text-cyan-400 transition-colors uppercase tracking-wide">{item.name}</h4>
-                            <p className="text-[10px] text-white/40 font-semibold tracking-wider font-mono mt-0.5">IPV SERVER PORTAL</p>
+                          <div className="px-1.55">
+                            <h4 className="text-[11px] md:text-sm font-bold line-clamp-1 group-hover:text-cyan-400 transition-colors uppercase tracking-wide">{item.name}</h4>
                           </div>
                         </motion.div>
                       ))}
@@ -2373,8 +2376,8 @@ export default function App() {
                       <p className="text-white/40 text-sm">No local server series available.</p>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 md:gap-6">
-                      {homeData.popularSeries.slice(0, 8).map((item, idx) => (
+                    <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4 md:gap-6">
+                      {homeData.popularSeries.slice(0, 12).map((item, idx) => (
                         <motion.div 
                           key={`home-series-${item.series_id}-${idx}`}
                           initial={{ opacity: 0, scale: 0.95, y: 15 }}
@@ -2405,8 +2408,7 @@ export default function App() {
                             </div>
                           </div>
                           <div className="px-1.5">
-                            <h4 className="text-xs md:text-sm font-bold line-clamp-1 group-hover:text-cyan-400 transition-colors uppercase tracking-wide">{item.name}</h4>
-                            <p className="text-[10px] text-white/40 font-semibold tracking-wider font-mono mt-0.5">IPV SERVER PORTAL</p>
+                            <h4 className="text-[11px] md:text-sm font-bold line-clamp-1 group-hover:text-cyan-400 transition-colors uppercase tracking-wide">{item.name}</h4>
                           </div>
                         </motion.div>
                       ))}
@@ -4788,7 +4790,17 @@ export default function App() {
                         </span>
                       )}
                     </div>
-                    <h2 className="text-xl md:text-4xl font-display font-bold leading-tight line-clamp-2 md:line-clamp-none">{selectedFreeSeries.name}</h2>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <h2 className="text-xl md:text-4xl font-display font-bold leading-tight">{selectedFreeSeries.name}</h2>
+                      <a 
+                        href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-3 py-1.5 rounded-full font-bold text-[10px] md:text-xs transition-all shadow-lg shadow-green-500/10 active:scale-95 cursor-pointer whitespace-nowrap"
+                      >
+                        <MessageCircle size={14} /> Join WhatsApp Group
+                      </a>
+                    </div>
                   </div>
                 </div>
 
@@ -4796,49 +4808,146 @@ export default function App() {
                   {tmdbDetails?.plot || "Enjoy high-quality streaming of this title. Experience the best in entertainment with 4K•SJ free service."}
                 </p>
 
-                {/* Free Action Buttons */}
-                <div className="flex flex-col gap-3 pt-2">
-                  <button 
-                    onClick={() => setPlayingFreeSeries(selectedFreeSeries)}
-                    className="w-full flex items-center justify-center gap-2 md:gap-3 bg-[#00D1FF] text-black hover:bg-cyan-300 px-4 py-3 md:px-6 md:py-4 rounded-xl font-black transition-all transform hover:scale-[1.02] text-sm md:text-base shadow-[0_0_25px_rgba(0,209,255,0.4)] uppercase tracking-widest cursor-pointer"
-                  >
-                    <Play size={20} md:size={24} fill="black" /> 
-                    <span>Watch Free Online</span>
-                  </button>
+                {/* Free Series Actions & Playlist Selector */}
+                {!selectedFreeSeries.playlist_url ? (
+                  <div className="flex flex-col gap-3 pt-2">
+                    <button 
+                      onClick={() => setPlayingFreeSeries(selectedFreeSeries)}
+                      className="w-full flex items-center justify-center gap-2 md:gap-3 bg-[#00D1FF] text-black hover:bg-cyan-300 px-4 py-3 md:px-6 md:py-4 rounded-xl font-black transition-all transform hover:scale-[1.03] text-sm md:text-base shadow-[0_0_25px_rgba(0,209,255,0.4)] uppercase tracking-widest cursor-pointer"
+                    >
+                      <Play size={20} md:size={24} fill="black" /> 
+                      <span>Watch Free Online</span>
+                    </button>
 
-                  <div className={`grid grid-cols-1 ${selectedFreeSeries.playlist_url ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-3`}>
-                    {(selectedFreeSeries.download_url || selectedFreeSeries.playlist_url) ? (
-                      <button 
-                        onClick={() => handleOpenFreeSeriesDownloadModal(selectedFreeSeries)}
-                        className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-white px-4 py-3 rounded-xl font-bold text-xs transition-all border border-white/5 cursor-pointer"
-                      >
-                        <Download size={16} /> Download
-                      </button>
-                    ) : (
-                      <div className="flex items-center justify-center text-white/20 select-none text-xs border border-dashed border-white/10 rounded-xl px-4 py-3">
-                        No Download Available
-                      </div>
-                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {selectedFreeSeries.download_url ? (
+                        <button 
+                          onClick={() => {
+                            const filename = `${selectedFreeSeries.name || 'series'}.${selectedFreeSeries.play_url?.split('.').pop() || 'mp4'}`;
+                            triggerDownload(selectedFreeSeries.download_url, filename);
+                          }}
+                          className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-white px-4 py-3 rounded-xl font-bold text-xs transition-all border border-white/5 cursor-pointer"
+                        >
+                          <Download size={16} /> Download
+                        </button>
+                      ) : (
+                        <div className="flex items-center justify-center text-white/20 select-none text-xs border border-dashed border-white/10 rounded-xl px-4 py-3">
+                          No Download Available
+                        </div>
+                      )}
 
-                    {!selectedFreeSeries.playlist_url && (
                       <a 
                         href={formatVlcUrl(selectedFreeSeries.download_url || selectedFreeSeries.play_url)}
                         className="flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-3 rounded-xl font-bold text-xs transition-all shadow-lg shadow-orange-500/10"
                       >
                         <Play size={16} /> Play in VLC
                       </a>
-                    )}
-
-                    <a 
-                      href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-4 py-3 rounded-xl font-bold text-xs transition-all shadow-lg shadow-green-500/10"
-                    >
-                      <MessageCircle size={16} /> Join WhatsApp Group
-                    </a>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  /* Playlist episodes rendered beautifully inside the modal matching the mock */
+                  <div className="space-y-4 md:space-y-6 pt-1 md:pt-2">
+                    {isM3uLoading ? (
+                      <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
+                        <Loader2 className="animate-spin text-[#00D1FF]" size={28} />
+                        <span className="text-xs md:text-sm text-white/40 font-medium">Loading episodes list, please wait...</span>
+                      </div>
+                    ) : freeSeriesEpisodesMap ? (
+                      <>
+                        {/* Seasons Selector */}
+                        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 md:pb-2">
+                          {Object.keys(freeSeriesEpisodesMap).map((seasonNum, idx) => (
+                            <button
+                              key={`free-season-${seasonNum}-${idx}`}
+                              onClick={() => setSelectedFreeSeason(seasonNum)}
+                              className={cn(
+                                "whitespace-nowrap px-3 md:px-4 py-1.5 rounded-lg text-[10px] md:text-xs font-bold transition-all border cursor-pointer",
+                                selectedFreeSeason === seasonNum 
+                                  ? "bg-cyan-600 border-cyan-600 text-white shadow-[0_0_10px_rgba(6,182,212,0.3)]" 
+                                  : "bg-white/5 border-white/10 text-white/60 hover:border-white/30"
+                              )}
+                            >
+                              Season {seasonNum}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Episodes List */}
+                        <div className="space-y-2 max-h-[300px] md:max-h-[400px] overflow-y-auto pr-1 md:pr-2 no-scrollbar pb-4">
+                          {freeSeriesEpisodesMap[selectedFreeSeason || '']?.map((episode: any, idx: number) => (
+                            <div 
+                              key={`free-episode-${episode.id}-${idx}`}
+                              className="group/ep flex items-center justify-between p-2.5 md:p-3 rounded-lg md:rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/20 transition-all gap-4"
+                            >
+                              <div className="flex items-center gap-3 md:gap-4 min-w-0">
+                                <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-white/10 flex items-center justify-center text-[9px] md:text-[10px] font-bold shrink-0 text-white/85">
+                                  {episode.episode_num}
+                                </div>
+                                <div className="flex flex-col min-w-0">
+                                  <span className="text-xs md:text-sm font-semibold line-clamp-1 text-white">{episode.title}</span>
+                                  <span className="text-[9px] md:text-[10px] text-white/40 uppercase tracking-wider">Episode {episode.episode_num}</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+                                {/* Play Online */}
+                                <button 
+                                  onClick={() => {
+                                    setPlayingFreeSeries(selectedFreeSeries);
+                                    handleSelectFreeEpisode(episode, selectedFreeSeason || '');
+                                  }}
+                                  className="p-1.5 md:p-2 bg-[#00D1FF]/10 text-[#00D1FF] hover:bg-[#00D1FF]/20 rounded-lg transition-colors border border-[#00D1FF]/20 cursor-pointer"
+                                  title="Play Online"
+                                >
+                                  <Play size={14} md:size={16} fill="currentColor" />
+                                </button>
+                                
+                                {/* Share/URL button */}
+                                <button 
+                                  onClick={() => {
+                                    window.location.href = formatVlcUrl(episode.play_url);
+                                  }}
+                                  className="p-1.5 md:p-2 hover:bg-white/20 text-white/60 hover:text-white rounded-lg transition-colors cursor-pointer"
+                                  title="Play in External Player"
+                                >
+                                  <Share2 size={14} md:size={16} />
+                                </button>
+
+                                {/* Copy link */}
+                                <button 
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(episode.play_url);
+                                    setFreeCopiedId(episode.id);
+                                    setTimeout(() => setFreeCopiedId(null), 2000);
+                                  }}
+                                  className={cn(
+                                    "p-1.5 md:p-2 rounded-lg transition-all cursor-pointer",
+                                    freeCopiedId === episode.id 
+                                      ? "bg-green-500/20 text-green-400" 
+                                      : "hover:bg-white/20 text-white/60"
+                                  )}
+                                  title="Copy Episode Link"
+                                >
+                                  {freeCopiedId === episode.id ? <Check size={14} md:size={16} /> : <Copy size={14} md:size={16} />}
+                                </button>
+
+                                {/* Download */}
+                                <button 
+                                  onClick={() => handleDownloadFreeEpisode({ ...episode, season: selectedFreeSeason })}
+                                  className="p-1.5 md:p-2 hover:bg-white/20 text-white/60 hover:text-white rounded-lg transition-colors cursor-pointer"
+                                  title="Download Episode"
+                                >
+                                  <Download size={14} md:size={16} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-xs md:text-sm text-white/40 italic text-center py-4">No episodes found for this free series.</p>
+                    )}
+                  </div>
+                )}
 
               </div>
             </motion.div>
