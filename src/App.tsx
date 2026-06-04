@@ -366,8 +366,11 @@ export default function App() {
     channels: [{ name: 'Urdu', play_url: '', is_embed: false }]
   });
 
-  const [newFreeMovie, setNewFreeMovie] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
-  const [newFreeSeries, setNewFreeSeries] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', playlist_url: '', is_embed: false });
+  const [newFreeMovie, setNewFreeMovie] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, password: '' });
+  const [newFreeSeries, setNewFreeSeries] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', playlist_url: '', is_embed: false, password: '' });
+  const [passwordProtectedItem, setPasswordProtectedItem] = useState<{ item: any; type: 'movie' | 'series'; callback: () => void } | null>(null);
+  const [enteredPassword, setEnteredPassword] = useState('');
+  const [passwordError, setPasswordError] = useState(false);
   const [isFetchingTmdb, setIsFetchingTmdb] = useState(false);
   const [freeSeriesEpisodesMap, setFreeSeriesEpisodesMap] = useState<Record<string, any[]> | null>(null);
   const [selectedFreeSeason, setSelectedFreeSeason] = useState<string | null>(null);
@@ -1679,7 +1682,7 @@ export default function App() {
           createdAt: new Date().toISOString()
         });
       }
-      setNewFreeMovie({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
+      setNewFreeMovie({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, password: '' });
     } catch (error) {
       console.error("Error saving free movie:", error);
     }
@@ -1828,6 +1831,38 @@ export default function App() {
     });
     
     return sortedMap;
+  };
+
+  const handleSelectFreeMovieWithPass = (movie: any) => {
+    if (movie.password && movie.password.trim() !== '' && !isAdminLoggedIn) {
+      setPasswordProtectedItem({
+        item: movie,
+        type: 'movie',
+        callback: () => {
+          setSelectedFreeMovie(movie);
+        }
+      });
+      setEnteredPassword('');
+      setPasswordError(false);
+    } else {
+      setSelectedFreeMovie(movie);
+    }
+  };
+
+  const handleSelectFreeSeriesWithPass = (series: any) => {
+    if (series.password && series.password.trim() !== '' && !isAdminLoggedIn) {
+      setPasswordProtectedItem({
+        item: series,
+        type: 'series',
+        callback: () => {
+          handlePlayFreeSeries(series);
+        }
+      });
+      setEnteredPassword('');
+      setPasswordError(false);
+    } else {
+      handlePlayFreeSeries(series);
+    }
   };
 
   const handlePlayFreeSeries = async (series: any) => {
@@ -2000,7 +2035,7 @@ export default function App() {
           createdAt: new Date().toISOString()
         });
       }
-      setNewFreeSeries({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', playlist_url: '', is_embed: false });
+      setNewFreeSeries({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', playlist_url: '', is_embed: false, password: '' });
     } catch (error) {
       console.error("Error saving free series:", error);
     }
@@ -3037,7 +3072,7 @@ export default function App() {
                             animate={{ opacity: 1, y: 0 }}
                             whileHover={{ y: -8, scale: 1.02 }}
                             className="group cursor-pointer"
-                            onClick={() => { setSelectedFreeMovie(movie); }}
+                            onClick={() => { handleSelectFreeMovieWithPass(movie); }}
                           >
                             <div className="aspect-[2/3] rounded-[2rem] overflow-hidden border border-white/10 bg-white/5 relative shadow-2xl">
                               <img 
@@ -3084,7 +3119,7 @@ export default function App() {
                             animate={{ opacity: 1, y: 0 }}
                             whileHover={{ y: -8, scale: 1.02 }}
                             className="group cursor-pointer"
-                            onClick={() => { handlePlayFreeSeries(series); }}
+                            onClick={() => { handleSelectFreeSeriesWithPass(series); }}
                           >
                             <div className="aspect-[2/3] rounded-[2rem] overflow-hidden border border-white/10 bg-white/5 relative shadow-2xl">
                               <img 
@@ -5009,6 +5044,109 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Movie/Series Password Verification Modal */}
+      <AnimatePresence>
+        {passwordProtectedItem && (
+          <div className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="relative w-full max-w-sm glass border border-white/20 rounded-[2.5rem] overflow-hidden p-6 text-white shadow-2xl flex flex-col items-center text-center"
+            >
+              <button 
+                onClick={() => setPasswordProtectedItem(null)}
+                className="absolute top-4 right-4 p-2 hover:bg-white/10 rounded-full transition-colors text-white/50 hover:text-white cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+
+              <div className="w-16 h-16 bg-rose-500/10 border border-rose-500/30 rounded-full flex items-center justify-center text-rose-500 mb-4 mt-2 shadow-lg shadow-rose-500/10">
+                <Lock size={28} className="animate-pulse" />
+              </div>
+
+              <h3 className="text-xl font-display font-black tracking-tight italic uppercase text-rose-400 leading-tight mb-2">
+                🔒 Locked Content
+              </h3>
+              
+              <p className="text-xs text-white/70 font-medium px-4 mb-6 leading-relaxed">
+                "{passwordProtectedItem.item.name}" is password protected. Enter correct access password to unlock.
+              </p>
+
+              <div className="w-full space-y-4">
+                <div className="space-y-1.5 text-left">
+                  <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Access Password</label>
+                  <input
+                    type="password"
+                    value={enteredPassword}
+                    onChange={(e) => {
+                      setEnteredPassword(e.target.value);
+                      setPasswordError(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        if (enteredPassword.trim() === passwordProtectedItem.item.password?.trim()) {
+                          const cb = passwordProtectedItem.callback;
+                          setPasswordProtectedItem(null);
+                          cb();
+                        } else {
+                          setPasswordError(true);
+                        }
+                      }
+                    }}
+                    placeholder="Enter password..."
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-center text-white focus:outline-none focus:border-rose-500/50 transition-colors uppercase tracking-widest font-mono"
+                  />
+                  {passwordError && (
+                    <p className="text-[10px] font-bold text-rose-500 text-center mt-1 uppercase tracking-wider animate-bounce">
+                      ⚠ Incorrect Password! Try again.
+                    </p>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => {
+                    if (enteredPassword.trim() === passwordProtectedItem.item.password?.trim()) {
+                      const cb = passwordProtectedItem.callback;
+                      setPasswordProtectedItem(null);
+                      cb();
+                    } else {
+                      setPasswordError(true);
+                    }
+                  }}
+                  className="w-full py-4 bg-rose-600 hover:bg-rose-500 text-white rounded-2xl text-xs font-black uppercase tracking-[0.2em] transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-rose-600/20"
+                >
+                  Unlock & Play
+                </button>
+              </div>
+
+              {/* Divider lines */}
+              <div className="w-full flex items-center my-6">
+                <div className="flex-1 h-[1px] bg-white/10" />
+                <span className="px-3 text-[9px] uppercase font-black text-white/30 tracking-widest">Get Password Link</span>
+                <div className="flex-1 h-[1px] bg-white/10" />
+              </div>
+
+              {/* Get Password Contact & WhatsApp info */}
+              <div className="w-full flex flex-col items-center gap-3">
+                <p className="text-[10px] text-white/50 font-bold uppercase tracking-wider">
+                  Don't have the password? Contact us below:
+                </p>
+                <a 
+                  href={`https://wa.me/923161611304?text=Hello!%20I%20need%20the%20password%20for%20"${encodeURIComponent(passwordProtectedItem.item.name)}"`} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-6 py-2.5 rounded-xl font-black text-[11px] transition-all transform hover:scale-105 shadow-[0_0_15px_rgba(37,211,102,0.3)] uppercase tracking-wider cursor-pointer"
+                >
+                  <MessageCircle size={15} fill="white" />
+                  Get password contact
+                </a>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Admin Login Modal */}
       <AnimatePresence>
         {showAdminLogin && (
@@ -5901,8 +6039,21 @@ export default function App() {
                         </div>
                       )}
 
-                      <div className="flex items-center gap-4">
-                        <div className="flex-1 space-y-2">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Password Lock / Pin (Optional)</label>
+                          <input 
+                            type="text" 
+                            value={activeAdminTab === 'free_movies' ? (newFreeMovie.password || '') : (newFreeSeries.password || '')}
+                            onChange={(e) => activeAdminTab === 'free_movies' 
+                              ? setNewFreeMovie({...newFreeMovie, password: e.target.value}) 
+                              : setNewFreeSeries({...newFreeSeries, password: e.target.value})
+                            }
+                            placeholder="Leave empty for no password lock"
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                        </div>
+                        <div className="space-y-2">
                           <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Download Link (Optional)</label>
                           <input 
                             type="text" 
@@ -5911,25 +6062,24 @@ export default function App() {
                               ? setNewFreeMovie({...newFreeMovie, download_url: e.target.value}) 
                               : setNewFreeSeries({...newFreeSeries, download_url: e.target.value})
                             }
-                            placeholder="Optional File Link"
+                            placeholder="Optional Play/File Link"
                             className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
                           />
                         </div>
-                        <div className="flex flex-col gap-2 pt-6">
-                           <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3">
-                            <input 
-                              type="checkbox" 
-                              id="is_embed_admin"
-                              checked={activeAdminTab === 'free_movies' ? newFreeMovie.is_embed : newFreeSeries.is_embed}
-                              onChange={(e) => activeAdminTab === 'free_movies' 
-                                ? setNewFreeMovie({...newFreeMovie, is_embed: e.target.checked}) 
-                                : setNewFreeSeries({...newFreeSeries, is_embed: e.target.checked})
-                              }
-                              className="w-4 h-4 accent-cyan-500"
-                            />
-                            <label htmlFor="is_embed_admin" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer">Embed Mode</label>
-                          </div>
-                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3 w-fit">
+                        <input 
+                          type="checkbox" 
+                          id="is_embed_admin"
+                          checked={activeAdminTab === 'free_movies' ? newFreeMovie.is_embed : newFreeSeries.is_embed}
+                          onChange={(e) => activeAdminTab === 'free_movies' 
+                            ? setNewFreeMovie({...newFreeMovie, is_embed: e.target.checked}) 
+                            : setNewFreeSeries({...newFreeSeries, is_embed: e.target.checked})
+                          }
+                          className="w-4 h-4 accent-cyan-500"
+                        />
+                        <label htmlFor="is_embed_admin" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Embed Mode</label>
                       </div>
 
                       <button 
@@ -5963,7 +6113,8 @@ export default function App() {
                                         poster_url: item.poster_url || '',
                                         play_url: item.play_url || '',
                                         download_url: item.download_url || '',
-                                        is_embed: !!item.is_embed
+                                        is_embed: !!item.is_embed,
+                                        password: item.password || ''
                                       });
                                     } else {
                                       setEditingSeriesId(item.id);
@@ -5974,7 +6125,8 @@ export default function App() {
                                         play_url: item.play_url || '',
                                         download_url: item.download_url || '',
                                         playlist_url: item.playlist_url || '',
-                                        is_embed: !!item.is_embed
+                                        is_embed: !!item.is_embed,
+                                        password: item.password || ''
                                       });
                                     }
                                   }}

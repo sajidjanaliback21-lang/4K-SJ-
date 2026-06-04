@@ -44,6 +44,7 @@
         "poster_url": { "type": "string" },
         "play_url": { "type": "string" },
         "download_url": { "type": "string" },
+        "password": { "type": "string", "description": "Optional password to lock access to this movie" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "poster_url", "play_url"]
@@ -57,6 +58,7 @@
         "poster_url": { "type": "string" },
         "play_url": { "type": "string" },
         "download_url": { "type": "string" },
+        "password": { "type": "string", "description": "Optional password to lock access to this series" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "poster_url", "play_url"]
