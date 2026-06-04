@@ -34,7 +34,8 @@ import {
   Settings,
   Share2,
   Heart,
-  Plus
+  Plus,
+  Youtube
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -46,7 +47,7 @@ import IntroLoading from './components/IntroLoading';
 import { db, auth } from './firebase';
 import { doc, onSnapshot, setDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc, where } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
-import { fetchTmdbDetails, TmdbDetails, fetchTrendingMovies, fetchTrendingSeries, TmdbTrendingItem, cleanMediaTitle } from './lib/tmdb';
+import { fetchTmdbDetails, TmdbDetails, fetchTrendingMovies, fetchTrendingSeries, TmdbTrendingItem, cleanMediaTitle, fetchTmdbDetailsById, getStoredTmdbDetails, getStoredTmdbDetailsById } from './lib/tmdb';
 
 
 enum OperationType {
@@ -347,8 +348,9 @@ export default function App() {
   const [editingMovieId, setEditingMovieId] = useState<string | null>(null);
   const [editingSeriesId, setEditingSeriesId] = useState<string | null>(null);
 
-  const [newFreeMovie, setNewFreeMovie] = useState({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
-  const [newFreeSeries, setNewFreeSeries] = useState({ name: '', poster_url: '', play_url: '', download_url: '', playlist_url: '', is_embed: false });
+  const [newFreeMovie, setNewFreeMovie] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
+  const [newFreeSeries, setNewFreeSeries] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', playlist_url: '', is_embed: false });
+  const [isFetchingTmdb, setIsFetchingTmdb] = useState(false);
   const [freeSeriesEpisodesMap, setFreeSeriesEpisodesMap] = useState<Record<string, any[]> | null>(null);
   const [selectedFreeSeason, setSelectedFreeSeason] = useState<string | null>(null);
   const [freeCopiedId, setFreeCopiedId] = useState<string | null>(null);
@@ -358,6 +360,7 @@ export default function App() {
   const [showFreeDownloadModal, setShowFreeDownloadModal] = useState(false);
   const [freeDownloadModalEpisodes, setFreeDownloadModalEpisodes] = useState<any[]>([]);
   const [isFreeDownloadLoading, setIsFreeDownloadLoading] = useState(false);
+  const [playingTrailerUrl, setPlayingTrailerUrl] = useState<string | null>(null);
   const [selectedPslLanguage, setSelectedPslLanguage] = useState<'urdu' | 'english' | 'custom' | null>(null);
   const [pslUrlUrdu, setPslUrlUrdu] = useState('');
   const [pslUrlEnglish, setPslUrlEnglish] = useState('');
@@ -818,10 +821,29 @@ export default function App() {
         return;
       }
 
+      // Check synchronous cache first to avoid state layout flicker
+      let preFetchedDetails = null;
+      if (activeItem && 'tmdb_id' in activeItem && activeItem.tmdb_id) {
+        preFetchedDetails = getStoredTmdbDetailsById(activeItem.tmdb_id, isSeries);
+      } else {
+        preFetchedDetails = getStoredTmdbDetails(activeItem.name, isSeries);
+      }
+
+      if (preFetchedDetails) {
+        setTmdbDetails(preFetchedDetails);
+        setLoadingTmdb(false);
+        return;
+      }
+
       const fetchTmdb = async () => {
         setLoadingTmdb(true);
         try {
-          const details = await fetchTmdbDetails(activeItem.name, isSeries);
+          let details = null;
+          if (activeItem && 'tmdb_id' in activeItem && activeItem.tmdb_id) {
+            details = await fetchTmdbDetailsById(activeItem.tmdb_id, isSeries);
+          } else {
+            details = await fetchTmdbDetails(activeItem.name, isSeries);
+          }
           setTmdbDetails(details);
         } catch (err) {
           console.error("Failed to fetch TMDB details:", err);
@@ -835,6 +857,17 @@ export default function App() {
       setTmdbDetails(null);
     }
   }, [selectedItem, selectedFreeMovie, selectedFreeSeries]);
+
+  // Listen for Escape key to close the trailer overlay player
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setPlayingTrailerUrl(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Synchronize favorites from Firestore
   useEffect(() => {
@@ -1312,27 +1345,27 @@ export default function App() {
     return name.slice(0, 2).toUpperCase();
   };
 
-  const posterUrl = useMemo(() => {
+  const posterUrl = useMemo<string | null>(() => {
     const activeItem = selectedItem || selectedFreeMovie || selectedFreeSeries;
-    if (!activeItem) return '';
+    if (!activeItem) return null;
     if (tmdbDetails?.poster_url) return tmdbDetails.poster_url;
-    if (selectedFreeMovie || selectedFreeSeries) return activeItem.poster_url || '';
-    return ('stream_icon' in activeItem ? activeItem.stream_icon : (activeItem as Series).cover) || '';
+    if (selectedFreeMovie || selectedFreeSeries) return activeItem.poster_url || null;
+    return ('stream_icon' in activeItem ? activeItem.stream_icon : (activeItem as Series).cover) || null;
   }, [selectedItem, selectedFreeMovie, selectedFreeSeries, tmdbDetails]);
 
-  const backdropUrl = useMemo(() => {
+  const backdropUrl = useMemo<string | null>(() => {
     const activeItem = selectedItem || selectedFreeMovie || selectedFreeSeries;
-    if (!activeItem) return '';
+    if (!activeItem) return null;
     if (tmdbDetails?.backdrop_url) return tmdbDetails.backdrop_url;
 
     // Try seriesInfo
     if (seriesInfo) {
       const info = seriesInfo.info || {};
       if (info.backdrop_path && Array.isArray(info.backdrop_path) && info.backdrop_path.length > 0) {
-        return info.backdrop_path[0];
+        return info.backdrop_path[0] || null;
       }
       if (seriesInfo.backdrop_path && Array.isArray(seriesInfo.backdrop_path) && seriesInfo.backdrop_path.length > 0) {
-        return seriesInfo.backdrop_path[0];
+        return seriesInfo.backdrop_path[0] || null;
       }
       if (typeof info.backdrop_path === 'string' && info.backdrop_path) {
         return info.backdrop_path;
@@ -1342,10 +1375,10 @@ export default function App() {
     if (movieInfo) {
       const info = movieInfo.info || {};
       if (info.backdrop_path && Array.isArray(info.backdrop_path) && info.backdrop_path.length > 0) {
-        return info.backdrop_path[0];
+        return info.backdrop_path[0] || null;
       }
       if (movieInfo.backdrop_path && Array.isArray(movieInfo.backdrop_path) && movieInfo.backdrop_path.length > 0) {
-        return movieInfo.backdrop_path[0];
+        return movieInfo.backdrop_path[0] || null;
       }
       if (typeof info.backdrop_path === 'string' && info.backdrop_path) {
         return info.backdrop_path;
@@ -1356,7 +1389,7 @@ export default function App() {
     }
     // Try activeItem properties
     if (activeItem && 'backdrop_path' in activeItem && Array.isArray((activeItem as any).backdrop_path) && (activeItem as any).backdrop_path.length > 0) {
-      return (activeItem as any).backdrop_path[0];
+      return (activeItem as any).backdrop_path[0] || null;
     }
     return posterUrl;
   }, [selectedItem, selectedFreeMovie, selectedFreeSeries, seriesInfo, movieInfo, posterUrl, tmdbDetails]);
@@ -1552,6 +1585,41 @@ export default function App() {
     }
   };
 
+  const handleFetchFreeItemTmdbDetails = async () => {
+    const isSeries = activeAdminTab === 'free_series';
+    const tmdbId = isSeries ? newFreeSeries.tmdb_id : newFreeMovie.tmdb_id;
+    if (!tmdbId || !tmdbId.trim()) {
+      alert("Please enter a valid TMDB ID first!");
+      return;
+    }
+    setIsFetchingTmdb(true);
+    try {
+      const details = await fetchTmdbDetailsById(tmdbId.trim(), isSeries);
+      if (details) {
+        if (isSeries) {
+          setNewFreeSeries({
+            ...newFreeSeries,
+            name: details.name || '',
+            poster_url: details.poster_url || '',
+          });
+        } else {
+          setNewFreeMovie({
+            ...newFreeMovie,
+            name: details.name || '',
+            poster_url: details.poster_url || '',
+          });
+        }
+      } else {
+        alert("Could not load details for this TMDB ID. Please verify the ID is correct.");
+      }
+    } catch (err) {
+      console.error("Error autofetching TMDB details in admin:", err);
+      alert("An error occurred while fetching details.");
+    } finally {
+      setIsFetchingTmdb(false);
+    }
+  };
+
   const handleAddFreeMovie = async () => {
     if (!newFreeMovie.name || !newFreeMovie.poster_url || !newFreeMovie.play_url) {
       alert("Please fill all required fields (Name, Poster URL, Play URL)");
@@ -1570,7 +1638,7 @@ export default function App() {
           createdAt: new Date().toISOString()
         });
       }
-      setNewFreeMovie({ name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
+      setNewFreeMovie({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
     } catch (error) {
       console.error("Error saving free movie:", error);
     }
@@ -1848,7 +1916,7 @@ export default function App() {
           createdAt: new Date().toISOString()
         });
       }
-      setNewFreeSeries({ name: '', poster_url: '', play_url: '', download_url: '', playlist_url: '', is_embed: false });
+      setNewFreeSeries({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', playlist_url: '', is_embed: false });
     } catch (error) {
       console.error("Error saving free series:", error);
     }
@@ -2869,7 +2937,7 @@ export default function App() {
                           >
                             <div className="aspect-[2/3] rounded-[2rem] overflow-hidden border border-white/10 bg-white/5 relative shadow-2xl">
                               <img 
-                                src={movie.poster_url} 
+                                src={movie.poster_url || null} 
                                 alt={movie.name} 
                                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
                                 referrerPolicy="no-referrer"
@@ -2914,7 +2982,7 @@ export default function App() {
                           >
                             <div className="aspect-[2/3] rounded-[2rem] overflow-hidden border border-white/10 bg-white/5 relative shadow-2xl">
                               <img 
-                                src={series.poster_url} 
+                                src={series.poster_url || null} 
                                 alt={series.name} 
                                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
                                 referrerPolicy="no-referrer"
@@ -3233,6 +3301,17 @@ export default function App() {
                       )}
                     </div>
                     <h2 className="text-xl md:text-4xl font-display font-bold leading-tight line-clamp-2 md:line-clamp-none">{selectedItem.name}</h2>
+                    {tmdbDetails?.trailer_url && (
+                      <div className="pt-1.5 md:pt-2 select-none">
+                        <button 
+                          onClick={() => setPlayingTrailerUrl(tmdbDetails.trailer_url || null)}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-full font-bold text-[10px] md:text-xs transition-all hover:scale-105 active:scale-95 shadow-[0_0_15px_rgba(220,38,38,0.4)] cursor-pointer"
+                        >
+                          <Youtube size={14} className="fill-white text-white" />
+                          <span>Watch Trailer</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {isLoggedIn && (
@@ -4309,6 +4388,17 @@ export default function App() {
                       )}
                     </div>
                     <h2 className="text-xl md:text-4xl font-display font-bold leading-tight line-clamp-2 md:line-clamp-none">{selectedFreeMovie.name}</h2>
+                    {tmdbDetails?.trailer_url && (
+                      <div className="pt-1.5 md:pt-2 select-none">
+                        <button 
+                          onClick={() => setPlayingTrailerUrl(tmdbDetails.trailer_url || null)}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-full font-bold text-[10px] md:text-xs transition-all hover:scale-105 active:scale-95 shadow-[0_0_15px_rgba(220,38,38,0.4)] cursor-pointer"
+                        >
+                          <Youtube size={14} className="fill-white text-white" />
+                          <span>Watch Trailer</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -4800,6 +4890,15 @@ export default function App() {
                       >
                         <MessageCircle size={14} /> Join WhatsApp Group
                       </a>
+                      {tmdbDetails?.trailer_url && (
+                        <button 
+                          onClick={() => setPlayingTrailerUrl(tmdbDetails.trailer_url || null)}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-full font-bold text-[10px] md:text-xs transition-all hover:scale-105 active:scale-95 shadow-[0_0_15px_rgba(220,38,38,0.4)] cursor-pointer whitespace-nowrap"
+                        >
+                          <Youtube size={14} className="fill-white text-white" />
+                          <span>Watch Trailer</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -5114,7 +5213,7 @@ export default function App() {
                 )}
                 {playingFreeSeries.is_embed ? (
                   <iframe
-                    src={playingFreeSeries.play_url}
+                    src={playingFreeSeries.play_url || undefined}
                     className="w-full h-full border-0"
                     allowFullScreen
                     referrerPolicy="no-referrer"
@@ -5393,6 +5492,46 @@ export default function App() {
 
                   {(activeAdminTab === 'free_movies' || activeAdminTab === 'free_series') && (
                     <div className="space-y-6">
+                      {/* TMDB Autocomplete Field */}
+                      <div className="bg-cyan-500/[0.03] border border-cyan-500/20 rounded-3xl p-5 space-y-3 shadow-[0_8px_30px_rgba(0,0,0,0.3)]">
+                        <div className="flex items-center gap-2 px-1">
+                          <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
+                          <label className="text-[10px] font-black text-cyan-400 uppercase tracking-widest">
+                            TMDB ID Autocomplete
+                          </label>
+                        </div>
+                        <div className="flex gap-2">
+                          <input 
+                            type="text" 
+                            value={activeAdminTab === 'free_movies' ? (newFreeMovie.tmdb_id || '') : (newFreeSeries.tmdb_id || '')}
+                            onChange={(e) => activeAdminTab === 'free_movies' 
+                              ? setNewFreeMovie({...newFreeMovie, tmdb_id: e.target.value}) 
+                              : setNewFreeSeries({...newFreeSeries, tmdb_id: e.target.value})
+                            }
+                            placeholder="Enter TMDB ID (e.g. 550 for Fight Club, 1396 for Breaking Bad)"
+                            className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 placeholder-white/30 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleFetchFreeItemTmdbDetails}
+                            disabled={isFetchingTmdb}
+                            className="px-5 py-3 rounded-2xl bg-cyan-500 hover:bg-cyan-400 disabled:bg-zinc-800 text-black disabled:text-white/40 font-black text-xs uppercase tracking-wider shadow-lg shadow-cyan-500/10 hover:shadow-cyan-400/20 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
+                          >
+                            {isFetchingTmdb ? (
+                              <>
+                                <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                Loading...
+                              </>
+                            ) : (
+                              'Fetch Details'
+                            )}
+                          </button>
+                        </div>
+                        <p className="text-[9px] text-white/30 italic px-1 leading-normal">
+                          If you enter TMDB ID, the title and poster image will load instantly, so you do not have to write them manually.
+                        </p>
+                      </div>
+
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Title</label>
@@ -5505,10 +5644,18 @@ export default function App() {
                                   onClick={() => {
                                     if (activeAdminTab === 'free_movies') {
                                       setEditingMovieId(item.id);
-                                      setNewFreeMovie({ ...item });
+                                      setNewFreeMovie({
+                                        tmdb_id: item.tmdb_id || '',
+                                        name: item.name || '',
+                                        poster_url: item.poster_url || '',
+                                        play_url: item.play_url || '',
+                                        download_url: item.download_url || '',
+                                        is_embed: !!item.is_embed
+                                      });
                                     } else {
                                       setEditingSeriesId(item.id);
                                       setNewFreeSeries({
+                                        tmdb_id: item.tmdb_id || '',
                                         name: item.name || '',
                                         poster_url: item.poster_url || '',
                                         play_url: item.play_url || '',
@@ -5549,6 +5696,50 @@ export default function App() {
 
               <div className="p-4 bg-white/5 text-center">
                  <p className="text-[9px] text-white/20 uppercase tracking-[0.3em] font-bold italic">Admin Surface v2.0 • Secure Session Exclusive</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Trailer Modal Player */}
+      <AnimatePresence>
+        {playingTrailerUrl && (
+          <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 md:p-8">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setPlayingTrailerUrl(null)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-md gpu"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="relative w-full max-w-5xl bg-black rounded-2xl md:rounded-3xl shadow-[0_24px_50px_rgba(0,0,0,0.95)] overflow-hidden flex flex-col z-10 border border-white/10"
+            >
+              {/* Premium Floating Close Button */}
+              <button 
+                onClick={() => setPlayingTrailerUrl(null)}
+                className="absolute top-3 right-3 md:top-4 md:right-4 z-50 p-2 md:p-3 bg-black/60 hover:bg-black text-white/80 hover:text-white rounded-full border border-white/10 backdrop-blur-md transition-all duration-300 hover:scale-110 active:scale-95 shadow-2xl cursor-pointer flex items-center justify-center group"
+                title="Close Trailer"
+              >
+                <X size={18} className="group-hover:rotate-90 transition-transform duration-300" />
+              </button>
+
+              {/* Player Body (Aspect 16:9) */}
+              <div className="w-full aspect-video bg-black relative">
+                {playingTrailerUrl && (
+                  <iframe
+                    src={`${playingTrailerUrl}?autoplay=1&mute=0&rel=0&modestbranding=1&controls=1&showinfo=0&iv_load_policy=3&enablejsapi=1`}
+                    title="Trailer Player"
+                    frameBorder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    className="absolute inset-0 w-full h-full"
+                  />
+                )}
               </div>
             </motion.div>
           </div>
