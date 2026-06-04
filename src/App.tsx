@@ -35,7 +35,8 @@ import {
   Share2,
   Heart,
   Plus,
-  Youtube
+  Youtube,
+  Radio
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -286,7 +287,7 @@ export default function App() {
     customAvatar: null
   });
   const [activeTab, setActiveTab] = useState<'home' | 'movies' | 'series' | 'live' | 'free'>('home');
-  const [activeFreeTab, setActiveFreeTab] = useState<'menu' | 'movies' | 'series'>('menu');
+  const [activeFreeTab, setActiveFreeTab] = useState<'menu' | 'movies' | 'series' | 'live_events'>('menu');
   const [movieCategories, setMovieCategories] = useState<Category[]>([]);
   const [seriesCategories, setSeriesCategories] = useState<Category[]>([]);
   const [liveCategories, setLiveCategories] = useState<Category[]>([]);
@@ -348,6 +349,23 @@ export default function App() {
   const [editingMovieId, setEditingMovieId] = useState<string | null>(null);
   const [editingSeriesId, setEditingSeriesId] = useState<string | null>(null);
 
+  const [selectedLiveEvent, setSelectedLiveEvent] = useState<any>(null);
+  const [playingLiveEvent, setPlayingLiveEvent] = useState<any | null>(null);
+  const [selectedLiveEventChannel, setSelectedLiveEventChannel] = useState<any | null>(null);
+  const [liveEvents, setLiveEvents] = useState<any[]>([]);
+  const [isLiveEventsLoading, setIsLiveEventsLoading] = useState(true);
+  const [editingLiveEventId, setEditingLiveEventId] = useState<string | null>(null);
+  const [activeLiveChannelIndex, setActiveLiveChannelIndex] = useState<number>(0);
+  const [newLiveEvent, setNewLiveEvent] = useState<{
+    name: string;
+    poster_url: string;
+    channels: Array<{ name: string; play_url: string; is_embed?: boolean }>;
+  }>({
+    name: '',
+    poster_url: '',
+    channels: [{ name: 'Urdu', play_url: '', is_embed: false }]
+  });
+
   const [newFreeMovie, setNewFreeMovie] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false });
   const [newFreeSeries, setNewFreeSeries] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', playlist_url: '', is_embed: false });
   const [isFetchingTmdb, setIsFetchingTmdb] = useState(false);
@@ -377,10 +395,12 @@ export default function App() {
     ipl_enabled: true,
     free_movies_enabled: true,
     free_series_enabled: true,
+    live_events_enabled: true,
     psl_title: 'PSL',
     ipl_title: 'IPL',
     free_movies_title: 'FREE CINEMA',
-    free_series_title: 'FREE BINGE'
+    free_series_title: 'FREE BINGE',
+    live_events_title: 'LIVE EVENTS'
   });
   const [newAppSettings, setNewAppSettings] = useState(appSettings);
   const [showWebPlayer, setShowWebPlayer] = useState(false);
@@ -475,6 +495,8 @@ export default function App() {
     selectedItem || 
     selectedFreeMovie || 
     selectedFreeSeries || 
+    selectedLiveEvent ||
+    playingLiveEvent ||
     showPSLPlayer || 
     showIPLPlayer || 
     showWebPlayer ||
@@ -490,7 +512,7 @@ export default function App() {
   const [newPslChannel3IsEmbed, setNewPslChannel3IsEmbed] = useState(pslChannel3IsEmbed);
   const [newPslChannel3ShowLiveIcon, setNewPslChannel3ShowLiveIcon] = useState(pslChannel3ShowLiveIcon);
   const [newIplUrl, setNewIplUrl] = useState(iplUrl);
-  const [activeAdminTab, setActiveAdminTab] = useState<'psl' | 'ipl' | 'free_movies' | 'free_series' | 'app'>('psl');
+  const [activeAdminTab, setActiveAdminTab] = useState<'psl' | 'ipl' | 'free_movies' | 'free_series' | 'live_events' | 'app'>('psl');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showIntro, setShowIntro] = useState(() => {
     return localStorage.getItem('has_seen_intro') !== 'true';
@@ -535,10 +557,12 @@ export default function App() {
           ipl_enabled: data.ipl_enabled ?? true,
           free_movies_enabled: data.free_movies_enabled ?? true,
           free_series_enabled: data.free_series_enabled ?? true,
+          live_events_enabled: data.live_events_enabled ?? true,
           psl_title: data.psl_title || 'PSL',
           ipl_title: data.ipl_title || 'IPL',
           free_movies_title: data.free_movies_title || 'FREE CINEMA',
-          free_series_title: data.free_series_title || 'FREE BINGE'
+          free_series_title: data.free_series_title || 'FREE BINGE',
+          live_events_title: data.live_events_title || 'LIVE EVENTS'
         };
         setAppSettings(updated);
         setNewAppSettings(updated);
@@ -633,6 +657,23 @@ export default function App() {
     }, (error) => {
       console.error("Firestore Error (Free Series):", error);
       setIsSeriesLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Real-time Firestore Sync for Live Events
+  useEffect(() => {
+    const liveEventsRef = collection(db, 'live_events');
+    const q = query(liveEventsRef, orderBy('createdAt', 'desc'));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const dbEvents = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setLiveEvents(dbEvents);
+      setIsLiveEventsLoading(false);
+    }, (error) => {
+      console.error("Firestore Error (Live Events):", error);
+      setIsLiveEventsLoading(false);
     });
 
     return () => unsubscribe();
@@ -1650,6 +1691,49 @@ export default function App() {
       await deleteDoc(doc(db, 'free_movies', id));
     } catch (error) {
       console.error("Error deleting free movie:", error);
+    }
+  };
+
+  const handleAddLiveEvent = async () => {
+    if (!newLiveEvent.name || !newLiveEvent.poster_url) {
+      alert("Please fill all required fields (Name, Poster URL)");
+      return;
+    }
+    const validChannels = newLiveEvent.channels.filter(ch => ch.play_url && ch.play_url.trim() !== '');
+    if (validChannels.length === 0) {
+      alert("Please add at least one channel with a play link (M3U8 link).");
+      return;
+    }
+    try {
+      if (editingLiveEventId) {
+        await updateDoc(doc(db, 'live_events', editingLiveEventId), {
+          name: newLiveEvent.name,
+          poster_url: newLiveEvent.poster_url,
+          channels: validChannels,
+          updatedAt: new Date().toISOString()
+        });
+        setEditingLiveEventId(null);
+      } else {
+        await addDoc(collection(db, 'live_events'), {
+          name: newLiveEvent.name,
+          poster_url: newLiveEvent.poster_url,
+          channels: validChannels,
+          createdAt: new Date().toISOString()
+        });
+      }
+      setNewLiveEvent({ name: '', poster_url: '', channels: [{ name: 'Urdu', play_url: '', is_embed: false }] });
+    } catch (error) {
+      console.error("Error saving live event:", error);
+      alert("Failed to save live event.");
+    }
+  };
+
+  const handleDeleteLiveEvent = async (id: string) => {
+    if (!window.confirm("Are you sure you want to delete this live event?")) return;
+    try {
+      await deleteDoc(doc(db, 'live_events', id));
+    } catch (error) {
+      console.error("Error deleting live event:", error);
     }
   };
 
@@ -2759,7 +2843,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 px-2 md:px-4 max-w-5xl mx-auto">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 px-2 md:px-4 max-w-5xl mx-auto border-transparent">
                   {[
                     { 
                       id: 'psl',
@@ -2784,7 +2868,7 @@ export default function App() {
                           onError={(e) => {
                             const target = e.target as HTMLImageElement;
                             if (target.src !== 'https://www.iplt20.com/assets/images/IPL-logo-new-old.png') {
-                              target.src = 'https://www.iplt20.com/assets/images/IPL-logo-new-old.png';
+                                target.src = 'https://www.iplt20.com/assets/images/IPL-logo-new-old.png';
                             }
                           }}
                         />
@@ -2818,6 +2902,18 @@ export default function App() {
                       enabled: appSettings.free_series_enabled,
                       showLive: false,
                       onClick: () => { setActiveFreeTab('series'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+                    },
+                    { 
+                      id: 'live_events',
+                      label: 'LIVE EVENTS', 
+                      title: appSettings.live_events_title || 'LIVE EVENTS', 
+                      icon: <Radio size={28} className="text-white drop-shadow-lg animate-pulse" />, 
+                      color: 'from-rose-400 to-red-600', 
+                      glow: 'shadow-rose-500/20',
+                      border: 'border-rose-500/20',
+                      enabled: appSettings.live_events_enabled,
+                      showLive: true,
+                      onClick: () => { setActiveFreeTab('live_events'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
                     }
                   ].filter(item => item.enabled).map((item, i) => (
                     <motion.button
@@ -2903,17 +2999,25 @@ export default function App() {
                     </button>
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${activeFreeTab === 'movies' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-purple-500/20 text-purple-400'}`}>
-                      {activeFreeTab === 'movies' ? <Film size={20} /> : <Tv size={20} />}
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                      activeFreeTab === 'movies' ? 'bg-cyan-500/20 text-cyan-400' : 
+                      activeFreeTab === 'series' ? 'bg-purple-500/20 text-purple-400' : 
+                      'bg-rose-500/20 text-rose-400'
+                    }`}>
+                      {activeFreeTab === 'movies' ? <Film size={20} /> : 
+                       activeFreeTab === 'series' ? <Tv size={20} /> : 
+                       <Radio size={20} className="animate-pulse" />}
                     </div>
                     <h3 className="text-2xl font-black text-white italic tracking-tighter uppercase">
-                      {activeFreeTab === 'movies' ? 'Free Movies' : 'Free Series'}
+                      {activeFreeTab === 'movies' ? (appSettings.free_movies_title || 'Free Movies') : 
+                       activeFreeTab === 'series' ? (appSettings.free_series_title || 'Free Series') : 
+                       (appSettings.live_events_title || 'Live Events')}
                     </h3>
                   </div>
                 </div>
 
                 <div className="px-4">
-                  {activeFreeTab === 'movies' ? (
+                  {activeFreeTab === 'movies' && (
                     isMoviesLoading ? (
                       <div className="flex flex-col items-center justify-center py-24 gap-4">
                         <Loader2 className="animate-spin text-cyan-500" size={48} />
@@ -2958,7 +3062,9 @@ export default function App() {
                         ))}
                       </div>
                     )
-                  ) : (
+                  )}
+
+                  {activeFreeTab === 'series' && (
                     isSeriesLoading ? (
                       <div className="flex flex-col items-center justify-center py-24 gap-4">
                         <Loader2 className="animate-spin text-purple-500" size={48} />
@@ -2995,6 +3101,66 @@ export default function App() {
                               </div>
                               <div className="absolute inset-0 bg-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
                                 <div className="w-14 h-14 rounded-full bg-purple-500 flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.6)] scale-0 group-hover:scale-100 transition-transform duration-500">
+                                  <Play size={28} className="text-white fill-white ml-1" />
+                                </div>
+                              </div>
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    )
+                  )}
+
+                  {activeFreeTab === 'live_events' && (
+                    isLiveEventsLoading ? (
+                      <div className="flex flex-col items-center justify-center py-24 gap-4">
+                        <Loader2 className="animate-spin text-rose-500" size={48} />
+                        <p className="text-white/40 font-bold uppercase tracking-widest text-xs">Loading Live Events...</p>
+                      </div>
+                    ) : liveEvents.length === 0 ? (
+                      <div className="text-center py-20 glass rounded-[3rem] border border-white/5">
+                        <Radio size={48} className="text-white/10 mx-auto mb-4 animate-pulse" />
+                        <p className="text-white/40 font-bold italic">No live events scheduled at the moment.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+                        {liveEvents.map((item: any) => (
+                          <motion.div 
+                            key={item.id}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            whileHover={{ y: -8, scale: 1.02 }}
+                            className="group cursor-pointer relative"
+                            onClick={() => {
+                              setSelectedLiveEvent(item);
+                            }}
+                          >
+                            <div className="aspect-[2/3] rounded-[2rem] overflow-hidden border border-white/10 bg-white/5 relative shadow-2xl">
+                              <img 
+                                src={item.poster_url || null} 
+                                alt={item.name} 
+                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
+                                referrerPolicy="no-referrer"
+                              />
+                              
+                              {/* Live indicator tag */}
+                              <div className="absolute top-4 left-4 bg-red-600/90 text-white font-black text-[9px] uppercase tracking-widest px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-lg shadow-red-600/30">
+                                <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
+                                <span>LIVE</span>
+                              </div>
+
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-5">
+                                <h4 className="text-white font-black text-sm italic tracking-tighter line-clamp-2 uppercase leading-tight mb-2 group-hover:text-rose-400 transition-colors">
+                                  {item.name}
+                                </h4>
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2 py-0.5 bg-rose-500/20 border border-rose-500/40 rounded-lg text-[8px] font-black text-rose-400 uppercase tracking-widest flex items-center gap-1">
+                                    <Radio size={10} className="animate-pulse" /> {item.channels?.length || 0} feeds
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="absolute inset-0 bg-rose-500/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
+                                <div className="w-14 h-14 rounded-full bg-rose-600 flex items-center justify-center shadow-[0_0_30px_rgba(244,63,94,0.6)] scale-0 group-hover:scale-100 transition-transform duration-500">
                                   <Play size={28} className="text-white fill-white ml-1" />
                                 </div>
                               </div>
@@ -4715,6 +4881,134 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Live Events Player Modal */}
+      <AnimatePresence>
+        {selectedLiveEvent && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 gpu">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setSelectedLiveEvent(null);
+                setActiveLiveChannelIndex(0);
+              }}
+              className="absolute inset-0 bg-black/95 backdrop-blur-sm gpu"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-[95vw] md:w-full md:max-w-5xl glass rounded-3xl overflow-hidden shadow-2xl border border-white/20 flex flex-col gpu text-white animate-in"
+            >
+              <div className="p-4 safe-top flex items-center justify-between border-b border-white/10 bg-white/5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-rose-600 rounded-lg flex items-center justify-center border border-rose-500 shadow-lg shadow-rose-600/20">
+                    <Radio size={20} className="text-white animate-pulse" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-display font-black text-white italic tracking-tight">{selectedLiveEvent.name}</h3>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => {
+                      setSelectedLiveEvent(null);
+                      setActiveLiveChannelIndex(0);
+                    }}
+                    className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white cursor-pointer"
+                  >
+                    <X size={24} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="relative w-full aspect-video bg-black overflow-hidden min-h-[220px] md:min-h-[400px]">
+                {selectedLiveEvent.channels && selectedLiveEvent.channels.length > 0 ? (
+                  (() => {
+                    const activeChannel = selectedLiveEvent.channels[activeLiveChannelIndex] || selectedLiveEvent.channels[0];
+                    return (
+                      <VideoPlayer 
+                        key={`${selectedLiveEvent.id}-${activeLiveChannelIndex}-${activeChannel.play_url}`}
+                        options={{
+                          autoplay: true,
+                          controls: true,
+                          responsive: true,
+                          fluid: true,
+                          poster: selectedLiveEvent.poster_url,
+                          is_embed: !!activeChannel.is_embed,
+                          skipProxy: true,
+                          isLive: true,
+                          sources: [{
+                            src: activeChannel.play_url,
+                            type: activeChannel.play_url.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'
+                          }]
+                        }} 
+                      />
+                    );
+                  })()
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/60 backdrop-blur-sm">
+                    <Loader2 className="animate-spin text-rose-500" size={40} />
+                    <p className="text-xs text-white/40 font-bold uppercase tracking-widest">No feeds configured...</p>
+                  </div>
+                )}
+                
+                {/* Channel / Feed switcher overlay */}
+                {selectedLiveEvent.channels && selectedLiveEvent.channels.length > 1 && (
+                  <div className="absolute top-4 right-4 z-10 flex flex-wrap items-center gap-1.5 p-1 bg-black/50 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl max-w-[80%] max-h-[85%] overflow-y-auto">
+                    {selectedLiveEvent.channels.map((chan, cIdx) => (
+                      <button 
+                        key={`feed-switch-${cIdx}`}
+                        onClick={() => setActiveLiveChannelIndex(cIdx)}
+                        className={`px-3.5 py-1.5 rounded-full text-[9px] font-black uppercase tracking-[0.15em] transition-all duration-300 cursor-pointer ${
+                          activeLiveChannelIndex === cIdx 
+                            ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30' 
+                            : 'text-white/50 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1">
+                          <span className={`w-1 h-1 rounded-full ${activeLiveChannelIndex === cIdx ? 'bg-white animate-ping' : 'bg-white/60'}`} />
+                          {chan.name || `Feed ${cIdx + 1}`}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                
+                {/* Live Badge */}
+                <div className="absolute top-4 left-4 z-10 flex items-center gap-2 px-3 py-1.5 bg-red-600 rounded-full shadow-lg shadow-red-600/20">
+                  <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
+                  <span className="text-[10px] font-black text-white uppercase tracking-widest">Live</span>
+                </div>
+              </div>
+              
+              <div className="p-6 bg-rose-500/10 border-t border-rose-500/20 flex flex-col items-center justify-center gap-4">
+                <div className="flex flex-col items-center gap-1">
+                  <p className="text-sm text-rose-400 font-bold uppercase tracking-[0.2em] text-center">
+                    Enjoying {selectedLiveEvent.name} with 4K•SJ Luxury Experience
+                  </p>
+                  <p className="text-[10px] text-white/40 uppercase tracking-widest">
+                    Active Feed: {selectedLiveEvent.channels?.[activeLiveChannelIndex]?.name || 'Primary'} Feed
+                  </p>
+                </div>
+                
+                <a 
+                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest cursor-pointer"
+                >
+                  <MessageCircle size={20} fill="white" />
+                  Join WhatsApp Group
+                </a>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Admin Login Modal */}
       <AnimatePresence>
         {showAdminLogin && (
@@ -5299,7 +5593,7 @@ export default function App() {
 
               <div className="p-6 bg-black/40 border-b border-white/5">
                 <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 overflow-x-auto no-scrollbar">
-                  {(['psl', 'ipl', 'app', 'free_movies', 'free_series'] as const).map((tab) => (
+                  {(['psl', 'ipl', 'app', 'free_movies', 'free_series', 'live_events'] as const).map((tab) => (
                     <button 
                       key={tab}
                       onClick={() => setActiveAdminTab(tab)}
@@ -5309,7 +5603,7 @@ export default function App() {
                           : 'text-white/40 hover:text-white hover:bg-white/5'
                       }`}
                     >
-                      {tab === 'app' ? 'General' : tab.replace('free_', '').toUpperCase()}
+                      {tab === 'app' ? 'General' : tab.replace('free_', '').replace('_', ' ').toUpperCase()}
                     </button>
                   ))}
                 </div>
@@ -5394,6 +5688,25 @@ export default function App() {
                           onChange={(e) => setNewAppSettings(prev => ({ ...prev, free_series_title: e.target.value }))}
                           placeholder="Category Title"
                           className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-purple-500/50"
+                        />
+                      </div>
+                      {/* Live Events Toggle */}
+                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-black text-rose-400 uppercase tracking-widest">Live Events</h4>
+                          <button 
+                            onClick={() => setNewAppSettings(prev => ({ ...prev, live_events_enabled: !prev.live_events_enabled }))}
+                            className={cn("w-12 h-6 rounded-full relative transition-all duration-300", newAppSettings.live_events_enabled ? "bg-rose-500" : "bg-white/10")}
+                          >
+                            <motion.div animate={{ x: newAppSettings.live_events_enabled ? 26 : 2 }} className="w-5 h-5 bg-white rounded-full absolute top-0.5" />
+                          </button>
+                        </div>
+                        <input 
+                          type="text" 
+                          value={newAppSettings.live_events_title || ''}
+                          onChange={(e) => setNewAppSettings(prev => ({ ...prev, live_events_title: e.target.value }))}
+                          placeholder="Category Title"
+                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-rose-500/50"
                         />
                       </div>
                     </div>
@@ -5683,7 +5996,176 @@ export default function App() {
                     </div>
                   )}
 
-                  {activeAdminTab !== 'free_movies' && activeAdminTab !== 'free_series' && (
+                  {activeAdminTab === 'live_events' && (
+                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Event Name</label>
+                          <input 
+                            type="text" 
+                            value={newLiveEvent.name}
+                            onChange={(e) => setNewLiveEvent({...newLiveEvent, name: e.target.value})}
+                            placeholder="e.g. Pakistan vs Australia - 1st ODI"
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Poster Image URL</label>
+                          <input 
+                            type="text" 
+                            value={newLiveEvent.poster_url}
+                            onChange={(e) => setNewLiveEvent({...newLiveEvent, poster_url: e.target.value})}
+                            placeholder="e.g. Poster Image Link"
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-4">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                          <h4 className="text-[10px] font-black text-rose-400 uppercase tracking-widest">Streams & Channels</h4>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewLiveEvent({
+                                ...newLiveEvent,
+                                channels: [...newLiveEvent.channels, { name: `Channel ${newLiveEvent.channels.length + 1}`, play_url: '', is_embed: false }]
+                              });
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-cyan-500 text-black font-black text-[9px] uppercase tracking-wider hover:bg-cyan-400 transition-all cursor-pointer"
+                          >
+                            + Add Channel
+                          </button>
+                        </div>
+
+                        <div className="space-y-3">
+                          {newLiveEvent.channels.map((channel, cIdx) => (
+                            <div key={`chan-edit-${cIdx}`} className="flex flex-col md:flex-row gap-3 items-end md:items-center bg-black/40 p-3 rounded-xl border border-white/5">
+                              <div className="w-full md:w-1/4 space-y-1">
+                                <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">Channel Name</label>
+                                <input 
+                                  type="text" 
+                                  value={channel.name}
+                                  onChange={(e) => {
+                                    const updatedCh = [...newLiveEvent.channels];
+                                    updatedCh[cIdx].name = e.target.value;
+                                    setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                  }}
+                                  placeholder="e.g. English, Urdu"
+                                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                                />
+                              </div>
+
+                              <div className="w-full md:flex-1 space-y-1">
+                                <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">M3U8 Stream Link</label>
+                                <input 
+                                  type="text" 
+                                  value={channel.play_url}
+                                  onChange={(e) => {
+                                    const updatedCh = [...newLiveEvent.channels];
+                                    updatedCh[cIdx].play_url = e.target.value;
+                                    setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                  }}
+                                  placeholder="e.g. https://domain.com/live.m3u8"
+                                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                                />
+                              </div>
+
+                              <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-3 py-2 h-[38px]">
+                                <input 
+                                  type="checkbox" 
+                                  id={`is_embed-${cIdx}`}
+                                  checked={!!channel.is_embed}
+                                  onChange={(e) => {
+                                    const updatedCh = [...newLiveEvent.channels];
+                                    updatedCh[cIdx].is_embed = e.target.checked;
+                                    setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                  }}
+                                  className="w-4 h-4 accent-cyan-500"
+                                />
+                                <label htmlFor={`is_embed-${cIdx}`} className="text-[9px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Embed</label>
+                              </div>
+
+                              {newLiveEvent.channels.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updatedCh = newLiveEvent.channels.filter((_, i) => i !== cIdx);
+                                    setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                  }}
+                                  className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl transition-all cursor-pointer"
+                                >
+                                  <X size={16} />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <button 
+                        onClick={handleAddLiveEvent}
+                        className={`w-full py-4 rounded-2xl text-xs font-black uppercase tracking-[0.2em] transition-all shadow-xl ${
+                          editingLiveEventId
+                            ? 'bg-yellow-500 text-black shadow-yellow-500/20' 
+                            : 'bg-cyan-500 text-black shadow-cyan-500/20'
+                        }`}
+                      >
+                        {editingLiveEventId ? 'Update Live Event' : 'Launch Live Event'}
+                      </button>
+
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Manage Live Events</label>
+                        {isLiveEventsLoading ? (
+                          <div className="flex justify-center p-6 text-white/40 text-xs">
+                            <Loader2 className="animate-spin text-cyan-400 mr-2" size={16} /> Loading Events...
+                          </div>
+                        ) : liveEvents.length === 0 ? (
+                          <div className="text-center p-6 text-white/30 text-xs font-bold border border-dashed border-white/10 rounded-2xl">
+                            No Live Events Configured
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {liveEvents.map((item, idx) => (
+                              <div key={`admin-live-${item.id}-${idx}`} className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10 group">
+                                <div className="flex flex-col gap-0.5 max-w-[140px]">
+                                  <span className="text-[11px] text-white font-bold truncate">{item.name}</span>
+                                  <span className="text-[8px] text-[#FF4C5E] uppercase tracking-widest font-black">
+                                    {item.channels?.length || 0} Channels Active
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button 
+                                    onClick={() => {
+                                      setEditingLiveEventId(item.id);
+                                      setNewLiveEvent({
+                                        name: item.name || '',
+                                        poster_url: item.poster_url || '',
+                                        channels: item.channels && item.channels.length > 0 
+                                          ? item.channels 
+                                          : [{ name: 'Urdu', play_url: '', is_embed: false }]
+                                      });
+                                    }}
+                                    className="w-8 h-8 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 flex items-center justify-center transition-all"
+                                  >
+                                    <Pencil size={14} />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteLiveEvent(item.id)}
+                                    className="w-8 h-8 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-400 flex items-center justify-center transition-all"
+                                  >
+                                    <X size={16} />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {(activeAdminTab === 'psl' || activeAdminTab === 'ipl' || activeAdminTab === 'app') && (
                     <button 
                       onClick={handleUpdateUrl}
                       className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-black py-4 rounded-2xl text-xs font-black uppercase tracking-[0.3em] transition-all shadow-xl shadow-cyan-500/20"

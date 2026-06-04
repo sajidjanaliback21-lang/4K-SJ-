@@ -29,6 +29,12 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Live Events Collection
+    match /live_events/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Favorites Collection
     match /favorites/{favoriteId} {
       allow read, write: if true;

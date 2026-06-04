@@ -21,10 +21,12 @@
         "ipl_enabled": { "type": "boolean" },
         "free_movies_enabled": { "type": "boolean" },
         "free_series_enabled": { "type": "boolean" },
+        "live_events_enabled": { "type": "boolean" },
         "psl_title": { "type": "string" },
         "ipl_title": { "type": "string" },
         "free_movies_title": { "type": "string" },
         "free_series_title": { "type": "string" },
+        "live_events_title": { "type": "string" },
         "updatedAt": {
           "type": "string",
           "format": "date-time",
@@ -58,6 +60,21 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "poster_url", "play_url"]
+    },
+    "live_events": {
+      "title": "Live Events",
+      "description": "Custom live events added for streaming live channels",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "poster_url": { "type": "string" },
+        "channels": {
+          "type": "array",
+          "description": "An array of channels, each holding a custom name, play_url, and optional is_embed setting"
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "poster_url", "channels"]
     },
     "favorites": {
       "title": "Favorites",
@@ -104,6 +121,10 @@
     "/free_series/{seriesId}": {
       "schema": "free_series",
       "description": "Collection of free series"
+    },
+    "/live_events/{id}": {
+      "schema": "live_events",
+      "description": "Collection of live events with multiple channels"
     },
     "/favorites/{favoriteId}": {
       "schema": "favorites",
