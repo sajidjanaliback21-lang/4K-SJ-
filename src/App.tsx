@@ -2072,9 +2072,11 @@ export default function App() {
   };
 
   const triggerDownload = (url: string, filename: string) => {
-    // Direct trigger to browser's native download manager
-    // This lets the browser follow redirects automatically and trust the backend.
-    window.location.assign(url);
+    const safeFilename = filename.replace(/[^a-z0-9.-]/gi, '_');
+    const proxyUrl = `https://sjstore-sjstore-download-proxy.hf.space/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(safeFilename)}`;
+    
+    // Using window.location.assign for direct trigger to the download proxy
+    window.location.assign(proxyUrl);
   };
 
   const handleAction = async (action: 'play' | 'download' | 'web_play' | 'copy', item: any, episodeId?: string, episodeExt?: string, isConfirmed = false) => {
@@ -2109,8 +2111,13 @@ export default function App() {
     }
 
     // Force Live TV channels strictly use .m3u8 format, Movies and Series use standard extensions from sever API
-    const ext = isLive ? 'm3u8' : (episodeExt || (item as any).container_extension || 'mp4');
+    let ext = isLive ? 'm3u8' : (episodeExt || (item as any).container_extension || 'mp4');
     const type = isLive ? 'live' : (isSeries ? 'series' : 'movie');
+
+    // For Download ONLY: strictly enforce the .mkv extension
+    if (action === 'download' && !isLive) {
+      ext = 'mkv';
+    }
     
     // Correct Xtream URL format: http://host:port/type/user/pass/id.ext
     const url = `${host}/${type}/${creds.username}/${creds.password}/${streamId}.${ext}`;
