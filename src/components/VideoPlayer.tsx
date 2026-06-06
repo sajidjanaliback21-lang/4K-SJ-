@@ -225,14 +225,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const getProxiedUrl = (url: string) => {
-    if (!url) return '';
-    const types = ['/movie/', '/series/', '/live/'];
-    for (const t of types) {
-      if (url.includes(t)) {
-        const index = url.indexOf(t);
-        return `https://hdsj.store${url.substring(index)}`;
-      }
-    }
     return url;
   };
 

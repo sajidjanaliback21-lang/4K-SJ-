@@ -2,9 +2,16 @@ import axios from 'axios';
 import { XtreamCredentials, Category, Stream, Series, LoginResponse, LiveStream } from '../types';
 
 export const DEFAULT_CREDENTIALS: XtreamCredentials = {
-  host: 'https://hdsj.store',
+  host: 'https://lb-skip.vercel.app',
   username: 'webplayer44',
   password: '62246624',
+};
+
+const sanitizeHost = (host: string): string => {
+  if (!host || host.includes('hdsj.store')) {
+    return 'https://lb-skip.vercel.app';
+  }
+  return host;
 };
 
 const proxyRequest = async (params: any, retries = 3, backoff = 1000): Promise<any> => {
@@ -23,60 +30,70 @@ const proxyRequest = async (params: any, retries = 3, backoff = 1000): Promise<a
 
 export const xtreamApi = {
   login: async (creds: XtreamCredentials): Promise<LoginResponse> => {
-    const url = `${creds.host}/player_api.php?username=${creds.username}&password=${creds.password}`;
+    const host = sanitizeHost(creds.host);
+    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}`;
     return proxyRequest({ url });
   },
 
   getMovieCategories: async (creds: XtreamCredentials): Promise<Category[]> => {
-    const url = `${creds.host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_vod_categories`;
+    const host = sanitizeHost(creds.host);
+    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_vod_categories`;
     const data = await proxyRequest({ url });
     return Array.isArray(data) ? data : [];
   },
 
   getMovies: async (creds: XtreamCredentials, categoryId: string = '0'): Promise<Stream[]> => {
-    const url = `${creds.host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_vod_streams${categoryId !== '0' ? `&category_id=${categoryId}` : ''}`;
+    const host = sanitizeHost(creds.host);
+    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_vod_streams${categoryId !== '0' ? `&category_id=${categoryId}` : ''}`;
     const data = await proxyRequest({ url });
     return Array.isArray(data) ? data : [];
   },
 
   getSeriesCategories: async (creds: XtreamCredentials): Promise<Category[]> => {
-    const url = `${creds.host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_series_categories`;
+    const host = sanitizeHost(creds.host);
+    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_series_categories`;
     const data = await proxyRequest({ url });
     return Array.isArray(data) ? data : [];
   },
 
   getSeries: async (creds: XtreamCredentials, categoryId: string = '0'): Promise<Series[]> => {
-    const url = `${creds.host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_series${categoryId !== '0' ? `&category_id=${categoryId}` : ''}`;
+    const host = sanitizeHost(creds.host);
+    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_series${categoryId !== '0' ? `&category_id=${categoryId}` : ''}`;
     const data = await proxyRequest({ url });
     return Array.isArray(data) ? data : [];
   },
 
   getSeriesInfo: async (creds: XtreamCredentials, seriesId: string): Promise<any> => {
-    const url = `${creds.host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_series_info&series_id=${seriesId}`;
+    const host = sanitizeHost(creds.host);
+    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_series_info&series_id=${seriesId}`;
     return proxyRequest({ url });
   },
 
   getMovieInfo: async (creds: XtreamCredentials, movieId: string): Promise<any> => {
-    const url = `${creds.host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_vod_info&vod_id=${movieId}`;
+    const host = sanitizeHost(creds.host);
+    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_vod_info&vod_id=${movieId}`;
     return proxyRequest({ url });
   },
 
   getLiveCategories: async (creds: XtreamCredentials): Promise<Category[]> => {
-    const url = `${creds.host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_live_categories`;
+    const host = sanitizeHost(creds.host);
+    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_live_categories`;
     const data = await proxyRequest({ url });
     return Array.isArray(data) ? data : [];
   },
 
   getLiveStreams: async (creds: XtreamCredentials, categoryId: string = '0'): Promise<LiveStream[]> => {
-    const url = `${creds.host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_live_streams${categoryId !== '0' ? `&category_id=${categoryId}` : ''}`;
+    const host = sanitizeHost(creds.host);
+    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_live_streams${categoryId !== '0' ? `&category_id=${categoryId}` : ''}`;
     const data = await proxyRequest({ url });
     return Array.isArray(data) ? data : [];
   },
 
   getStreamUrl: (creds: XtreamCredentials, streamId: string, extension: string = 'mp4', type: 'movie' | 'series' | 'live' = 'movie') => {
+    const host = 'https://lb-skip.vercel.app';
     if (type === 'live') {
-      return `https://hdsj.store/live/${creds.username}/${creds.password}/${streamId}.ts`;
+      return `${host}/live/${creds.username}/${creds.password}/${streamId}.m3u8`;
     }
-    return `https://hdsj.store/${type}/${creds.username}/${creds.password}/${streamId}.${extension}`;
+    return `${host}/${type}/${creds.username}/${creds.password}/${streamId}.${extension}`;
   }
 };

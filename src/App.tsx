@@ -267,7 +267,12 @@ export default function App() {
     const loggedIn = localStorage.getItem('iptv_logged_in') === 'true';
     if (loggedIn && saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        if (parsed && (parsed.host?.includes('hdsj.store') || !parsed.host)) {
+          parsed.host = 'https://lb-skip.vercel.app';
+          localStorage.setItem('iptv_creds', JSON.stringify(parsed));
+        }
+        return parsed;
       } catch (e) {
         return DEFAULT_CREDENTIALS;
       }
@@ -2067,12 +2072,9 @@ export default function App() {
   };
 
   const triggerDownload = (url: string, filename: string) => {
-    const safeFilename = filename.replace(/[^a-z0-9.-]/gi, '_');
-    const proxyUrl = `https://sjstore-sjstore-download-proxy.hf.space/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(safeFilename)}`;
-    
-    // Using window.location.assign for direct trigger to browser's native download manager
-    // This is memory-safe and handles large files (GBs) correctly
-    window.location.assign(proxyUrl);
+    // Direct trigger to browser's native download manager
+    // This lets the browser follow redirects automatically and trust the backend.
+    window.location.assign(url);
   };
 
   const handleAction = async (action: 'play' | 'download' | 'web_play' | 'copy', item: any, episodeId?: string, episodeExt?: string, isConfirmed = false) => {
@@ -2085,8 +2087,8 @@ export default function App() {
       alert("Please enter a valid username and password in settings.");
       return;
     }
-    // Always use hdsj.store for all playback and download URLs as per critical update requirement
-    const host = 'https://hdsj.store';
+    // Set the New Base URL
+    const host = 'https://lb-skip.vercel.app';
 
     const isLive = !!(item as any).stream_type && (item as any).stream_type === 'live';
     const isSeries = !!(episodeId || (item as any).series_id);
@@ -2106,13 +2108,9 @@ export default function App() {
       return;
     }
 
-    let ext = isLive ? 'ts' : (episodeExt || (item as any).container_extension || 'mp4');
+    // Force Live TV channels strictly use .m3u8 format, Movies and Series use standard extensions from sever API
+    const ext = isLive ? 'm3u8' : (episodeExt || (item as any).container_extension || 'mp4');
     const type = isLive ? 'live' : (isSeries ? 'series' : 'movie');
-
-    // For Web Player Live TV, we use .ts extension for raw stream playback via proxy
-    if (action === 'web_play' && isLive) {
-      ext = 'ts';
-    }
     
     // Correct Xtream URL format: http://host:port/type/user/pass/id.ext
     const url = `${host}/${type}/${creds.username}/${creds.password}/${streamId}.${ext}`;
@@ -2643,8 +2641,8 @@ export default function App() {
                           is_embed: false,
                           isLive: true,
                           sources: [{
-                            src: `https://hdsj.store/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.ts`,
-                            type: 'video/mp2t'
+                            src: `https://lb-skip.vercel.app/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`,
+                            type: 'application/x-mpegURL'
                           }]
                         }} 
                       />
@@ -2705,7 +2703,7 @@ export default function App() {
                         {copiedId === playingLiveStream.stream_id ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
                       </button>
                       <button 
-                        onClick={() => window.location.href = formatVlcUrl(`https://hdsj.store/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.ts`)}
+                        onClick={() => window.location.href = formatVlcUrl(`https://lb-skip.vercel.app/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`)}
                         className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg font-black text-[9px] transition-all shadow-lg shadow-orange-500/20 uppercase tracking-widest italic"
                       >
                         <Play size={12} fill="white" /> VLC
@@ -6033,7 +6031,7 @@ export default function App() {
                             type="text" 
                             value={newFreeSeries.playlist_url || ''}
                             onChange={(e) => setNewFreeSeries({...newFreeSeries, playlist_url: e.target.value})}
-                            placeholder="e.g. https://lb3.hdsj.store/series_links/sipder/playlist.m3u"
+                            placeholder="e.g. https://lb-skip.vercel.app/series_links/spider/playlist.m3u"
                             className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
                           />
                         </div>
