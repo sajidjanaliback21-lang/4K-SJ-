@@ -3,6 +3,9 @@ import { createPortal } from 'react-dom';
 import Artplayer from 'artplayer';
 import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
+import * as dashjs from 'dashjs';
+// @ts-ignore
+import shaka from 'shaka-player';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShieldCheck, Cpu, Globe, Sliders, X, SkipForward, List, Tv, Download, Gauge, RotateCcw, Pencil, Check, Zap } from 'lucide-react';
 
@@ -15,6 +18,7 @@ interface VideoPlayerProps {
     is_embed?: boolean;
     skipProxy?: boolean;
     isLive?: boolean;
+    drm_license_url?: string;
   };
   onReady?: (player: Artplayer) => void;
   onClose?: () => void;
@@ -25,6 +29,54 @@ interface VideoPlayerProps {
   onSelectEpisode?: (episode: any, seasonNum: string) => void;
   onDownloadEpisode?: (episode: any) => void;
 }
+
+const parseDRMUrl = (url: string) => {
+  let cleanUrl = url;
+  let clearKeys: Record<string, string> = {};
+  let isDrm = false;
+
+  const pipeIdx = url.indexOf('|');
+  let scheme: string | null = null;
+  let license: string | null = null;
+
+  if (pipeIdx !== -1) {
+    isDrm = true;
+    cleanUrl = url.substring(0, pipeIdx);
+    if (cleanUrl.endsWith('?')) {
+      cleanUrl = cleanUrl.substring(0, cleanUrl.length - 1);
+    }
+    const drmStr = url.substring(pipeIdx + 1);
+    const params = new URLSearchParams(drmStr);
+    scheme = params.get('drmScheme') || params.get('scheme');
+    license = params.get('drmLicense') || params.get('license');
+  } else {
+    const questionIdx = url.indexOf('?');
+    if (questionIdx !== -1) {
+      const searchStr = url.substring(questionIdx + 1);
+      if (searchStr.includes('drmScheme') || searchStr.includes('drmLicense')) {
+        isDrm = true;
+        cleanUrl = url.substring(0, questionIdx);
+        const params = new URLSearchParams(searchStr);
+        scheme = params.get('drmScheme') || params.get('scheme');
+        license = params.get('drmLicense') || params.get('license');
+      }
+    }
+  }
+
+  if (scheme && license) {
+    const lowerScheme = scheme.toLowerCase();
+    if (lowerScheme === 'clearkey' && license.includes(':')) {
+      const pairs = license.split(',');
+      pairs.forEach(pair => {
+        const [kid, k] = pair.split(':');
+        if (kid && k) {
+          clearKeys[kid.trim()] = k.trim();
+        }
+      });
+    }
+  }
+  return { cleanUrl, clearKeys, isDrm };
+};
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ 
   options, 
@@ -41,6 +93,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const playerRef = useRef<Artplayer | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const mpegtsRef = useRef<any>(null);
+  const dashRef = useRef<any>(null);
+  const shakaRef = useRef<any>(null);
   const lastClickTimeRef = useRef<number>(0);
   const userSelectedSpeedRef = useRef<number>(1.0);
   const [isLoading, setIsLoading] = useState(true);
@@ -236,7 +290,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const isLiveStream = React.useMemo(() => {
     const isHls = originalUrl.toLowerCase().includes('.m3u8') || source?.type === 'application/x-mpegURL';
     const isTs = originalUrl.toLowerCase().includes('.ts') || source?.type === 'video/mp2t';
-    return !!(options.isLive || isHls || isTs || originalUrl?.includes('/live/'));
+    const isMpd = originalUrl.toLowerCase().includes('.mpd') || source?.type === 'application/dash+xml' || source?.type === 'dash';
+    return !!(options.isLive || isHls || isTs || isMpd || originalUrl?.includes('/live/'));
   }, [originalUrl, options.isLive, source]);
 
   const isEmbeddable = (url: string) => {
@@ -267,15 +322,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const isHls = originalUrl.toLowerCase().includes('.m3u8') || source.type === 'application/x-mpegURL';
     const isTs = originalUrl.toLowerCase().includes('.ts') || source.type === 'video/mp2t';
     const isMkv = originalUrl.toLowerCase().includes('.mkv');
-    const isLive = options.isLive !== undefined ? options.isLive : (isHls || isTs);
+    const isMpd = originalUrl.toLowerCase().includes('.mpd') || source.type === 'application/dash+xml' || source.type === 'dash';
+    const isLive = options.isLive !== undefined ? options.isLive : (isHls || isTs || isMpd);
 
     const art = new Artplayer({
       container: artRef.current,
       url: sourceUrl,
       type: isHls ? 'm3u8' : 
+            (isMpd ? 'mpd' :
             (originalUrl.toLowerCase().includes('.mp4') ? 'mp4' : 
             (originalUrl.toLowerCase().includes('.webm') ? 'webm' : 
-            (isMkv ? 'mkv' : (isTs ? 'ts' : undefined)))),
+            (isMkv ? 'mkv' : (isTs ? 'ts' : undefined))))),
       isLive: isLive,
       poster: options.poster || '',
       autoplay: options.autoplay || false,
@@ -526,6 +583,414 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             });
           } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = url;
+          }
+        },
+        mpd: function (video: HTMLVideoElement, url: string, art: Artplayer) {
+          if (shakaRef.current) {
+            try {
+              shakaRef.current.destroy();
+            } catch (_) {}
+            shakaRef.current = null;
+          }
+          if (dashRef.current) {
+            try {
+              dashRef.current.destroy();
+            } catch (_) {}
+            dashRef.current = null;
+          }
+
+          const { cleanUrl, clearKeys } = parseDRMUrl(url);
+
+          shaka.polyfill.installAll();
+          if (shaka.Player.isBrowserSupported()) {
+            const shakaPlayer = new shaka.Player(video);
+            shakaRef.current = shakaPlayer;
+
+            if (Object.keys(clearKeys).length > 0) {
+              shakaPlayer.configure({
+                drm: {
+                  clearKeys: clearKeys
+                }
+              });
+            }
+
+            const setupShakaQuality = () => {
+              const tracks = shakaPlayer.getVariantTracks();
+              const uniqueTracksByHeight: Record<number, any> = {};
+              tracks.forEach((track: any) => {
+                if (track.height) {
+                  const existing = uniqueTracksByHeight[track.height];
+                  if (!existing || track.bandwidth > existing.bandwidth) {
+                    uniqueTracksByHeight[track.height] = track;
+                  }
+                }
+              });
+              const sortedHeights = Object.keys(uniqueTracksByHeight)
+                .map(Number)
+                .sort((a, b) => b - a);
+
+              if (sortedHeights.length > 0) {
+                const qualityItems = sortedHeights.map((height) => {
+                  const track = uniqueTracksByHeight[height];
+                  const isActive = track.active;
+                  return {
+                    default: isActive,
+                    html: `${height}P`,
+                    value: track.id,
+                  };
+                });
+
+                const isAbrEnabled = shakaPlayer.getConfiguration().abr.enabled;
+                qualityItems.unshift({
+                  default: isAbrEnabled,
+                  html: 'Auto',
+                  value: -1,
+                } as any);
+
+                art.setting.update({
+                  name: 'quality',
+                  html: 'Quality',
+                  width: 150,
+                  selector: qualityItems,
+                  onSelect: (item: any) => {
+                    if (item.value === -1) {
+                      shakaPlayer.configure({ abr: { enabled: true } });
+                    } else {
+                      shakaPlayer.configure({ abr: { enabled: false } });
+                      const targetTrack = tracks.find((t: any) => t.id === item.value);
+                      if (targetTrack) {
+                        shakaPlayer.selectVariantTrack(targetTrack, true);
+                      }
+                    }
+                    return item.html;
+                  }
+                });
+              }
+            };
+
+            shakaPlayer.load(cleanUrl).then(() => {
+              setupShakaQuality();
+            }).catch((err: any) => {
+              console.error('Shaka player load error:', err);
+              art.notice.show = 'DASH Stream Error';
+            });
+
+            shakaPlayer.addEventListener('error', (event: any) => {
+              console.error('Shaka Player Error:', event);
+              if (event && event.detail && event.detail.severity === 1) {
+                return;
+              }
+            });
+          } else {
+            console.warn('Shaka player is not supported. Falling back to dash.js');
+            const player: any = dashjs.MediaPlayer().create();
+            dashRef.current = player;
+            if (Object.keys(clearKeys).length > 0) {
+              const hxeToBase64Url = (hex: string): string => {
+                const cleanHex = hex.trim().replace(/^0x/i, '');
+                if (cleanHex.length % 2 !== 0) return hex;
+                try {
+                  const bytes = new Uint8Array(cleanHex.length / 2);
+                  for (let i = 0; i < cleanHex.length; i += 2) {
+                    bytes[i / 2] = parseInt(cleanHex.substring(i, i + 2), 16);
+                  }
+                  let binary = '';
+                  for (let i = 0; i < bytes.byteLength; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                  }
+                  return btoa(binary)
+                    .replace(/\+/g, '-')
+                    .replace(/\//g, '_')
+                    .replace(/=+$/, '');
+                } catch (e) {
+                  return hex;
+                }
+              };
+              const clearkeys: any = {};
+              Object.entries(clearKeys).forEach(([kid, k]) => {
+                clearkeys[hxeToBase64Url(kid)] = hxeToBase64Url(k);
+              });
+              player.setProtectionData({
+                'org.w3.clearkey': { clearkeys }
+              });
+            }
+
+            player.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
+              const list = player.getBitrateInfoListFor('video');
+              if (list && list.length > 0) {
+                const uniqueByHeight: Record<number, any> = {};
+                list.forEach((info: any) => {
+                  if (info.height) {
+                    const existing = uniqueByHeight[info.height];
+                    if (!existing || info.bitrate > existing.bitrate) {
+                      uniqueByHeight[info.height] = info;
+                    }
+                  }
+                });
+                const sortedHeights = Object.keys(uniqueByHeight)
+                  .map(Number)
+                  .sort((a, b) => b - a);
+
+                if (sortedHeights.length > 0) {
+                  const currentQualityIndex = player.getQualityFor('video');
+                  const qualityItems = sortedHeights.map((height) => {
+                    const info = uniqueByHeight[height];
+                    return {
+                      default: info.qualityIndex === currentQualityIndex,
+                      html: `${height}P`,
+                      value: info.qualityIndex,
+                    };
+                  });
+
+                  const settings = player.getSettings();
+                  const isAuto = settings && settings.streaming && settings.streaming.abr && settings.streaming.abr.autoSwitchBitrate && settings.streaming.abr.autoSwitchBitrate.video;
+
+                  qualityItems.unshift({
+                    default: !!isAuto,
+                    html: 'Auto',
+                    value: -1,
+                  } as any);
+
+                  art.setting.update({
+                    name: 'quality',
+                    html: 'Quality',
+                    width: 150,
+                    selector: qualityItems,
+                    onSelect: (item: any) => {
+                      if (item.value === -1) {
+                        player.updateSettings({
+                          streaming: {
+                            abr: {
+                              autoSwitchBitrate: {
+                                video: true
+                              }
+                            }
+                          }
+                        });
+                      } else {
+                        player.updateSettings({
+                          streaming: {
+                            abr: {
+                              autoSwitchBitrate: {
+                                video: false
+                              }
+                            }
+                          }
+                        });
+                        player.setQualityFor('video', item.value);
+                      }
+                      return item.html;
+                    }
+                  });
+                }
+              }
+            });
+
+            player.initialize(video, cleanUrl, options.autoplay || false);
+          }
+        },
+        dash: function (video: HTMLVideoElement, url: string, art: Artplayer) {
+          if (shakaRef.current) {
+            try {
+              shakaRef.current.destroy();
+            } catch (_) {}
+            shakaRef.current = null;
+          }
+          if (dashRef.current) {
+            try {
+              dashRef.current.destroy();
+            } catch (_) {}
+            dashRef.current = null;
+          }
+
+          const { cleanUrl, clearKeys } = parseDRMUrl(url);
+
+          shaka.polyfill.installAll();
+          if (shaka.Player.isBrowserSupported()) {
+            const shakaPlayer = new shaka.Player(video);
+            shakaRef.current = shakaPlayer;
+
+            if (Object.keys(clearKeys).length > 0) {
+              shakaPlayer.configure({
+                drm: {
+                  clearKeys: clearKeys
+                }
+              });
+            }
+
+            const setupShakaQuality = () => {
+              const tracks = shakaPlayer.getVariantTracks();
+              const uniqueTracksByHeight: Record<number, any> = {};
+              tracks.forEach((track: any) => {
+                if (track.height) {
+                  const existing = uniqueTracksByHeight[track.height];
+                  if (!existing || track.bandwidth > existing.bandwidth) {
+                    uniqueTracksByHeight[track.height] = track;
+                  }
+                }
+              });
+              const sortedHeights = Object.keys(uniqueTracksByHeight)
+                .map(Number)
+                .sort((a, b) => b - a);
+
+              if (sortedHeights.length > 0) {
+                const qualityItems = sortedHeights.map((height) => {
+                  const track = uniqueTracksByHeight[height];
+                  const isActive = track.active;
+                  return {
+                    default: isActive,
+                    html: `${height}P`,
+                    value: track.id,
+                  };
+                });
+
+                const isAbrEnabled = shakaPlayer.getConfiguration().abr.enabled;
+                qualityItems.unshift({
+                  default: isAbrEnabled,
+                  html: 'Auto',
+                  value: -1,
+                } as any);
+
+                art.setting.update({
+                  name: 'quality',
+                  html: 'Quality',
+                  width: 150,
+                  selector: qualityItems,
+                  onSelect: (item: any) => {
+                    if (item.value === -1) {
+                      shakaPlayer.configure({ abr: { enabled: true } });
+                    } else {
+                      shakaPlayer.configure({ abr: { enabled: false } });
+                      const targetTrack = tracks.find((t: any) => t.id === item.value);
+                      if (targetTrack) {
+                        shakaPlayer.selectVariantTrack(targetTrack, true);
+                      }
+                    }
+                    return item.html;
+                  }
+                });
+              }
+            };
+
+            shakaPlayer.load(cleanUrl).then(() => {
+              setupShakaQuality();
+            }).catch((err: any) => {
+              console.error('Shaka player load error:', err);
+              art.notice.show = 'DASH Stream Error';
+            });
+
+            shakaPlayer.addEventListener('error', (event: any) => {
+              console.error('Shaka Player Error:', event);
+              if (event && event.detail && event.detail.severity === 1) {
+                return;
+              }
+            });
+          } else {
+            console.warn('Shaka player is not supported. Falling back to dash.js');
+            const player: any = dashjs.MediaPlayer().create();
+            dashRef.current = player;
+            if (Object.keys(clearKeys).length > 0) {
+              const hxeToBase64Url = (hex: string): string => {
+                const cleanHex = hex.trim().replace(/^0x/i, '');
+                if (cleanHex.length % 2 !== 0) return hex;
+                try {
+                  const bytes = new Uint8Array(cleanHex.length / 2);
+                  for (let i = 0; i < cleanHex.length; i += 2) {
+                    bytes[i / 2] = parseInt(cleanHex.substring(i, i + 2), 16);
+                  }
+                  let binary = '';
+                  for (let i = 0; i < bytes.byteLength; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                  }
+                  return btoa(binary)
+                    .replace(/\+/g, '-')
+                    .replace(/\//g, '_')
+                    .replace(/=+$/, '');
+                } catch (e) {
+                  return hex;
+                }
+              };
+              const clearkeys: any = {};
+              Object.entries(clearKeys).forEach(([kid, k]) => {
+                clearkeys[hxeToBase64Url(kid)] = hxeToBase64Url(k);
+              });
+              player.setProtectionData({
+                'org.w3.clearkey': { clearkeys }
+              });
+            }
+
+            player.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
+              const list = player.getBitrateInfoListFor('video');
+              if (list && list.length > 0) {
+                const uniqueByHeight: Record<number, any> = {};
+                list.forEach((info: any) => {
+                  if (info.height) {
+                    const existing = uniqueByHeight[info.height];
+                    if (!existing || info.bitrate > existing.bitrate) {
+                      uniqueByHeight[info.height] = info;
+                    }
+                  }
+                });
+                const sortedHeights = Object.keys(uniqueByHeight)
+                  .map(Number)
+                  .sort((a, b) => b - a);
+
+                if (sortedHeights.length > 0) {
+                  const currentQualityIndex = player.getQualityFor('video');
+                  const qualityItems = sortedHeights.map((height) => {
+                    const info = uniqueByHeight[height];
+                    return {
+                      default: info.qualityIndex === currentQualityIndex,
+                      html: `${height}P`,
+                      value: info.qualityIndex,
+                    };
+                  });
+
+                  const settings = player.getSettings();
+                  const isAuto = settings && settings.streaming && settings.streaming.abr && settings.streaming.abr.autoSwitchBitrate && settings.streaming.abr.autoSwitchBitrate.video;
+
+                  qualityItems.unshift({
+                    default: !!isAuto,
+                    html: 'Auto',
+                    value: -1,
+                  } as any);
+
+                  art.setting.update({
+                    name: 'quality',
+                    html: 'Quality',
+                    width: 150,
+                    selector: qualityItems,
+                    onSelect: (item: any) => {
+                      if (item.value === -1) {
+                        player.updateSettings({
+                          streaming: {
+                            abr: {
+                              autoSwitchBitrate: {
+                                video: true
+                              }
+                            }
+                          }
+                        });
+                      } else {
+                        player.updateSettings({
+                          streaming: {
+                            abr: {
+                              autoSwitchBitrate: {
+                                video: false
+                              }
+                            }
+                          }
+                        });
+                        player.setQualityFor('video', item.value);
+                      }
+                      return item.html;
+                    }
+                  });
+                }
+              }
+            });
+
+            player.initialize(video, cleanUrl, options.autoplay || false);
           }
         },
       },
@@ -883,6 +1348,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         mpegtsRef.current.destroy();
         mpegtsRef.current = null;
       }
+      if (dashRef.current) {
+        try {
+          dashRef.current.destroy();
+        } catch (_) {}
+        dashRef.current = null;
+      }
+      if (shakaRef.current) {
+        try {
+          shakaRef.current.destroy();
+        } catch (_) {}
+        shakaRef.current = null;
+      }
       if (playerRef.current) {
         art.template.$video.removeEventListener('contextmenu', preventContext, true);
         art.template.$container.removeEventListener('contextmenu', preventContext, true);
@@ -927,11 +1404,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const newIsHls = newLowerUrl.includes('.m3u8') || (source?.type === 'application/x-mpegURL');
       const newIsTs = newLowerUrl.includes('.ts') || (source?.type === 'video/mp2t');
       const newIsMkv = newLowerUrl.includes('.mkv');
+      const newIsMpd = newLowerUrl.includes('.mpd') || source?.type === 'application/dash+xml' || source?.type === 'dash';
       
       const newType = newIsHls ? 'm3u8' : 
+                      (newIsMpd ? 'mpd' :
                       (newLowerUrl.includes('.mp4') ? 'mp4' : 
                       (newLowerUrl.includes('.webm') ? 'webm' : 
-                      (newIsMkv ? 'mkv' : (newIsTs ? 'ts' : undefined))));
+                      (newIsMkv ? 'mkv' : (newIsTs ? 'ts' : undefined)))));
       
       playerRef.current.switchUrl(sourceUrl, newType).then(() => {
         console.log("Artplayer successfully switched source url:", sourceUrl);

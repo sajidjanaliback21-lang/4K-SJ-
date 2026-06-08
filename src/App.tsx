@@ -364,11 +364,11 @@ export default function App() {
   const [newLiveEvent, setNewLiveEvent] = useState<{
     name: string;
     poster_url: string;
-    channels: Array<{ name: string; play_url: string; is_embed?: boolean }>;
+    channels: Array<{ name: string; play_url: string; is_embed?: boolean; is_mpd?: boolean; drm_license_url?: string }>;
   }>({
     name: '',
     poster_url: '',
-    channels: [{ name: 'Urdu', play_url: '', is_embed: false }]
+    channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false }]
   });
 
   const [newFreeMovie, setNewFreeMovie] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, password: '' });
@@ -1729,7 +1729,7 @@ export default function App() {
           createdAt: new Date().toISOString()
         });
       }
-      setNewLiveEvent({ name: '', poster_url: '', channels: [{ name: 'Urdu', play_url: '', is_embed: false }] });
+      setNewLiveEvent({ name: '', poster_url: '', channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false }] });
     } catch (error) {
       console.error("Error saving live event:", error);
       alert("Failed to save live event.");
@@ -4982,7 +4982,11 @@ export default function App() {
                           isLive: true,
                           sources: [{
                             src: activeChannel.play_url,
-                            type: activeChannel.play_url.includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'
+                            type: activeChannel.play_url.includes('.m3u8') 
+                              ? 'application/x-mpegURL' 
+                              : (activeChannel.play_url.includes('.mpd') || activeChannel.is_mpd)
+                                ? 'application/dash+xml' 
+                                : 'video/mp4'
                           }]
                         }} 
                       />
@@ -6186,7 +6190,7 @@ export default function App() {
                             onClick={() => {
                               setNewLiveEvent({
                                 ...newLiveEvent,
-                                channels: [...newLiveEvent.channels, { name: `Channel ${newLiveEvent.channels.length + 1}`, play_url: '', is_embed: false }]
+                                channels: [...newLiveEvent.channels, { name: `Channel ${newLiveEvent.channels.length + 1}`, play_url: '', is_embed: false, is_mpd: false }]
                               });
                             }}
                             className="px-3 py-1.5 rounded-xl bg-cyan-500 text-black font-black text-[9px] uppercase tracking-wider hover:bg-cyan-400 transition-all cursor-pointer"
@@ -6197,64 +6201,89 @@ export default function App() {
 
                         <div className="space-y-3">
                           {newLiveEvent.channels.map((channel, cIdx) => (
-                            <div key={`chan-edit-${cIdx}`} className="flex flex-col md:flex-row gap-3 items-end md:items-center bg-black/40 p-3 rounded-xl border border-white/5">
-                              <div className="w-full md:w-1/4 space-y-1">
-                                <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">Channel Name</label>
-                                <input 
-                                  type="text" 
-                                  value={channel.name}
-                                  onChange={(e) => {
-                                    const updatedCh = [...newLiveEvent.channels];
-                                    updatedCh[cIdx].name = e.target.value;
-                                    setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                  }}
-                                  placeholder="e.g. English, Urdu"
-                                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                                />
+                            <div key={`chan-edit-${cIdx}`} className="flex flex-col bg-black/40 p-3 rounded-xl border border-white/5 space-y-3">
+                              <div className="flex flex-col md:flex-row gap-3 items-end md:items-center">
+                                <div className="w-full md:w-1/4 space-y-1">
+                                  <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">Channel Name</label>
+                                  <input 
+                                    type="text" 
+                                    value={channel.name}
+                                    onChange={(e) => {
+                                      const updatedCh = [...newLiveEvent.channels];
+                                      updatedCh[cIdx].name = e.target.value;
+                                      setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                    }}
+                                    placeholder="e.g. English, Urdu"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                                  />
+                                </div>
+
+                                <div className="w-full md:flex-1 space-y-1">
+                                  <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">Stream / MPD / Play Link</label>
+                                  <input 
+                                    type="text" 
+                                    value={channel.play_url}
+                                    onChange={(e) => {
+                                      const updatedCh = [...newLiveEvent.channels];
+                                      updatedCh[cIdx].play_url = e.target.value;
+                                      if (e.target.value.toLowerCase().includes('.mpd')) {
+                                        updatedCh[cIdx].is_mpd = true;
+                                        updatedCh[cIdx].is_embed = false;
+                                      }
+                                      setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                    }}
+                                    placeholder="e.g. m3u8 link, .mpd link, or embed stream"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                                  />
+                                </div>
+
+                                <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-3 py-2 h-[38px]">
+                                  <input 
+                                    type="checkbox" 
+                                    id={`is_embed-${cIdx}`}
+                                    checked={!!channel.is_embed}
+                                    onChange={(e) => {
+                                      const updatedCh = [...newLiveEvent.channels];
+                                      updatedCh[cIdx].is_embed = e.target.checked;
+                                      if (e.target.checked) updatedCh[cIdx].is_mpd = false;
+                                      setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                    }}
+                                    className="w-4 h-4 accent-cyan-500"
+                                  />
+                                  <label htmlFor={`is_embed-${cIdx}`} className="text-[9px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Embed</label>
+                                </div>
+
+                                <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-3 py-2 h-[38px]">
+                                  <input 
+                                    type="checkbox" 
+                                    id={`is_mpd-${cIdx}`}
+                                    checked={!!channel.is_mpd}
+                                    onChange={(e) => {
+                                      const updatedCh = [...newLiveEvent.channels];
+                                      updatedCh[cIdx].is_mpd = e.target.checked;
+                                      if (e.target.checked) updatedCh[cIdx].is_embed = false;
+                                      setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                    }}
+                                    className="w-4 h-4 accent-cyan-500"
+                                  />
+                                  <label htmlFor={`is_mpd-${cIdx}`} className="text-[9px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">MPD</label>
+                                </div>
+
+                                {newLiveEvent.channels.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updatedCh = newLiveEvent.channels.filter((_, i) => i !== cIdx);
+                                      setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                    }}
+                                    className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl transition-all cursor-pointer h-[38px] w-[38px]"
+                                  >
+                                    <X size={16} />
+                                  </button>
+                                )}
                               </div>
 
-                              <div className="w-full md:flex-1 space-y-1">
-                                <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">M3U8 Stream Link</label>
-                                <input 
-                                  type="text" 
-                                  value={channel.play_url}
-                                  onChange={(e) => {
-                                    const updatedCh = [...newLiveEvent.channels];
-                                    updatedCh[cIdx].play_url = e.target.value;
-                                    setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                  }}
-                                  placeholder="e.g. https://domain.com/live.m3u8"
-                                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                                />
-                              </div>
 
-                              <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-3 py-2 h-[38px]">
-                                <input 
-                                  type="checkbox" 
-                                  id={`is_embed-${cIdx}`}
-                                  checked={!!channel.is_embed}
-                                  onChange={(e) => {
-                                    const updatedCh = [...newLiveEvent.channels];
-                                    updatedCh[cIdx].is_embed = e.target.checked;
-                                    setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                  }}
-                                  className="w-4 h-4 accent-cyan-500"
-                                />
-                                <label htmlFor={`is_embed-${cIdx}`} className="text-[9px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Embed</label>
-                              </div>
-
-                              {newLiveEvent.channels.length > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const updatedCh = newLiveEvent.channels.filter((_, i) => i !== cIdx);
-                                    setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                  }}
-                                  className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl transition-all cursor-pointer"
-                                >
-                                  <X size={16} />
-                                </button>
-                              )}
                             </div>
                           ))}
                         </div>
@@ -6299,8 +6328,13 @@ export default function App() {
                                         name: item.name || '',
                                         poster_url: item.poster_url || '',
                                         channels: item.channels && item.channels.length > 0 
-                                          ? item.channels 
-                                          : [{ name: 'Urdu', play_url: '', is_embed: false }]
+                                          ? item.channels.map((ch: any) => ({
+                                              name: ch.name || '',
+                                              play_url: ch.play_url || '',
+                                              is_embed: !!ch.is_embed,
+                                              is_mpd: !!ch.is_mpd
+                                            }))
+                                          : [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false }]
                                       });
                                     }}
                                     className="w-8 h-8 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 flex items-center justify-center transition-all"
