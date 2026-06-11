@@ -2089,8 +2089,8 @@ export default function App() {
       alert("Please enter a valid username and password in settings.");
       return;
     }
-    // Set the New Base URL
-    const host = 'https://hdsj.store';
+    // Set the New Base URL - Use the legacy server for downloads only
+    const host = action === 'download' ? 'https://lb-skip.vercel.app' : 'https://hdsj.store';
 
     const isLive = !!(item as any).stream_type && (item as any).stream_type === 'live';
     const isSeries = !!(episodeId || (item as any).series_id);
