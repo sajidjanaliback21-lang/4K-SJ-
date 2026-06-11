@@ -335,7 +335,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             (isMkv ? 'mkv' : (isTs ? 'ts' : undefined))))),
       isLive: isLive,
       poster: options.poster || '',
-      autoplay: options.autoplay || false,
+      autoplay: true,
       autoSize: false,
       autoMini: false,
       loop: false,
@@ -607,18 +607,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             shakaRef.current = shakaPlayer;
             (window as any).globalShakaPlayer = shakaPlayer;
 
-            let isStreamFullyReady = false;
-            let isPlayRequested = options.autoplay || false;
-
-            const onPlayBeforeReady = (e: Event) => {
-              if (!isStreamFullyReady) {
-                isPlayRequested = true;
-                video.pause();
-              }
-            };
-            video.addEventListener('play', onPlayBeforeReady);
-            video.autoplay = false;
-
             const shakaConfig: any = {
               manifest: {
                 dash: {
@@ -698,18 +686,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             shakaPlayer.load(cleanUrl).then(() => {
               setupShakaQuality();
-              isStreamFullyReady = true;
-              video.removeEventListener('play', onPlayBeforeReady);
-              if (isPlayRequested) {
-                setTimeout(() => {
-                  art.play().catch((err: any) => console.log('Autoplay trigger failed:', err));
-                }, 150);
-              }
             }).catch((err: any) => {
               console.error('Shaka player load error:', err);
               art.notice.show = 'DASH Stream Error';
-              isStreamFullyReady = true;
-              video.removeEventListener('play', onPlayBeforeReady);
             });
 
             shakaPlayer.addEventListener('error', (event: any) => {
@@ -848,18 +827,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             shakaRef.current = shakaPlayer;
             (window as any).globalShakaPlayer = shakaPlayer;
 
-            let isStreamFullyReady = false;
-            let isPlayRequested = options.autoplay || false;
-
-            const onPlayBeforeReady = (e: Event) => {
-              if (!isStreamFullyReady) {
-                isPlayRequested = true;
-                video.pause();
-              }
-            };
-            video.addEventListener('play', onPlayBeforeReady);
-            video.autoplay = false;
-
             const shakaConfig: any = {
               manifest: {
                 dash: {
@@ -939,18 +906,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             shakaPlayer.load(cleanUrl).then(() => {
               setupShakaQuality();
-              isStreamFullyReady = true;
-              video.removeEventListener('play', onPlayBeforeReady);
-              if (isPlayRequested) {
-                setTimeout(() => {
-                  art.play().catch((err: any) => console.log('Autoplay trigger failed:', err));
-                }, 150);
-              }
             }).catch((err: any) => {
               console.error('Shaka player load error:', err);
               art.notice.show = 'DASH Stream Error';
-              isStreamFullyReady = true;
-              video.removeEventListener('play', onPlayBeforeReady);
             });
 
             shakaPlayer.addEventListener('error', (event: any) => {
@@ -1070,24 +1028,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       },
     } as any);
 
-    let isFirstPlay = true;
 
-    art.on('play', () => {
-      if (isFirstPlay) {
-        // Ignore the seek command on initial startup to prevent the 3-second freeze
-        isFirstPlay = false;
-        return; 
-      }
-
-      // Apply 'Seek to Live' only on subsequent plays (e.g., after unpausing)
-      const gShaka = (window as any).globalShakaPlayer;
-      if (gShaka && typeof gShaka.isLive === 'function' && gShaka.isLive()) {
-        const seekRange = typeof gShaka.seekRange === 'function' ? gShaka.seekRange() : null;
-        if (seekRange && typeof seekRange.end === 'number') {
-          art.currentTime = seekRange.end - 6; 
-        }
-      }
-    });
 
     // Handle Loading State
     art.on('ready', () => {
