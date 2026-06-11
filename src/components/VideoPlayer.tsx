@@ -605,14 +605,42 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           if (shaka.Player.isBrowserSupported()) {
             const shakaPlayer = new shaka.Player(video);
             shakaRef.current = shakaPlayer;
+            (window as any).globalShakaPlayer = shakaPlayer;
+
+            let isStreamFullyReady = false;
+            let isPlayRequested = options.autoplay || false;
+
+            const onPlayBeforeReady = (e: Event) => {
+              if (!isStreamFullyReady) {
+                isPlayRequested = true;
+                video.pause();
+              }
+            };
+            video.addEventListener('play', onPlayBeforeReady);
+            video.autoplay = false;
+
+            const shakaConfig: any = {
+              manifest: {
+                dash: {
+                  ignoreMinBufferTime: true
+                }
+              },
+              streaming: {
+                rebufferingGoal: 1,
+                bufferingGoal: 5,
+                jumpLargeGaps: true,
+                ignoreTextStreamFailures: true
+              }
+            };
 
             if (Object.keys(clearKeys).length > 0) {
-              shakaPlayer.configure({
-                drm: {
-                  clearKeys: clearKeys
-                }
-              });
+              shakaConfig.drm = {
+                clearKeys: clearKeys,
+                delayLicenseRequestUntilPlayed: false
+              };
             }
+
+            shakaPlayer.configure(shakaConfig);
 
             const setupShakaQuality = () => {
               const tracks = shakaPlayer.getVariantTracks();
@@ -670,9 +698,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             shakaPlayer.load(cleanUrl).then(() => {
               setupShakaQuality();
+              isStreamFullyReady = true;
+              video.removeEventListener('play', onPlayBeforeReady);
+              if (isPlayRequested) {
+                setTimeout(() => {
+                  art.play().catch((err: any) => console.log('Autoplay trigger failed:', err));
+                }, 150);
+              }
             }).catch((err: any) => {
               console.error('Shaka player load error:', err);
               art.notice.show = 'DASH Stream Error';
+              isStreamFullyReady = true;
+              video.removeEventListener('play', onPlayBeforeReady);
             });
 
             shakaPlayer.addEventListener('error', (event: any) => {
@@ -809,14 +846,42 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           if (shaka.Player.isBrowserSupported()) {
             const shakaPlayer = new shaka.Player(video);
             shakaRef.current = shakaPlayer;
+            (window as any).globalShakaPlayer = shakaPlayer;
+
+            let isStreamFullyReady = false;
+            let isPlayRequested = options.autoplay || false;
+
+            const onPlayBeforeReady = (e: Event) => {
+              if (!isStreamFullyReady) {
+                isPlayRequested = true;
+                video.pause();
+              }
+            };
+            video.addEventListener('play', onPlayBeforeReady);
+            video.autoplay = false;
+
+            const shakaConfig: any = {
+              manifest: {
+                dash: {
+                  ignoreMinBufferTime: true
+                }
+              },
+              streaming: {
+                rebufferingGoal: 1,
+                bufferingGoal: 5,
+                jumpLargeGaps: true,
+                ignoreTextStreamFailures: true
+              }
+            };
 
             if (Object.keys(clearKeys).length > 0) {
-              shakaPlayer.configure({
-                drm: {
-                  clearKeys: clearKeys
-                }
-              });
+              shakaConfig.drm = {
+                clearKeys: clearKeys,
+                delayLicenseRequestUntilPlayed: false
+              };
             }
+
+            shakaPlayer.configure(shakaConfig);
 
             const setupShakaQuality = () => {
               const tracks = shakaPlayer.getVariantTracks();
@@ -874,9 +939,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             shakaPlayer.load(cleanUrl).then(() => {
               setupShakaQuality();
+              isStreamFullyReady = true;
+              video.removeEventListener('play', onPlayBeforeReady);
+              if (isPlayRequested) {
+                setTimeout(() => {
+                  art.play().catch((err: any) => console.log('Autoplay trigger failed:', err));
+                }, 150);
+              }
             }).catch((err: any) => {
               console.error('Shaka player load error:', err);
               art.notice.show = 'DASH Stream Error';
+              isStreamFullyReady = true;
+              video.removeEventListener('play', onPlayBeforeReady);
             });
 
             shakaPlayer.addEventListener('error', (event: any) => {
@@ -995,6 +1069,25 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         },
       },
     } as any);
+
+    let isFirstPlay = true;
+
+    art.on('play', () => {
+      if (isFirstPlay) {
+        // Ignore the seek command on initial startup to prevent the 3-second freeze
+        isFirstPlay = false;
+        return; 
+      }
+
+      // Apply 'Seek to Live' only on subsequent plays (e.g., after unpausing)
+      const gShaka = (window as any).globalShakaPlayer;
+      if (gShaka && typeof gShaka.isLive === 'function' && gShaka.isLive()) {
+        const seekRange = typeof gShaka.seekRange === 'function' ? gShaka.seekRange() : null;
+        if (seekRange && typeof seekRange.end === 'number') {
+          art.currentTime = seekRange.end - 6; 
+        }
+      }
+    });
 
     // Handle Loading State
     art.on('ready', () => {
@@ -1360,6 +1453,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         } catch (_) {}
         shakaRef.current = null;
       }
+      (window as any).globalShakaPlayer = null;
       if (playerRef.current) {
         art.template.$video.removeEventListener('contextmenu', preventContext, true);
         art.template.$container.removeEventListener('contextmenu', preventContext, true);
