@@ -36,7 +36,8 @@ import {
   Heart,
   Plus,
   Youtube,
-  Radio
+  Radio,
+  GripVertical
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -46,7 +47,7 @@ import axios from 'axios';
 import VideoPlayer from './components/VideoPlayer';
 import IntroLoading from './components/IntroLoading';
 import { db, auth } from './firebase';
-import { doc, onSnapshot, setDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc, where } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { fetchTmdbDetails, TmdbDetails, fetchTrendingMovies, fetchTrendingSeries, TmdbTrendingItem, cleanMediaTitle, fetchTmdbDetailsById, getStoredTmdbDetails, getStoredTmdbDetailsById } from './lib/tmdb';
 
@@ -291,7 +292,7 @@ export default function App() {
     avatarId: 'cinephile',
     customAvatar: null
   });
-  const [activeTab, setActiveTab] = useState<'home' | 'movies' | 'series' | 'live' | 'free'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'movies' | 'series' | 'live' | 'free' | 'fifa'>('home');
   const [activeFreeTab, setActiveFreeTab] = useState<'menu' | 'movies' | 'series' | 'live_events'>('menu');
   const [movieCategories, setMovieCategories] = useState<Category[]>([]);
   const [seriesCategories, setSeriesCategories] = useState<Category[]>([]);
@@ -353,6 +354,26 @@ export default function App() {
   const [isSeriesLoading, setIsSeriesLoading] = useState(true);
   const [editingMovieId, setEditingMovieId] = useState<string | null>(null);
   const [editingSeriesId, setEditingSeriesId] = useState<string | null>(null);
+
+  // FIFA 2026 States
+  const [fifaChannels, setFifaChannels] = useState<any[]>([]);
+  const [isFifaChannelsLoading, setIsFifaChannelsLoading] = useState(true);
+  const [selectedFifaChannel, setSelectedFifaChannel] = useState<any | null>(null);
+  const [playingFifaChannel, setPlayingFifaChannel] = useState<any | null>(null);
+  const [showFifaModal, setShowFifaModal] = useState(false);
+  const [editingFifaChannelId, setEditingFifaChannelId] = useState<string | null>(null);
+  const [newFifaChannel, setNewFifaChannel] = useState({
+    name: '',
+    play_url: '',
+    is_mpd: false,
+    is_embed: false,
+    status: 'Live',
+    order: ''
+  });
+
+  // FIFA Drag and Drop Reordering States
+  const [draggedFifaIndex, setDraggedFifaIndex] = useState<number | null>(null);
+  const [draggedOverFifaIndex, setDraggedOverFifaIndex] = useState<number | null>(null);
 
   const [selectedLiveEvent, setSelectedLiveEvent] = useState<any>(null);
   const [playingLiveEvent, setPlayingLiveEvent] = useState<any | null>(null);
@@ -520,7 +541,7 @@ export default function App() {
   const [newPslChannel3IsEmbed, setNewPslChannel3IsEmbed] = useState(pslChannel3IsEmbed);
   const [newPslChannel3ShowLiveIcon, setNewPslChannel3ShowLiveIcon] = useState(pslChannel3ShowLiveIcon);
   const [newIplUrl, setNewIplUrl] = useState(iplUrl);
-  const [activeAdminTab, setActiveAdminTab] = useState<'psl' | 'ipl' | 'free_movies' | 'free_series' | 'live_events' | 'app'>('psl');
+  const [activeAdminTab, setActiveAdminTab] = useState<'psl' | 'ipl' | 'free_movies' | 'free_series' | 'live_events' | 'app' | 'fifa'>('psl');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showIntro, setShowIntro] = useState(() => {
     return localStorage.getItem('has_seen_intro') !== 'true';
@@ -682,6 +703,34 @@ export default function App() {
     }, (error) => {
       console.error("Firestore Error (Live Events):", error);
       setIsLiveEventsLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Real-time Firestore Sync for FIFA Channels
+  useEffect(() => {
+    const fifaChannelsRef = collection(db, 'fifa_channels');
+    const q = query(fifaChannelsRef, orderBy('createdAt', 'desc'));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const dbChannels = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      dbChannels.sort((a, b) => {
+        const orderA = typeof a.order === 'number' ? a.order : (a.order !== undefined && a.order !== null && a.order !== '' ? Number(a.order) : 999999);
+        const orderB = typeof b.order === 'number' ? b.order : (b.order !== undefined && b.order !== null && b.order !== '' ? Number(b.order) : 999999);
+        if (orderA !== orderB) {
+          return orderA - orderB;
+        }
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
+      });
+      setFifaChannels(dbChannels);
+      setIsFifaChannelsLoading(false);
+    }, (error) => {
+      console.error("Firestore Error (FIFA Channels):", error);
+      setIsFifaChannelsLoading(false);
+      handleFirestoreError(error, OperationType.GET, 'fifa_channels');
     });
 
     return () => unsubscribe();
@@ -1745,6 +1794,111 @@ export default function App() {
     }
   };
 
+  const handleAddFifaChannel = async () => {
+    if (!newFifaChannel.name || !newFifaChannel.play_url) {
+      alert("Please fill all required fields (Name, Stream/Play Link)");
+      return;
+    }
+    const pathForWrite = editingFifaChannelId ? `fifa_channels/${editingFifaChannelId}` : 'fifa_channels';
+    const orderVal = (newFifaChannel.order !== undefined && newFifaChannel.order !== '' && !isNaN(Number(newFifaChannel.order))) ? Number(newFifaChannel.order) : 999999;
+    try {
+      if (editingFifaChannelId) {
+        await updateDoc(doc(db, 'fifa_channels', editingFifaChannelId), {
+          name: newFifaChannel.name,
+          play_url: newFifaChannel.play_url,
+          is_mpd: !!newFifaChannel.is_mpd,
+          is_embed: !!newFifaChannel.is_embed,
+          status: newFifaChannel.status || 'Live',
+          order: orderVal,
+          updatedAt: new Date().toISOString()
+        });
+        setEditingFifaChannelId(null);
+      } else {
+        await addDoc(collection(db, 'fifa_channels'), {
+          name: newFifaChannel.name,
+          play_url: newFifaChannel.play_url,
+          is_mpd: !!newFifaChannel.is_mpd,
+          is_embed: !!newFifaChannel.is_embed,
+          status: newFifaChannel.status || 'Live',
+          order: orderVal,
+          createdAt: new Date().toISOString()
+        });
+      }
+      setNewFifaChannel({ name: '', play_url: '', is_mpd: false, is_embed: false, status: 'Live', order: '' });
+    } catch (error) {
+      console.error("Error saving FIFA channel:", error);
+      alert("Failed to save FIFA channel.");
+      handleFirestoreError(error, OperationType.WRITE, pathForWrite);
+    }
+  };
+
+  const handleDeleteFifaChannel = async (id: string) => {
+    if (!window.confirm("Are you sure you want to delete this FIFA channel?")) return;
+    const pathForDelete = `fifa_channels/${id}`;
+    try {
+      await deleteDoc(doc(db, 'fifa_channels', id));
+    } catch (error) {
+      console.error("Error deleting FIFA channel:", error);
+      handleFirestoreError(error, OperationType.DELETE, pathForDelete);
+    }
+  };
+
+  const handleFifaDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedFifaIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', index.toString());
+  };
+
+  const handleFifaDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedOverFifaIndex !== index) {
+      setDraggedOverFifaIndex(index);
+    }
+  };
+
+  const handleFifaDragEnd = () => {
+    setDraggedFifaIndex(null);
+    setDraggedOverFifaIndex(null);
+  };
+
+  const handleFifaDrop = async (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    const sourceIndex = draggedFifaIndex;
+    setDraggedFifaIndex(null);
+    setDraggedOverFifaIndex(null);
+
+    if (sourceIndex === null || sourceIndex === targetIndex) return;
+
+    // Create a copy of the list and reorder
+    const updatedList = [...fifaChannels];
+    const [draggedItem] = updatedList.splice(sourceIndex, 1);
+    updatedList.splice(targetIndex, 0, draggedItem);
+
+    // Assign new sequencing 1, 2, 3...
+    const listWithNewOrders = updatedList.map((item, idx) => ({
+      ...item,
+      order: idx + 1
+    }));
+
+    // Update state locally for instant snappy feedback
+    setFifaChannels(listWithNewOrders);
+
+    // Save the new orders to Firestore using a batch
+    const batch = writeBatch(db);
+    listWithNewOrders.forEach((item) => {
+      const channelRef = doc(db, 'fifa_channels', item.id);
+      batch.update(channelRef, { order: item.order });
+    });
+
+    try {
+      await batch.commit();
+      console.log("FIFA channels reordered and saved successfully!");
+    } catch (error) {
+      console.error("Error saving new FIFA channels order:", error);
+      handleFirestoreError(error, OperationType.WRITE, 'fifa_channels/reorder');
+    }
+  };
+
   const parseM3uPlaylist = (m3uText: string, seriesName: string): Record<string, any[]> => {
     const lines = m3uText.split('\n');
     const episodesBySeason: Record<string, any[]> = {};
@@ -2284,6 +2438,19 @@ export default function App() {
                 <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-600 rounded-full animate-pulse border border-black" />
               </div>
                Watch Free
+            </button>
+            <button 
+              onClick={() => { setActiveTab('fifa'); }}
+              className={cn(
+                "flex items-center gap-2 text-sm font-medium transition-all hover:scale-105 relative group",
+                activeTab === 'fifa' ? "text-emerald-400 font-bold" : "text-white/60 hover:text-white"
+              )}
+            >
+              <div className="relative">
+                <Trophy size={18} className="text-yellow-400 group-hover:scale-110 transition-transform duration-300" />
+                <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-600 rounded-full animate-pulse border border-black" />
+              </div>
+              FIFA 2026
             </button>
           </nav>
         </div>
@@ -3213,6 +3380,109 @@ export default function App() {
                 </div>
               </div>
             )}
+          </div>
+        ) : activeTab === 'fifa' ? (
+          <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="relative overflow-hidden bg-gradient-to-br from-[#021f0b] via-[#040905] to-[#010903] border border-emerald-500/30 rounded-[2.5rem] p-6 md:p-8 shadow-[0_0_80px_rgba(16,185,129,0.15)] text-white">
+              {/* Glowing background */}
+              <div className="absolute -top-12 -right-12 w-48 h-48 bg-yellow-500/10 rounded-full blur-3xl animate-pulse" />
+              <div className="absolute -bottom-12 -left-12 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl" />
+
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10 pb-6 border-b border-white/10">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-yellow-500/10 rounded-2xl flex items-center justify-center border border-yellow-500/30 shadow-lg shadow-yellow-500/5">
+                    <Trophy size={28} className="text-yellow-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl md:text-3xl font-display font-black text-white italic tracking-tight uppercase leading-none">
+                      FIFA WORLD CUP 2026
+                    </h2>
+                    <span className="text-[10px] md:text-xs text-emerald-400 font-bold uppercase tracking-widest mt-2 block leading-none">
+                      EXCLUSIVE PREMIUM FEEDS
+                    </span>
+                  </div>
+                </div>
+                
+                <button 
+                  onClick={() => setActiveTab('home')}
+                  className="flex items-center gap-2 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all border border-white/10 hover:border-white/20 active:scale-95 cursor-pointer"
+                >
+                  <Home size={14} /> Back to Home
+                </button>
+              </div>
+
+              <div className="py-8">
+                {isFifaChannelsLoading ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3">
+                    <Loader2 className="animate-spin text-emerald-400" size={40} />
+                    <p className="text-xs text-white/40 uppercase tracking-widest font-black">Syncing Live Feeds...</p>
+                  </div>
+                ) : fifaChannels.length === 0 ? (
+                  <div className="text-center py-16 px-6 flex flex-col items-center gap-4 border border-dashed border-emerald-500/15 rounded-3xl bg-emerald-950/5">
+                    <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center">
+                      <Radio size={32} className="text-emerald-500/50" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-black uppercase text-white/60 tracking-wider">No FIFA channels configured</p>
+                      <p className="text-xs text-white/40 mt-1.5 max-w-[340px] mx-auto">
+                        Channels added by the admin will show up here in real-time. Stand by for live matches!
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1 pb-1">SELECT STREAM FEED</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {fifaChannels.map((chan, idx) => (
+                        <div 
+                          key={`fifa-page-${chan.id}-${idx}`}
+                          className="flex items-center justify-between bg-gradient-to-r from-emerald-950/20 to-[#040905] p-5 rounded-2xl border border-emerald-500/15 hover:border-emerald-500/40 hover:scale-[1.01] transition-all duration-300 group shadow-lg"
+                        >
+                          <div className="flex flex-col gap-1.5 pr-4 min-w-0 flex-1">
+                            <span className="text-sm font-bold text-white group-hover:text-emerald-300 transition-colors truncate">
+                              {chan.order !== undefined && chan.order !== 999999 ? `${chan.order}. ` : ''}{chan.name}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[9px] font-black px-2 py-0.5 rounded ${
+                                chan.status === 'Offline' ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400 animate-pulse'
+                              }`}>
+                                {chan.status || 'Live'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button 
+                            onClick={() => {
+                              setPlayingFifaChannel(chan);
+                            }}
+                            className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-black px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg hover:shadow-emerald-500/20 cursor-pointer active:scale-95 ml-2"
+                          >
+                            <Play size={10} fill="black" />
+                            PLAY
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* WhatsApp community banner */}
+              <div className="pt-6 border-t border-emerald-500/20 bg-gradient-to-b from-transparent to-[#011d0b]/40 flex flex-col items-center justify-center gap-4 rounded-b-[2.5rem] p-4 text-center">
+                <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-[0.25em] italic leading-relaxed max-w-lg">
+                  Share Live Football Chats with 4K•SJ Luxury Community
+                </p>
+                <a 
+                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-xl font-bold text-[10px] transition-all shadow-[0_0_20px_rgba(37,211,102,0.3)] uppercase tracking-widest cursor-pointer active:scale-95"
+                >
+                  <MessageCircle size={14} fill="white" />
+                  JOIN FOOTBALL WHATSAPP
+                </a>
+              </div>
+            </div>
           </div>
         ) : (
           <>
@@ -5740,7 +6010,7 @@ export default function App() {
 
               <div className="p-6 bg-black/40 border-b border-white/5">
                 <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 overflow-x-auto no-scrollbar">
-                  {(['psl', 'ipl', 'app', 'free_movies', 'free_series', 'live_events'] as const).map((tab) => (
+                  {(['psl', 'ipl', 'app', 'free_movies', 'free_series', 'live_events', 'fifa'] as const).map((tab) => (
                     <button 
                       key={tab}
                       onClick={() => setActiveAdminTab(tab)}
@@ -5750,7 +6020,7 @@ export default function App() {
                           : 'text-white/40 hover:text-white hover:bg-white/5'
                       }`}
                     >
-                      {tab === 'app' ? 'General' : tab.replace('free_', '').replace('_', ' ').toUpperCase()}
+                      {tab === 'app' ? 'General' : tab === 'fifa' ? 'FIFA 2026' : tab.replace('free_', '').replace('_', ' ').toUpperCase()}
                     </button>
                   ))}
                 </div>
@@ -6356,6 +6626,196 @@ export default function App() {
                     </div>
                   )}
 
+                  {activeAdminTab === 'fifa' && (
+                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                      <div className="space-y-4">
+                        <h4 className="text-[10px] font-black text-emerald-400 uppercase tracking-widest border-b border-white/10 pb-2">
+                          {editingFifaChannelId ? 'Edit FIFA Channel' : 'Add New FIFA Channel'}
+                        </h4>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Channel Name</label>
+                            <input 
+                              type="text" 
+                              value={newFifaChannel.name}
+                              onChange={(e) => setNewFifaChannel({...newFifaChannel, name: e.target.value})}
+                              placeholder="e.g. FIFA TV UHD - English"
+                              className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Channel No. (e.g. 1, 2, 3)</label>
+                            <input 
+                              type="number" 
+                              value={newFifaChannel.order}
+                              onChange={(e) => setNewFifaChannel({...newFifaChannel, order: e.target.value})}
+                              placeholder="e.g. 1 (Top), 2, 3..."
+                              className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Channel Status</label>
+                            <select 
+                              value={newFifaChannel.status}
+                              onChange={(e) => setNewFifaChannel({...newFifaChannel, status: e.target.value})}
+                              className="w-full bg-[#141416] border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                            >
+                              <option value="Live">🟢 Live Now</option>
+                              <option value="Offline">🔴 Offline</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Stream Link / MPD Link / Embed URL</label>
+                          <input 
+                            type="text" 
+                            value={newFifaChannel.play_url}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const isMpd = val.toLowerCase().includes('.mpd');
+                              setNewFifaChannel({
+                                ...newFifaChannel, 
+                                play_url: val,
+                                is_mpd: isMpd ? true : newFifaChannel.is_mpd,
+                                is_embed: isMpd ? false : newFifaChannel.is_embed
+                              });
+                            }}
+                            placeholder="e.g. http://server.com/live.m3u8 or .mpd URL, or iframe URL"
+                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                          />
+                        </div>
+
+                        <div className="flex flex-wrap gap-4 pt-1">
+                          <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3">
+                            <input 
+                              type="checkbox" 
+                              id="is_mpd_fifa"
+                              checked={newFifaChannel.is_mpd}
+                              onChange={(e) => {
+                                setNewFifaChannel({
+                                  ...newFifaChannel, 
+                                  is_mpd: e.target.checked,
+                                  is_embed: e.target.checked ? false : newFifaChannel.is_embed
+                                });
+                              }}
+                              className="w-4 h-4 accent-cyan-500"
+                            />
+                            <label htmlFor="is_mpd_fifa" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">MPD (DASH) Stream</label>
+                          </div>
+
+                          <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3">
+                            <input 
+                              type="checkbox" 
+                              id="is_embed_fifa"
+                              checked={newFifaChannel.is_embed}
+                              onChange={(e) => {
+                                setNewFifaChannel({
+                                  ...newFifaChannel, 
+                                  is_embed: e.target.checked,
+                                  is_mpd: e.target.checked ? false : newFifaChannel.is_mpd
+                                });
+                              }}
+                              className="w-4 h-4 accent-cyan-500"
+                            />
+                            <label htmlFor="is_embed_fifa" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Embed Mode</label>
+                          </div>
+                        </div>
+
+                        <button 
+                          onClick={handleAddFifaChannel}
+                          className={`w-full py-4 rounded-2xl text-xs font-black uppercase tracking-[0.2em] transition-all shadow-xl ${
+                            editingFifaChannelId
+                              ? 'bg-yellow-500 text-black shadow-yellow-500/25' 
+                              : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-black shadow-emerald-500/20'
+                          }`}
+                        >
+                          {editingFifaChannelId ? 'Update Channel' : 'Add Channel to FIFA list'}
+                        </button>
+                      </div>
+
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Manage FIFA Channels</label>
+                        {isFifaChannelsLoading ? (
+                          <div className="flex justify-center p-6 text-white/40 text-xs">
+                            <Loader2 className="animate-spin text-cyan-400 mr-2" size={16} /> Loading FIFA channels...
+                          </div>
+                        ) : fifaChannels.length === 0 ? (
+                          <div className="text-center p-6 text-white/30 text-xs font-bold border border-dashed border-white/10 rounded-2xl">
+                            No FIFA channels configured yet
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {fifaChannels.map((item, idx) => (
+                              <div 
+                                key={`admin-fifa-${item.id}-${idx}`}
+                                draggable
+                                onDragStart={(e) => handleFifaDragStart(e, idx)}
+                                onDragOver={(e) => handleFifaDragOver(e, idx)}
+                                onDragEnd={handleFifaDragEnd}
+                                onDrop={(e) => handleFifaDrop(e, idx)}
+                                className={`flex items-center justify-between p-4 rounded-2xl border transition-all duration-200 select-none ${
+                                  draggedFifaIndex === idx 
+                                    ? 'opacity-40 bg-zinc-950/50 border-dashed border-white/20 scale-[0.98]' 
+                                    : draggedOverFifaIndex === idx
+                                      ? 'border-cyan-500/50 bg-cyan-950/20 scale-[1.02] shadow-lg shadow-cyan-500/5'
+                                      : 'bg-white/5 border-white/10 hover:border-white/25 hover:bg-white/10 hover:scale-[1.01]'
+                                }`}
+                              >
+                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                  {/* Drag Indicator Handle icon */}
+                                  <div className="cursor-grab active:cursor-grabbing p-1 rounded-lg text-white/30 hover:text-white/70 transition-colors flex items-center justify-center">
+                                    <GripVertical size={14} />
+                                  </div>
+
+                                  <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                    <span className="text-[11px] text-white font-bold truncate">
+                                      {item.order !== undefined && item.order !== 999999 ? `${item.order}. ` : ''}{item.name}
+                                    </span>
+                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                      <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded-md ${
+                                        item.status === 'Offline' ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400 animate-pulse'
+                                      }`}>
+                                        {item.status || 'Live'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 ml-2">
+                                  <button 
+                                    onClick={() => {
+                                      setEditingFifaChannelId(item.id);
+                                      setNewFifaChannel({
+                                        name: item.name || '',
+                                        play_url: item.play_url || '',
+                                        is_mpd: !!item.is_mpd,
+                                        is_embed: !!item.is_embed,
+                                        status: item.status || 'Live',
+                                        order: item.order !== undefined && item.order !== 999999 ? String(item.order) : ''
+                                      });
+                                    }}
+                                    className="w-8 h-8 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 flex items-center justify-center transition-all"
+                                  >
+                                    <Pencil size={14} />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteFifaChannel(item.id)}
+                                    className="w-8 h-8 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-400 flex items-center justify-center transition-all"
+                                  >
+                                    <X size={16} />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {(activeAdminTab === 'psl' || activeAdminTab === 'ipl' || activeAdminTab === 'app') && (
                     <button 
                       onClick={handleUpdateUrl}
@@ -6413,6 +6873,148 @@ export default function App() {
                     className="absolute inset-0 w-full h-full"
                   />
                 )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating FIFA 2026 Badge (on the right-side center) */}
+      <AnimatePresence>
+        {activeTab !== 'fifa' && (
+          <motion.div 
+            initial={{ opacity: 0, x: 50 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 50 }}
+            transition={{ duration: 0.3 }}
+            className="fixed right-0 top-1/2 -translate-y-1/2 z-[90] pointer-events-auto"
+          >
+            <motion.button
+              id="fifa-floating-badge"
+              onClick={() => {
+                setActiveTab('fifa');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              whileHover={{ scale: 1.08, x: -6 }}
+              whileTap={{ scale: 0.95 }}
+              className="relative overflow-hidden flex flex-col items-center gap-1.5 py-4 px-3 w-[72px] md:w-[84px] rounded-l-[1.8rem] bg-gradient-to-b from-[#012e12] via-[#021f0b] to-[#011406] border-y border-l border-emerald-500/30 shadow-[0_4px_30px_rgba(16,185,129,0.3)] hover:shadow-[0_4px_40px_rgba(16,185,129,0.5)] group transition-all cursor-pointer"
+            >
+              {/* Shine reflection effect */}
+              <div className="absolute inset-0 w-[200%] h-full bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:left-[100%] transition-all duration-[1000ms] ease-out pointer-events-none" />
+
+              {/* Glowing background */}
+              <div className="absolute -top-6 -right-6 w-16 h-16 bg-yellow-500/20 rounded-full blur-xl animate-pulse" />
+
+              <div className="relative p-1 bg-yellow-500/10 rounded-full border border-yellow-500/40 shadow-inner group-hover:border-yellow-400">
+                <Trophy className="text-yellow-400 group-hover:scale-110 transition-transform duration-300" size={20} />
+              </div>
+
+              <div className="flex flex-col items-center text-center -space-y-0.5">
+                <span className="text-[10px] md:text-[11px] font-display font-black text-emerald-400 italic tracking-tight uppercase leading-none">FIFA</span>
+                <span className="text-[9px] md:text-[10px] font-mono font-black text-yellow-400 tracking-wider leading-none">2026</span>
+              </div>
+
+              {/* Pulse badge */}
+              <div className="flex items-center gap-1 mt-1 bg-red-600/90 py-0.5 px-2 rounded-full border border-red-500/30">
+                <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
+                <span className="text-[8px] font-black tracking-widest text-white uppercase leading-none">LIVE</span>
+              </div>
+            </motion.button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+
+
+      {/* FIFA 2026 Video Player Overlay Modal */}
+      <AnimatePresence>
+        {playingFifaChannel && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+            <motion.div 
+              id="fifa-player-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setPlayingFifaChannel(null)}
+              className="absolute inset-0 bg-black/95 backdrop-blur-sm gpu"
+            />
+            <motion.div
+              id="fifa-player-container"
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-[95vw] md:w-full md:max-w-5xl bg-[#030c05] rounded-3xl overflow-hidden shadow-2xl border border-emerald-500/30 flex flex-col text-white animate-in"
+            >
+              {/* Header */}
+              <div className="p-4 flex items-center justify-between border-b border-white/10 bg-gradient-to-r from-[#011a09] to-black">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-yellow-500/10 rounded-lg flex items-center justify-center border border-yellow-500/30 shadow-lg animate-pulse">
+                    <Trophy size={18} className="text-yellow-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-display font-black text-white italic tracking-tight">{playingFifaChannel.name}</h3>
+                    <p className="text-[9px] text-emerald-400 font-bold uppercase tracking-widest leading-none mt-0.5">FIFA Arena • 4K•SJ Premium Feed</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setPlayingFifaChannel(null)}
+                  className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white cursor-pointer"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Video Player Box */}
+              <div className="relative w-full aspect-video bg-black overflow-hidden min-h-[220px] md:min-h-[400px]">
+                <VideoPlayer 
+                  key={`fifa-stream-view-${playingFifaChannel.id}-${playingFifaChannel.play_url}`}
+                  options={{
+                    autoplay: true,
+                    controls: true,
+                    responsive: true,
+                    fluid: true,
+                    is_embed: !!playingFifaChannel.is_embed,
+                    skipProxy: true,
+                    isLive: true,
+                    sources: [{
+                      src: playingFifaChannel.play_url,
+                      type: playingFifaChannel.play_url.includes('.m3u8') 
+                        ? 'application/x-mpegURL' 
+                        : (playingFifaChannel.play_url.includes('.mpd') || playingFifaChannel.is_mpd)
+                          ? 'application/dash+xml' 
+                          : 'video/mp4'
+                    }]
+                  }} 
+                />
+                
+                {/* Visual Live Beacon */}
+                <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 px-3 py-1 bg-red-600 rounded-full shadow-lg border border-red-500/20">
+                  <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
+                  <span className="text-[9px] font-black text-white uppercase tracking-wider">Live</span>
+                </div>
+              </div>
+              
+              {/* Stadium Banner Footer */}
+              <div className="p-6 bg-[#011406] border-t border-emerald-500/20 flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="flex flex-col gap-0.5 text-center md:text-left">
+                  <p className="text-xs text-white/80 font-bold uppercase tracking-[0.2em] leading-normal">
+                    Enjoying <span className="text-emerald-400 font-extrabold">{playingFifaChannel.name}</span> in Luxury 4K UHD
+                  </p>
+                  <p className="text-[9px] text-white/30 uppercase tracking-[0.1em] font-medium leading-none">
+                    Streamed live from our exclusive multi-route football servers
+                  </p>
+                </div>
+                
+                <a 
+                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-5 py-2.5 rounded-xl font-bold text-[10px] transition-all shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest cursor-pointer"
+                >
+                  <MessageCircle size={16} fill="white" />
+                  JOIN FOOTBALL WHATSAPP
+                </a>
               </div>
             </motion.div>
           </div>

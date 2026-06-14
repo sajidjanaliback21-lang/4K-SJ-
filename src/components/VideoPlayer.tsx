@@ -607,6 +607,32 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             shakaRef.current = shakaPlayer;
             (window as any).globalShakaPlayer = shakaPlayer;
 
+            // Intercept premature play requests to allow keys to load and buffer to build
+            const originalPlay = video.play.bind(video);
+            let isReadyToPlay = video.readyState >= 3;
+
+            const onCanPlay = () => {
+              isReadyToPlay = true;
+              video.play = originalPlay; // Restore original play function
+              console.log("Video element fired 'canplay' - starting playback naturally");
+              originalPlay().catch((err) => {
+                console.log("Play after canplay failed:", err);
+              });
+              video.removeEventListener('canplay', onCanPlay);
+            };
+
+            if (!isReadyToPlay) {
+              video.addEventListener('canplay', onCanPlay);
+              video.play = async () => {
+                if (isReadyToPlay || video.readyState >= 3) {
+                  video.play = originalPlay; // Restore original play function
+                  return originalPlay();
+                }
+                console.log("Play call ignored until 'canplay' event fires to build sufficient buffer.");
+                return Promise.resolve();
+              };
+            }
+
             const shakaConfig: any = {
               manifest: {
                 dash: {
@@ -614,9 +640,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 }
               },
               streaming: {
-                rebufferingGoal: 1,
-                bufferingGoal: 5,
-                jumpLargeGaps: true,
+                rebufferingGoal: 2,
+                bufferingGoal: 6,
                 ignoreTextStreamFailures: true
               }
             };
@@ -827,6 +852,32 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             shakaRef.current = shakaPlayer;
             (window as any).globalShakaPlayer = shakaPlayer;
 
+            // Intercept premature play requests to allow keys to load and buffer to build
+            const originalPlay = video.play.bind(video);
+            let isReadyToPlay = video.readyState >= 3;
+
+            const onCanPlay = () => {
+              isReadyToPlay = true;
+              video.play = originalPlay; // Restore original play function
+              console.log("Video element fired 'canplay' - starting playback naturally");
+              originalPlay().catch((err) => {
+                console.log("Play after canplay failed:", err);
+              });
+              video.removeEventListener('canplay', onCanPlay);
+            };
+
+            if (!isReadyToPlay) {
+              video.addEventListener('canplay', onCanPlay);
+              video.play = async () => {
+                if (isReadyToPlay || video.readyState >= 3) {
+                  video.play = originalPlay; // Restore original play function
+                  return originalPlay();
+                }
+                console.log("Play call ignored until 'canplay' event fires to build sufficient buffer.");
+                return Promise.resolve();
+              };
+            }
+
             const shakaConfig: any = {
               manifest: {
                 dash: {
@@ -834,9 +885,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 }
               },
               streaming: {
-                rebufferingGoal: 1,
-                bufferingGoal: 5,
-                jumpLargeGaps: true,
+                rebufferingGoal: 2,
+                bufferingGoal: 6,
                 ignoreTextStreamFailures: true
               }
             };
@@ -1035,16 +1085,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setLoadingText('CONNECTING...');
     });
 
-    art.on('video:loadedmetadata', () => {
+    // Only hide the loading screen when the HTML5 <video> element fires the playing event.
+    // The playing event fires when actual playback begins (after buffer is ready and DRM decryption is complete)
+    art.on('video:playing', () => {
       setLoadingText('SECURED');
       setTimeout(() => setIsLoading(false), 800);
     });
 
-    // Fallback if metadata takes too long but playback starts
-    art.on('video:play', () => {
-      if (isLoading) {
-        setTimeout(() => setIsLoading(false), 500);
-      }
+    // Show loading screen if the video stops to buffer mid-stream or during startup
+    art.on('video:waiting', () => {
+      setLoadingText('BUFFERING...');
+      setIsLoading(true);
     });
 
     // Toggle back button layer visibility with controls

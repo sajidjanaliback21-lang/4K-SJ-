@@ -101,6 +101,21 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["username"]
+    },
+    "fifa_channels": {
+      "title": "FIFA Channels",
+      "description": "FIFA World Cup 2026 channels managed by admin",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "play_url": { "type": "string" },
+        "is_mpd": { "type": "boolean" },
+        "is_embed": { "type": "boolean" },
+        "status": { "type": "string" },
+        "order": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "play_url"]
     }
   },
   "firestore": {
@@ -135,6 +150,10 @@
     "/user_profiles/{username}": {
       "schema": "user_profiles",
       "description": "User profiles with avatars"
+    },
+    "/fifa_channels/{channelId}": {
+      "schema": "fifa_channels",
+      "description": "Collection of FIFA World Cup 2026 channels"
     }
   }
 }

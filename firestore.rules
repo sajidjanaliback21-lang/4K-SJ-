@@ -45,6 +45,12 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // FIFA Channels Collection
+    match /fifa_channels/{channelId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Default Deny
     match /{document=**} {
       allow read, write: if false;
