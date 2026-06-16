@@ -116,6 +116,48 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "play_url"]
+    },
+    "user_activity": {
+      "title": "User Activity",
+      "description": "Records user logins and metadata about their sessions",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "lastLogin": { "type": "string", "format": "date-time" },
+        "loginCount": { "type": "number" },
+        "firstActive": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["username", "lastLogin"]
+    },
+    "playback_logs": {
+      "title": "Playback Logs",
+      "description": "Records of individual media clicks and playback events",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "itemId": { "type": "string" },
+        "itemName": { "type": "string" },
+        "category": { "type": "string" },
+        "channelName": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["username", "itemId", "itemName", "category", "timestamp"]
+    },
+    "playback_stats": {
+      "title": "Playback Stats",
+      "description": "Aggregated statistics for played media items",
+      "type": "object",
+      "properties": {
+        "itemId": { "type": "string" },
+        "itemName": { "type": "string" },
+        "category": { "type": "string" },
+        "totalPlays": { "type": "number" },
+        "users": { "type": "object", "description": "Map of username to boolean for tracking unique users" },
+        "lastPlayed": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["itemId", "itemName", "category", "totalPlays"]
     }
   },
   "firestore": {
@@ -154,6 +196,18 @@
     "/fifa_channels/{channelId}": {
       "schema": "fifa_channels",
       "description": "Collection of FIFA World Cup 2026 channels"
+    },
+    "/user_activity/{username}": {
+      "schema": "user_activity",
+      "description": "Collection of user activity logs"
+    },
+    "/playback_logs/{logId}": {
+      "schema": "playback_logs",
+      "description": "Collection of single playback logs"
+    },
+    "/playback_stats/{statId}": {
+      "schema": "playback_stats",
+      "description": "Aggregated clicks/stats for videos"
     }
   }
 }

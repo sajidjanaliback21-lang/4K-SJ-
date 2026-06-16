@@ -97,6 +97,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const shakaRef = useRef<any>(null);
   const lastClickTimeRef = useRef<number>(0);
   const userSelectedSpeedRef = useRef<number>(1.0);
+  const hasCompletedInitialLoad = useRef<boolean>(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingText, setLoadingText] = useState('LOADING VIDEO...');
   const [showEqPanel, setShowEqPanel] = useState(false);
@@ -318,6 +319,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   useEffect(() => {
     if (!artRef.current || !sourceUrl || isEmbeddable(originalUrl)) return;
+
+    hasCompletedInitialLoad.current = false;
 
     const isHls = originalUrl.toLowerCase().includes('.m3u8') || source.type === 'application/x-mpegURL';
     const isTs = originalUrl.toLowerCase().includes('.ts') || source.type === 'video/mp2t';
@@ -1089,13 +1092,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // The playing event fires when actual playback begins (after buffer is ready and DRM decryption is complete)
     art.on('video:playing', () => {
       setLoadingText('SECURED');
-      setTimeout(() => setIsLoading(false), 800);
+      setTimeout(() => {
+        setIsLoading(false);
+        hasCompletedInitialLoad.current = true;
+      }, 800);
     });
 
     // Show loading screen if the video stops to buffer mid-stream or during startup
     art.on('video:waiting', () => {
-      setLoadingText('BUFFERING...');
-      setIsLoading(true);
+      if (!hasCompletedInitialLoad.current) {
+        setLoadingText('BUFFERING...');
+        setIsLoading(true);
+      }
     });
 
     // Toggle back button layer visibility with controls
@@ -1483,6 +1491,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return;
     }
     if (playerRef.current && sourceUrl && !isEmbeddable(originalUrl)) {
+      hasCompletedInitialLoad.current = false;
       setIsLoading(true);
       setLoadingText('LOADING VIDEO...');
       

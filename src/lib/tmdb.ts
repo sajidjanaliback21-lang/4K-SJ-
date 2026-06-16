@@ -87,6 +87,9 @@ export interface TmdbDetails {
   cast: TmdbCastMember[];
   plot?: string;
   trailer_url?: string;
+  title?: string;
+  logo_url?: string;
+  runtime?: number;
 }
 
 export interface TmdbTrendingItem {
@@ -208,6 +211,33 @@ export function getStoredTmdbDetailsById(id: string | number, isSeries: boolean)
   return getCachedItem(cacheKey);
 }
 
+function selectBestLogo(logos: any[]): string | undefined {
+  if (!logos || logos.length === 0) return undefined;
+  
+  // Try to find logo in specific preferred languages first
+  const preferredLangs = ['hi', 'ur', 'en'];
+  for (const lang of preferredLangs) {
+    const found = logos.find(logo => logo.iso_639_1 === lang && logo.file_path);
+    if (found) {
+      return `https://image.tmdb.org/t/p/w500${found.file_path}`;
+    }
+  }
+
+  // Next, try to find single-language neutral logo
+  const neutral = logos.find(logo => (!logo.iso_639_1 || logo.iso_639_1 === '') && logo.file_path);
+  if (neutral) {
+    return `https://image.tmdb.org/t/p/w500${neutral.file_path}`;
+  }
+
+  // Fallback to the first logo available
+  const anyLogo = logos.find(logo => logo.file_path);
+  if (anyLogo) {
+    return `https://image.tmdb.org/t/p/w500${anyLogo.file_path}`;
+  }
+  
+  return undefined;
+}
+
 export async function fetchTmdbDetails(rawTitle: string, isSeries: boolean): Promise<TmdbDetails | null> {
   const { title, year } = cleanMediaTitle(rawTitle);
   if (!title) return null;
@@ -243,8 +273,8 @@ export async function fetchTmdbDetails(rawTitle: string, isSeries: boolean): Pro
     const bestMatch = results[0];
     const mediaId = bestMatch.id;
 
-    // Fetch full details with append_to_response to get credits and videos in one request
-    const detailsUrl = `${BASE_URL}/3/${searchType}/${mediaId}?api_key=${TMDB_API_KEY}&append_to_response=credits,videos`;
+    // Fetch full details with append_to_response to get credits, videos, and images in one request
+    const detailsUrl = `${BASE_URL}/3/${searchType}/${mediaId}?api_key=${TMDB_API_KEY}&append_to_response=credits,videos,images&include_image_language=en,hi,ur,null`;
     const fullDetails = await getTmdbJson(detailsUrl);
 
     const tmdbCast = fullDetails.credits?.cast || [];
@@ -261,13 +291,21 @@ export async function fetchTmdbDetails(rawTitle: string, isSeries: boolean): Pro
                     videosList.find((v: any) => v.site === 'YouTube');
     const trailerUrl = trailer ? `https://www.youtube.com/embed/${trailer.key}` : undefined;
 
+    // Get the first matching beautiful logo
+    const logoUrl = fullDetails.images?.logos && fullDetails.images.logos.length > 0
+      ? selectBestLogo(fullDetails.images.logos)
+      : undefined;
+
     const result: TmdbDetails = {
+      title: isSeries ? (fullDetails.name || fullDetails.original_name || '') : (fullDetails.title || fullDetails.original_title || ''),
       backdrop_url: fullDetails.backdrop_path ? `https://image.tmdb.org/t/p/w1280${fullDetails.backdrop_path}` : undefined,
       poster_url: fullDetails.poster_path ? `https://image.tmdb.org/t/p/w500${fullDetails.poster_path}` : undefined,
       rating: fullDetails.vote_average ? parseFloat(fullDetails.vote_average.toFixed(1)) : undefined,
       plot: fullDetails.overview || undefined,
       cast: castList,
       trailer_url: trailerUrl,
+      logo_url: logoUrl,
+      runtime: isSeries ? (fullDetails.episode_run_time && fullDetails.episode_run_time.length > 0 ? fullDetails.episode_run_time[0] : undefined) : (fullDetails.runtime || undefined),
     };
 
     setCachedItem(cacheKey, result);
@@ -285,7 +323,7 @@ export async function fetchTmdbDetailsById(id: string | number, isSeries: boolea
 
   try {
     const searchType = isSeries ? 'tv' : 'movie';
-    const detailsUrl = `${BASE_URL}/3/${searchType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=credits,videos`;
+    const detailsUrl = `${BASE_URL}/3/${searchType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=credits,videos,images&include_image_language=en,hi,ur,null`;
     const fullDetails = await getTmdbJson(detailsUrl);
 
     const tmdbCast = fullDetails.credits?.cast || [];
@@ -302,14 +340,22 @@ export async function fetchTmdbDetailsById(id: string | number, isSeries: boolea
                     videosList.find((v: any) => v.site === 'YouTube');
     const trailerUrl = trailer ? `https://www.youtube.com/embed/${trailer.key}` : undefined;
 
+    // Get the first matching beautiful logo
+    const logoUrl = fullDetails.images?.logos && fullDetails.images.logos.length > 0
+      ? selectBestLogo(fullDetails.images.logos)
+      : undefined;
+
     const result = {
       name: isSeries ? (fullDetails.name || fullDetails.original_name || '') : (fullDetails.title || fullDetails.original_title || ''),
+      title: isSeries ? (fullDetails.name || fullDetails.original_name || '') : (fullDetails.title || fullDetails.original_title || ''),
       backdrop_url: fullDetails.backdrop_path ? `https://image.tmdb.org/t/p/w1280${fullDetails.backdrop_path}` : undefined,
       poster_url: fullDetails.poster_path ? `https://image.tmdb.org/t/p/w500${fullDetails.poster_path}` : undefined,
       rating: fullDetails.vote_average ? parseFloat(fullDetails.vote_average.toFixed(1)) : undefined,
       plot: fullDetails.overview || undefined,
       cast: castList,
       trailer_url: trailerUrl,
+      logo_url: logoUrl,
+      runtime: isSeries ? (fullDetails.episode_run_time && fullDetails.episode_run_time.length > 0 ? fullDetails.episode_run_time[0] : undefined) : (fullDetails.runtime || undefined),
     };
 
     setCachedItem(cacheKey, result);
@@ -318,4 +364,17 @@ export async function fetchTmdbDetailsById(id: string | number, isSeries: boolea
     console.error('Error fetching TMDB details by ID:', err);
     return null;
   }
+}
+
+export function getLanguageTags(rawTitle: string): string[] {
+  if (!rawTitle) return [];
+  // Match any parenthesized or bracketed text, e.g. (Hindi), [Tamil], (Eng-Dubbed), (Dual Audio), etc.
+  const regex = /(\([^\)]*\)|\[[^\]]*\])/g;
+  const matches = rawTitle.match(regex);
+  if (!matches) return [];
+
+  // Filter only those parts that contain language terms or are clearly language tags
+  const langKeywords = /\b(hindi|tamil|telugu|bengali|punjabi|malayalam|kannada|urdu|gujarati|marathi|bhojpuri|english|eng|dual|multi|dub|org|clean|chinese|korean|japanese|spanish|french|tel|tam|hin)\b/i;
+  
+  return matches.filter(tag => langKeywords.test(tag));
 }

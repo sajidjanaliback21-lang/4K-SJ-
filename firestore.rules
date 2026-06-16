@@ -51,6 +51,21 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // User Activity Collection
+    match /user_activity/{username} {
+      allow read, write: if true;
+    }
+
+    // Playback Logs Collection
+    match /playback_logs/{logId} {
+      allow read, write: if true;
+    }
+
+    // Playback Stats Collection
+    match /playback_stats/{statId} {
+      allow read, write: if true;
+    }
+
     // Default Deny
     match /{document=**} {
       allow read, write: if false;

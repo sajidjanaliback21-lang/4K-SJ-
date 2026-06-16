@@ -47,9 +47,9 @@ import axios from 'axios';
 import VideoPlayer from './components/VideoPlayer';
 import IntroLoading from './components/IntroLoading';
 import { db, auth } from './firebase';
-import { doc, onSnapshot, setDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, getDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
-import { fetchTmdbDetails, TmdbDetails, fetchTrendingMovies, fetchTrendingSeries, TmdbTrendingItem, cleanMediaTitle, fetchTmdbDetailsById, getStoredTmdbDetails, getStoredTmdbDetailsById } from './lib/tmdb';
+import { fetchTmdbDetails, TmdbDetails, fetchTrendingMovies, fetchTrendingSeries, TmdbTrendingItem, cleanMediaTitle, fetchTmdbDetailsById, getStoredTmdbDetails, getStoredTmdbDetailsById, getLanguageTags } from './lib/tmdb';
 
 
 enum OperationType {
@@ -258,6 +258,121 @@ const renderAvatar = (avatarId: string, customAvatar: string | null) => {
   return avatarObj.render();
 };
 
+const StylishTitle = ({ 
+  rawName, 
+  activeTmdbDetails, 
+  isSeries = false,
+  fallbackRating,
+  episodeCount
+}: { 
+  rawName: string; 
+  activeTmdbDetails: TmdbDetails | null; 
+  isSeries?: boolean; 
+  fallbackRating?: string | number;
+  episodeCount?: number;
+}) => {
+  const { title: cleanedLocalTitle } = cleanMediaTitle(rawName);
+  const officialTitle = activeTmdbDetails?.title || cleanedLocalTitle || rawName;
+  const tags = getLanguageTags(rawName);
+  const [logoError, setLogoError] = useState(false);
+
+  const ratingVal = activeTmdbDetails?.rating || fallbackRating;
+  const runtimeVal = activeTmdbDetails?.runtime;
+
+  const formatRuntime = (minutes?: number) => {
+    if (!minutes) return null;
+    if (minutes < 60) return `${minutes}m`;
+    const hrs = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+  };
+
+  return (
+    <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6 flex-wrap select-none w-full items-start">
+      {/* Official TMDB Synchronized Title Logo or Text */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4 flex-wrap items-start">
+        {activeTmdbDetails?.logo_url && !logoError ? (
+          <motion.img
+            src={activeTmdbDetails.logo_url}
+            alt={officialTitle}
+            className="max-h-16 sm:max-h-24 md:max-h-32 lg:max-h-36 xl:max-h-40 w-auto max-w-[280px] sm:max-w-[380px] md:max-w-[550px] object-contain object-left drop-shadow-[0_6px_20px_rgba(0,0,0,0.9)] select-none self-start"
+            onError={() => setLogoError(true)}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.3 }}
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <h2 className="text-2xl sm:text-3xl md:text-5xl font-display font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-100 to-cyan-100 bg-clip-text text-transparent drop-shadow-[0_2px_12px_rgba(6,182,212,0.15)] leading-tight">
+            {officialTitle}
+          </h2>
+        )}
+
+        {/* Rating and Runtime right next to/below the logo */}
+        {(ratingVal || isSeries || (!isSeries && runtimeVal)) && (
+          <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold text-slate-300 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 w-fit shrink-0">
+            {ratingVal && (
+              <span className="flex items-center gap-1 text-amber-400">
+                <Star size={13} className="fill-amber-400 text-amber-400" />
+                <span>{ratingVal}</span>
+              </span>
+            )}
+            {ratingVal && (isSeries || (!isSeries && runtimeVal)) && <span className="text-white/20">|</span>}
+            {isSeries ? (
+              <span className="flex items-center gap-1 text-[#00D1FF]">
+                <Tv size={13} />
+                <span>{episodeCount ? `Total Episodes: ${episodeCount}` : 'Episodes: Live Feed'}</span>
+              </span>
+            ) : (
+              runtimeVal && (
+                <span className="flex items-center gap-1 text-cyan-400">
+                  <Clock size={13} />
+                  <span>{formatRuntime(runtimeVal)}</span>
+                </span>
+              )
+            )}
+          </div>
+        )}
+      </div>
+      
+      {/* Beautiful Language Badges */}
+      {tags.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap pt-0.5 lg:pt-0">
+          {tags.map((tag, idx) => {
+            const cleanText = tag.replace(/[()\[\]]/g, '').trim();
+            return (
+              <span 
+                key={idx} 
+                className="px-2 md:px-2.5 py-1 bg-gradient-to-r from-cyan-500/10 to-cyan-500/5 hover:from-cyan-500/20 hover:to-cyan-500/10 text-cyan-400 border border-cyan-500/30 text-[9px] md:text-xs font-bold uppercase tracking-wider rounded-md transition-all duration-300 select-none shadow-[0_0_12px_rgba(6,182,212,0.15)] hover:border-cyan-500/50"
+              >
+                {cleanText}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const renderStylishTitle = (
+  rawName: string, 
+  activeTmdbDetails: TmdbDetails | null, 
+  isSeries: boolean = false,
+  fallbackRating?: string | number,
+  episodeCount?: number
+) => {
+  return (
+    <StylishTitle 
+      rawName={rawName} 
+      activeTmdbDetails={activeTmdbDetails} 
+      isSeries={isSeries} 
+      fallbackRating={fallbackRating} 
+      episodeCount={episodeCount}
+    />
+  );
+};
+
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -324,6 +439,9 @@ export default function App() {
   const [movieInfo, setMovieInfo] = useState<any>(null);
   const [tmdbDetails, setTmdbDetails] = useState<TmdbDetails | null>(null);
   const [loadingTmdb, setLoadingTmdb] = useState(false);
+  const [isSyncingDetails, setIsSyncingDetails] = useState(false);
+  const [syncingItemName, setSyncingItemName] = useState("");
+  const [isMinLoadPassed, setIsMinLoadPassed] = useState(true);
   const [trendingMovies, setTrendingMovies] = useState<TmdbTrendingItem[]>([]);
   const [trendingSeries, setTrendingSeries] = useState<TmdbTrendingItem[]>([]);
   const [loadingTrending, setLoadingTrending] = useState(false);
@@ -541,7 +659,144 @@ export default function App() {
   const [newPslChannel3IsEmbed, setNewPslChannel3IsEmbed] = useState(pslChannel3IsEmbed);
   const [newPslChannel3ShowLiveIcon, setNewPslChannel3ShowLiveIcon] = useState(pslChannel3ShowLiveIcon);
   const [newIplUrl, setNewIplUrl] = useState(iplUrl);
-  const [activeAdminTab, setActiveAdminTab] = useState<'psl' | 'ipl' | 'free_movies' | 'free_series' | 'live_events' | 'app' | 'fifa'>('psl');
+  const [activeAdminTab, setActiveAdminTab] = useState<'psl' | 'ipl' | 'free_movies' | 'free_series' | 'live_events' | 'app' | 'fifa' | 'analytics'>('psl');
+  
+  // Analytics State Hooks
+  const [userActivities, setUserActivities] = useState<any[]>([]);
+  const [mediaStats, setMediaStats] = useState<any[]>([]);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsSearchQuery, setAnalyticsSearchQuery] = useState('');
+  const [analyticsCategoryFilter, setAnalyticsCategoryFilter] = useState<'all' | 'movie' | 'series' | 'live_event' | 'fifa'>('all');
+  const [analyticsSubTab, setAnalyticsSubTab] = useState<'users' | 'media'>('media');
+
+  // Analytics Tracking Functions
+  const trackUserActivity = async (username: string) => {
+    if (!username) return;
+    const lowerUsername = username.toLowerCase();
+    console.log("[Analytics] Tracking user activity for:", lowerUsername);
+    try {
+      const userDocRef = doc(db, 'user_activity', lowerUsername);
+      const docSnap = await getDoc(userDocRef).catch((e) => {
+        console.warn("[Analytics] Offline cache fallback for user activity:", e);
+        return null;
+      });
+      
+      let loginCount = 1;
+      let firstActive = new Date().toISOString();
+      
+      if (docSnap && docSnap.exists()) {
+        const data = docSnap.data();
+        loginCount = (data.loginCount || 0) + 1;
+        firstActive = data.firstActive || firstActive;
+      }
+      
+      await setDoc(userDocRef, {
+        username: lowerUsername,
+        lastLogin: new Date().toISOString(),
+        loginCount,
+        firstActive,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      console.log("[Analytics] Successfully saved login activity for:", lowerUsername);
+    } catch (error) {
+      console.error("Analytics Error (trackUserActivity):", error);
+    }
+  };
+
+  const trackMediaPlayback = async (
+    item: any, 
+    category: 'movie' | 'series' | 'live_event' | 'fifa', 
+    channelName?: string
+  ) => {
+    if (!item) return;
+    
+    const username = (creds && creds.username) ? creds.username.toLowerCase() : 'anonymous';
+    const itemId = String(item.id || item.stream_id || item.series_id || item.channelId || 'unknown_item');
+    let itemName = item.name || item.title || 'Unknown Title';
+    
+    if (category === 'live_event' && channelName) {
+      itemName = `${itemName} (${channelName})`;
+    } else if (category === 'series' && channelName) {
+      itemName = `${itemName} (${channelName})`;
+    }
+    
+    const statId = `${category}_${itemId}`;
+    console.log("[Analytics] Recording playback for:", itemName, "under ID:", statId, "by user:", username);
+    
+    try {
+      // 1. Log Click
+      await addDoc(collection(db, 'playback_logs'), {
+        username,
+        itemId,
+        itemName,
+        category,
+        channelName: channelName || null,
+        timestamp: new Date().toISOString()
+      }).catch(err => console.error("[Analytics] Error logging click to playback_logs:", err));
+
+      // 2. Increment stats
+      const statsDocRef = doc(db, 'playback_stats', statId);
+      const docSnap = await getDoc(statsDocRef).catch((e) => {
+        console.warn("[Analytics] Offline cache/read fallback for stats:", e);
+        return null;
+      });
+      
+      let totalPlays = 1;
+      let usersMap: Record<string, boolean> = {};
+      
+      if (docSnap && docSnap.exists()) {
+        const data = docSnap.data();
+        totalPlays = (data.totalPlays || 0) + 1;
+        usersMap = data.users || {};
+      }
+      
+      usersMap[username] = true;
+      
+      await setDoc(statsDocRef, {
+        itemId,
+        itemName,
+        category,
+        totalPlays,
+        users: usersMap,
+        lastPlayed: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      console.log("[Analytics] Successfully saved statistics increment for:", itemName);
+    } catch (error) {
+      console.error("Analytics Error (trackMediaPlayback):", error);
+    }
+  };
+
+  // Real-time Firestore Sync for Analytics data
+  useEffect(() => {
+    if (!isAdminLoggedIn) return;
+    
+    setAnalyticsLoading(true);
+    // 1. User activities query
+    const userActQuery = query(collection(db, 'user_activity'), orderBy('lastLogin', 'desc'));
+    const unsubscribeUsers = onSnapshot(userActQuery, (snapshot) => {
+      const list = snapshot.docs.map(doc => doc.data());
+      setUserActivities(list);
+    }, (err) => {
+      console.error("Error loading user activities", err);
+    });
+
+    // 2. Playback/media stats query
+    const statsQuery = query(collection(db, 'playback_stats'), orderBy('totalPlays', 'desc'));
+    const unsubscribeStats = onSnapshot(statsQuery, (snapshot) => {
+      const list = snapshot.docs.map(doc => doc.data());
+      setMediaStats(list);
+      setAnalyticsLoading(false);
+    }, (err) => {
+      console.error("Error loading playback stats", err);
+      setAnalyticsLoading(false);
+    });
+
+    return () => {
+      if (unsubscribeUsers) unsubscribeUsers();
+      if (unsubscribeStats) unsubscribeStats();
+    };
+  }, [isAdminLoggedIn]);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [showIntro, setShowIntro] = useState(() => {
     return localStorage.getItem('has_seen_intro') !== 'true';
@@ -1070,6 +1325,14 @@ export default function App() {
           if (loginRes) {
             if (loginRes.user_info) setUserInfo(loginRes.user_info);
             if (loginRes.server_info) setServerInfo(loginRes.server_info);
+            // Track session login on mount
+            if (creds && creds.username) {
+              const sessionKey = `tracked_session_${creds.username.toLowerCase()}`;
+              if (!sessionStorage.getItem(sessionKey)) {
+                trackUserActivity(creds.username);
+                sessionStorage.setItem(sessionKey, 'true');
+              }
+            }
           }
           setIntroProgress(15);
         } catch (loginErr) {
@@ -1364,7 +1627,7 @@ export default function App() {
     } else if (matches.length === 1) {
       setTimeout(() => {
         showToast(`Line connected! Loading Media: ${matches[0].name}`, 'success');
-        setSelectedItem(matches[0]);
+        handleItemClick(matches[0]);
       }, 700);
     } else {
       setTimeout(() => {
@@ -1376,9 +1639,65 @@ export default function App() {
     }
   };
 
-  const handleItemClick = (item: any) => {
-    setSelectedItem(item);
+  const selectMedia = (item: any, type: 'selectedItem' | 'free_movie' | 'free_series') => {
+    setTmdbDetails(null);
+    setSeriesInfo(null);
+    setMovieInfo(null);
+    
+    setSyncingItemName(item.name || item.title || "Media");
+    setIsSyncingDetails(true);
+    setIsMinLoadPassed(false);
+    setTimeout(() => {
+      setIsMinLoadPassed(true);
+    }, 1000);
+
+    const isLive = type === 'selectedItem' && 'stream_type' in item && item.stream_type === 'live';
+    
+    if (isLive) {
+      setLoadingTmdb(false);
+      setLoadingInfo(false);
+      setSelectedItem(item);
+    } else if (type === 'selectedItem') {
+      setLoadingTmdb(true);
+      setLoadingInfo(true);
+      setSelectedItem(item);
+    } else if (type === 'free_movie') {
+      setLoadingTmdb(true);
+      setLoadingInfo(false);
+      setSelectedFreeMovie(item);
+    } else if (type === 'free_series') {
+      setLoadingTmdb(true);
+      setLoadingInfo(false);
+      handleSelectFreeSeriesWithPass(item);
+    }
   };
+
+  const handleItemClick = (item: any) => {
+    selectMedia(item, 'selectedItem');
+  };
+
+  useEffect(() => {
+    if (isSyncingDetails) {
+      const active = selectedItem || selectedFreeMovie || selectedFreeSeries;
+      if (!active) {
+        setIsSyncingDetails(false);
+        return;
+      }
+      
+      const isLive = selectedItem && 'stream_type' in selectedItem && (selectedItem as any).stream_type === 'live';
+      if (isLive) {
+        setIsSyncingDetails(false);
+        return;
+      }
+
+      const isSeries = !!selectedFreeSeries || (selectedItem && 'series_id' in selectedItem);
+
+      // We wait for all loading flags to settle to false and minimum load time to pass
+      if (!loadingInfo && !loadingTmdb && !isM3uLoading && isMinLoadPassed) {
+        setIsSyncingDetails(false);
+      }
+    }
+  }, [loadingInfo, loadingTmdb, isM3uLoading, selectedItem, selectedFreeMovie, selectedFreeSeries, isSyncingDetails, isMinLoadPassed]);
 
   const isItemFavorite = (item: any) => {
     if (!item) return false;
@@ -1619,6 +1938,9 @@ export default function App() {
         setSelectedItem(null);
         localStorage.setItem('iptv_creds', JSON.stringify(userCreds));
         localStorage.setItem('iptv_logged_in', 'true');
+        // Track manual login event
+        trackUserActivity(username);
+        sessionStorage.setItem(`tracked_session_${username.toLowerCase()}`, 'true');
       } else {
         setLoginError('Your username or password is not valid. Click here to register new account');
       }
@@ -1998,13 +2320,13 @@ export default function App() {
         item: movie,
         type: 'movie',
         callback: () => {
-          setSelectedFreeMovie(movie);
+          selectMedia(movie, 'free_movie');
         }
       });
       setEnteredPassword('');
       setPasswordError(false);
     } else {
-      setSelectedFreeMovie(movie);
+      selectMedia(movie, 'free_movie');
     }
   };
 
@@ -2014,13 +2336,13 @@ export default function App() {
         item: series,
         type: 'series',
         callback: () => {
-          handlePlayFreeSeries(series);
+          selectMedia(series, 'free_series');
         }
       });
       setEnteredPassword('');
       setPasswordError(false);
     } else {
-      handlePlayFreeSeries(series);
+      selectMedia(series, 'free_series');
     }
   };
 
@@ -2130,6 +2452,11 @@ export default function App() {
     const epTitle = episode.title || `Episode ${episode.episode_num}`;
     const filename = `${selectedFreeSeries?.name || 'Series'}${separator} - ${epTitle}.${episode.container_extension || 'mp4'}`;
     triggerDownload(episode.play_url, filename);
+
+    // Track free series download click
+    if (selectedFreeSeries) {
+      trackMediaPlayback(selectedFreeSeries, 'series', `${partStr || 'Episode'}: ${epTitle} (Download)`);
+    }
   };
 
   const handleOpenFreeSeriesDownloadModal = async (series: any) => {
@@ -2275,6 +2602,30 @@ export default function App() {
     
     // Correct Xtream URL format: http://host:port/type/user/pass/id.ext
     const url = `${host}/${type}/${creds.username}/${creds.password}/${streamId}.${ext}`;
+    
+    // Track premium playback analytics
+    if (action === 'web_play' || action === 'play' || (action === 'download' && isConfirmed)) {
+      const trackCategory = isLive ? 'live_event' : (isSeries ? 'series' : 'movie');
+      let trackChannelName = undefined;
+      
+      if (isSeries && seriesInfo?.episodes) {
+        // Find episode name
+        let matchedEpName = null;
+        for (const seasonNo of Object.keys(seriesInfo.episodes)) {
+          const eps = seriesInfo.episodes[seasonNo];
+          const found = eps?.find((e: any) => String(e.id) === String(streamId));
+          if (found) {
+            matchedEpName = `S${seasonNo} E${found.episode_num}: ${found.title}`;
+            break;
+          }
+        }
+        trackChannelName = matchedEpName || `Episode ID ${streamId}`;
+      } else if (isLive) {
+        trackChannelName = (item as any).name || 'Live Channel';
+      }
+      
+      trackMediaPlayback(item, trackCategory, trackChannelName);
+    }
     
     if (action === 'web_play') {
       setWebPlayUrl(url);
@@ -2951,6 +3302,7 @@ export default function App() {
                             transition={{ delay: Math.min(idx * 0.005, 0.1) }}
                             onClick={() => {
                               setPlayingLiveStream(item as any);
+                              trackMediaPlayback(item as any, 'live_event', (item as any).name || 'Live Channel');
                               // Scroll to top on mobile when selecting a channel
                               if (window.innerWidth < 1024) {
                                 window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -3340,6 +3692,7 @@ export default function App() {
                             className="group cursor-pointer relative"
                             onClick={() => {
                               setSelectedLiveEvent(item);
+                              trackMediaPlayback(item, 'live_event', item.channels?.[0]?.name || 'Primary Feed');
                             }}
                           >
                             <div className="aspect-[2/3] rounded-[2rem] overflow-hidden border border-white/10 bg-white/5 relative shadow-2xl">
@@ -3454,6 +3807,7 @@ export default function App() {
                           <button 
                             onClick={() => {
                               setPlayingFifaChannel(chan);
+                              trackMediaPlayback(chan, 'fifa');
                             }}
                             className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-black px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg hover:shadow-emerald-500/20 cursor-pointer active:scale-95 ml-2"
                           >
@@ -3584,7 +3938,7 @@ export default function App() {
                         delay: Math.min(idx * 0.02, 0.3) 
                       }}
                       whileTap={{ scale: 0.98 }}
-                      onClick={() => setSelectedItem(item)}
+                      onClick={() => handleItemClick(item)}
                       className="group cursor-pointer space-y-1 md:space-y-3 gpu"
                     >
                       <div className="relative aspect-[2/3] rounded-lg md:rounded-xl overflow-hidden shadow-2xl transition-transform group-hover:scale-105 border border-white/5 group-hover:border-cyan-500/50 gpu">
@@ -3646,9 +4000,86 @@ export default function App() {
       )}
     </main>
 
+      {/* Dynamic Syncing details preloader with a modern cinematic loader */}
+      <AnimatePresence>
+        {isSyncingDetails && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 select-none">
+            {/* Backdrop with heavy blur */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/95 backdrop-blur-2xl"
+            />
+
+            {/* Glowing card container */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 15 }}
+              transition={{ type: "spring", damping: 25, stiffness: 180 }}
+              className="relative max-w-sm w-full rounded-[2.5rem] bg-gradient-to-b from-[#121214] to-[#08080a] p-8 border border-white/10 shadow-[0_24px_60px_-15px_rgba(0,0,0,0.9)] flex flex-col items-center justify-center text-center overflow-hidden"
+            >
+              {/* Spinning/pulsing neon radial circles representing media tune-in syncing */}
+              <div className="relative w-24 h-24 mb-6 flex items-center justify-center">
+                {/* Glowing outermost ring */}
+                <motion.div 
+                  className="absolute inset-0 rounded-full border-2 border-dashed border-[#00D1FF]/20"
+                  animate={{ rotate: 360 }}
+                  transition={{ repeat: Infinity, duration: 8, ease: "linear" }}
+                />
+                
+                {/* Mid ring */}
+                <motion.div 
+                  className="absolute inset-2 rounded-full border border-double border-pink-500/30"
+                  animate={{ rotate: -360 }}
+                  transition={{ repeat: Infinity, duration: 5, ease: "linear" }}
+                />
+
+                {/* Inner glowing ring with gradient */}
+                <motion.div 
+                  className="absolute inset-4 rounded-full border-2 border-t-[#00D1FF] border-r-transparent border-b-purple-500 border-l-transparent"
+                  animate={{ rotate: 360 }}
+                  transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+                />
+
+                {/* Sparkling dot */}
+                <motion.div
+                  className="absolute w-2 h-2 rounded-full bg-[#00D1FF] shadow-[0_0_12px_#00D1FF]"
+                  animate={{ 
+                    scale: [0.8, 1.4, 0.8],
+                    opacity: [0.5, 1, 0.5] 
+                  }}
+                  transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                />
+              </div>
+
+              {/* Progress Text */}
+              <div className="space-y-3 z-10">
+                <span className="text-[9px] font-black text-[#00D1FF] uppercase tracking-[0.25em] bg-[#00D1FF]/10 px-3.5 py-1 rounded-full border border-[#00D1FF]/20 block w-fit mx-auto self-center select-none shadow-[0_0_15px_rgba(6,182,212,0.15)] animate-pulse">
+                  Connecting Securely
+                </span>
+                
+                <h3 className="text-lg sm:text-xl font-display font-black text-white tracking-tight leading-snug px-2 line-clamp-2">
+                  {syncingItemName}
+                </h3>
+                
+                <p className="text-[11px] text-slate-400 font-medium">
+                  Loading details, please wait...
+                </p>
+              </div>
+
+              {/* Decorative background grid/ambient glows */}
+              <div className="absolute top-0 right-0 w-32 h-32 bg-[#00D1FF]/5 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute bottom-0 left-0 w-32 h-32 bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Item Details Modal */}
       <AnimatePresence>
-        {selectedItem && (
+        {selectedItem && !isSyncingDetails && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6">
             <motion.div 
               initial={{ opacity: 0 }}
@@ -3760,23 +4191,21 @@ export default function App() {
                 {/* Details and Description */}
                 <div className="flex justify-between items-start gap-4 pt-1">
                   <div className="space-y-1 md:space-y-2 flex-1">
-                    <div className="flex items-center gap-2 md:gap-3 mb-1">
-                      <span className="px-2 py-0.5 bg-cyan-600/20 text-cyan-400 text-[9px] md:text-[10px] font-bold uppercase tracking-widest rounded">
-                        {('series_id' in selectedItem) ? 'Series' : ('stream_type' in selectedItem && (selectedItem as any).stream_type === 'live' ? 'Live TV' : 'Movie')}
-                      </span>
-                      {loadingTmdb && (
-                        <span className="text-white/40 text-[10px] flex items-center gap-1">
-                          <Loader2 size={10} className="animate-spin" /> TMDB Syncing...
-                        </span>
-                      )}
-                      {!loadingTmdb && (tmdbDetails?.rating || selectedItem.rating) && (
-                        <span className="text-yellow-500 font-bold flex items-center gap-1 text-xs md:text-sm">
-                          ★ {tmdbDetails?.rating || selectedItem.rating}
-                          {tmdbDetails?.rating && <span className="text-[9px] text-[#00D1FF] font-normal px-1 py-0.5 ml-1 bg-[#00D1FF]/10 rounded border border-[#00D1FF]/20">TMDB</span>}
-                        </span>
-                      )}
-                    </div>
-                    <h2 className="text-xl md:text-4xl font-display font-bold leading-tight line-clamp-2 md:line-clamp-none">{selectedItem.name}</h2>
+                    {loadingTmdb && (
+                      <div className="text-white/40 text-[10px] flex items-center gap-1 mb-1 bg-black/20 px-2.5 py-1 rounded-md w-fit border border-white/5">
+                        <Loader2 size={10} className="animate-spin text-cyan-400" /> 
+                        <span className="font-semibold text-slate-300">Loading details...</span>
+                      </div>
+                    )}
+                    {renderStylishTitle(
+                      selectedItem.name, 
+                      tmdbDetails, 
+                      'series_id' in selectedItem, 
+                      selectedItem.rating,
+                      ('series_id' in selectedItem && seriesInfo?.episodes) 
+                        ? (Object.values(seriesInfo.episodes) as any[]).reduce((acc: number, curr: any) => acc + (Array.isArray(curr) ? curr.length : 0), 0)
+                        : undefined
+                    )}
                     {tmdbDetails?.trailer_url && (
                       <div className="pt-1.5 md:pt-2 select-none">
                         <button 
@@ -4128,7 +4557,7 @@ export default function App() {
                         key={`trending-selector-item-${idx}`}
                         whileHover={{ x: 6, backgroundColor: 'rgba(255, 255, 255, 0.04)' }}
                         onClick={() => {
-                          setSelectedItem(item);
+                          handleItemClick(item);
                           setTrendingSelectorData(null);
                         }}
                         className="flex items-center gap-4 p-3.5 bg-white/[0.02] border border-white/5 hover:border-cyan-500/40 rounded-2xl cursor-pointer transition-all duration-300 group"
@@ -4740,7 +5169,7 @@ export default function App() {
 
       {/* Free Movie Details Modal */}
       <AnimatePresence>
-        {selectedFreeMovie && (
+        {selectedFreeMovie && !isSyncingDetails && (
           <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6">
             <motion.div 
               initial={{ opacity: 0 }}
@@ -4847,23 +5276,13 @@ export default function App() {
                 {/* Details and Description */}
                 <div className="flex justify-between items-start gap-4 pt-1">
                   <div className="space-y-1 md:space-y-2 flex-1">
-                    <div className="flex items-center gap-2 md:gap-3 mb-1">
-                      <span className="px-2 py-0.5 bg-cyan-600/20 text-cyan-400 text-[9px] md:text-[10px] font-bold uppercase tracking-widest rounded">
-                        Streaming Free Now
-                      </span>
-                      {loadingTmdb && (
-                        <span className="text-white/40 text-[10px] flex items-center gap-1">
-                          <Loader2 size={10} className="animate-spin" /> TMDB Syncing...
-                        </span>
-                      )}
-                      {!loadingTmdb && tmdbDetails?.rating && (
-                        <span className="text-yellow-500 font-bold flex items-center gap-1 text-xs md:text-sm">
-                          ★ {tmdbDetails.rating}
-                          <span className="text-[9px] text-[#00D1FF] font-normal px-1 py-0.5 ml-1 bg-[#00D1FF]/10 rounded border border-[#00D1FF]/20">TMDB</span>
-                        </span>
-                      )}
-                    </div>
-                    <h2 className="text-xl md:text-4xl font-display font-bold leading-tight line-clamp-2 md:line-clamp-none">{selectedFreeMovie.name}</h2>
+                    {loadingTmdb && (
+                      <div className="text-white/40 text-[10px] flex items-center gap-1 mb-1 bg-black/20 px-2.5 py-1 rounded-md w-fit border border-white/5">
+                        <Loader2 size={10} className="animate-spin text-cyan-400" /> 
+                        <span className="font-semibold text-slate-300">Loading details...</span>
+                      </div>
+                    )}
+                    {renderStylishTitle(selectedFreeMovie.name, tmdbDetails, false, selectedFreeMovie.rating)}
                     {tmdbDetails?.trailer_url && (
                       <div className="pt-1.5 md:pt-2 select-none">
                         <button 
@@ -4885,7 +5304,10 @@ export default function App() {
                 {/* Free Action Buttons */}
                 <div className="flex flex-col gap-3 pt-2">
                   <button 
-                    onClick={() => setPlayingFreeMovie(selectedFreeMovie)}
+                    onClick={() => {
+                      setPlayingFreeMovie(selectedFreeMovie);
+                      trackMediaPlayback(selectedFreeMovie, 'movie');
+                    }}
                     className="w-full flex items-center justify-center gap-2 md:gap-3 bg-[#00D1FF] text-black hover:bg-cyan-300 px-4 py-3 md:px-6 md:py-4 rounded-xl font-black transition-all transform hover:scale-[1.02] text-sm md:text-base shadow-[0_0_25px_rgba(0,209,255,0.4)] uppercase tracking-widest cursor-pointer"
                   >
                     <Play size={20} md:size={24} fill="black" /> 
@@ -4898,6 +5320,7 @@ export default function App() {
                         onClick={() => {
                           const filename = `${selectedFreeMovie.name || 'movie'}.${selectedFreeMovie.play_url.split('.').pop() || 'mp4'}`;
                           triggerDownload(selectedFreeMovie.download_url, filename);
+                          trackMediaPlayback(selectedFreeMovie, 'movie', 'Download Link Clicked');
                         }}
                         className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-white px-4 py-3 rounded-xl font-bold text-xs transition-all border border-white/5 cursor-pointer"
                       >
@@ -4911,6 +5334,7 @@ export default function App() {
 
                     <a 
                       href={formatVlcUrl(selectedFreeMovie.download_url || selectedFreeMovie.play_url)}
+                      onClick={() => trackMediaPlayback(selectedFreeMovie, 'movie', 'Play in VLC Clicked')}
                       className="flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-3 rounded-xl font-bold text-xs transition-all shadow-lg shadow-orange-500/10"
                     >
                       <Play size={16} /> Play in VLC
@@ -5275,7 +5699,10 @@ export default function App() {
                     {selectedLiveEvent.channels.map((chan, cIdx) => (
                       <button 
                         key={`feed-switch-${cIdx}`}
-                        onClick={() => setActiveLiveChannelIndex(cIdx)}
+                        onClick={() => {
+                          setActiveLiveChannelIndex(cIdx);
+                          trackMediaPlayback(selectedLiveEvent, 'live_event', chan.name || `Feed ${cIdx + 1}`);
+                        }}
                         className={`px-3.5 py-1.5 rounded-full text-[9px] font-black uppercase tracking-[0.15em] transition-all duration-300 cursor-pointer ${
                           activeLiveChannelIndex === cIdx 
                             ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30' 
@@ -5468,7 +5895,7 @@ export default function App() {
 
       {/* Free Series Details Modal */}
       <AnimatePresence>
-        {selectedFreeSeries && (
+        {selectedFreeSeries && !isSyncingDetails && (
           <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6">
             <motion.div 
               initial={{ opacity: 0 }}
@@ -5575,24 +6002,22 @@ export default function App() {
                 {/* Details and Description */}
                 <div className="flex justify-between items-start gap-4 pt-1">
                   <div className="space-y-1 md:space-y-2 flex-1">
-                    <div className="flex items-center gap-2 md:gap-3 mb-1">
-                      <span className="px-2 py-0.5 bg-purple-600/20 text-purple-400 text-[9px] md:text-[10px] font-bold uppercase tracking-widest rounded">
-                        Streaming Free Now
-                      </span>
-                      {loadingTmdb && (
-                        <span className="text-white/40 text-[10px] flex items-center gap-1">
-                          <Loader2 size={10} className="animate-spin" /> TMDB Syncing...
-                        </span>
-                      )}
-                      {!loadingTmdb && tmdbDetails?.rating && (
-                        <span className="text-yellow-500 font-bold flex items-center gap-1 text-xs md:text-sm">
-                          ★ {tmdbDetails.rating}
-                          <span className="text-[9px] text-[#00D1FF] font-normal px-1 py-0.5 ml-1 bg-[#00D1FF]/10 rounded border border-[#00D1FF]/20">TMDB</span>
-                        </span>
-                      )}
-                    </div>
+                    {loadingTmdb && (
+                      <div className="text-white/40 text-[10px] flex items-center gap-1 mb-1 bg-black/20 px-2.5 py-1 rounded-md w-fit border border-white/5">
+                        <Loader2 size={10} className="animate-spin text-cyan-400" /> 
+                        <span className="font-semibold text-slate-300">Loading details...</span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-3 flex-wrap">
-                      <h2 className="text-xl md:text-4xl font-display font-bold leading-tight">{selectedFreeSeries.name}</h2>
+                      {renderStylishTitle(
+                        selectedFreeSeries.name, 
+                        tmdbDetails, 
+                        true, 
+                        selectedFreeSeries.rating,
+                        freeSeriesEpisodesMap 
+                          ? (Object.values(freeSeriesEpisodesMap) as any[]).reduce((acc: number, curr: any) => acc + (Array.isArray(curr) ? curr.length : 0), 0)
+                          : undefined
+                      )}
                       <a 
                         href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
                         target="_blank" 
@@ -5622,7 +6047,10 @@ export default function App() {
                 {!selectedFreeSeries.playlist_url ? (
                   <div className="flex flex-col gap-3 pt-2">
                     <button 
-                      onClick={() => setPlayingFreeSeries(selectedFreeSeries)}
+                      onClick={() => {
+                        setPlayingFreeSeries(selectedFreeSeries);
+                        trackMediaPlayback(selectedFreeSeries, 'series');
+                      }}
                       className="w-full flex items-center justify-center gap-2 md:gap-3 bg-[#00D1FF] text-black hover:bg-cyan-300 px-4 py-3 md:px-6 md:py-4 rounded-xl font-black transition-all transform hover:scale-[1.03] text-sm md:text-base shadow-[0_0_25px_rgba(0,209,255,0.4)] uppercase tracking-widest cursor-pointer"
                     >
                       <Play size={20} md:size={24} fill="black" /> 
@@ -5704,6 +6132,7 @@ export default function App() {
                                   onClick={() => {
                                     setPlayingFreeSeries(selectedFreeSeries);
                                     handleSelectFreeEpisode(episode, selectedFreeSeason || '');
+                                    trackMediaPlayback(selectedFreeSeries, 'series', `S${selectedFreeSeason || '1'} E${episode.episode_num || '1'}: ${episode.title || ''}`);
                                   }}
                                   className="p-1.5 md:p-2 bg-[#00D1FF]/10 text-[#00D1FF] hover:bg-[#00D1FF]/20 rounded-lg transition-colors border border-[#00D1FF]/20 cursor-pointer"
                                   title="Play Online"
@@ -5715,6 +6144,12 @@ export default function App() {
                                 <button 
                                   onClick={() => {
                                     window.location.href = formatVlcUrl(episode.play_url);
+                                    if (selectedFreeSeries) {
+                                      const seasonStr = selectedFreeSeason ? `S${selectedFreeSeason}` : '';
+                                      const epStr = episode.episode_num ? `E${episode.episode_num}` : '';
+                                      const partStr = [seasonStr, epStr].filter(Boolean).join('');
+                                      trackMediaPlayback(selectedFreeSeries, 'series', `${partStr || 'Episode'}: ${episode.title || ''} (VLC External)`);
+                                    }
                                   }}
                                   className="p-1.5 md:p-2 hover:bg-white/20 text-white/60 hover:text-white rounded-lg transition-colors cursor-pointer"
                                   title="Play in External Player"
@@ -6010,7 +6445,7 @@ export default function App() {
 
               <div className="p-6 bg-black/40 border-b border-white/5">
                 <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 overflow-x-auto no-scrollbar">
-                  {(['psl', 'ipl', 'app', 'free_movies', 'free_series', 'live_events', 'fifa'] as const).map((tab) => (
+                  {(['psl', 'ipl', 'app', 'free_movies', 'free_series', 'live_events', 'fifa', 'analytics'] as const).map((tab) => (
                     <button 
                       key={tab}
                       onClick={() => setActiveAdminTab(tab)}
@@ -6020,7 +6455,7 @@ export default function App() {
                           : 'text-white/40 hover:text-white hover:bg-white/5'
                       }`}
                     >
-                      {tab === 'app' ? 'General' : tab === 'fifa' ? 'FIFA 2026' : tab.replace('free_', '').replace('_', ' ').toUpperCase()}
+                      {tab === 'app' ? 'General' : tab === 'fifa' ? 'FIFA 2026' : tab === 'analytics' ? 'STATS & ANALYTICS' : tab.replace('free_', '').replace('_', ' ').toUpperCase()}
                     </button>
                   ))}
                 </div>
@@ -6816,6 +7251,211 @@ export default function App() {
                     </div>
                   )}
 
+                  {activeAdminTab === 'analytics' && (
+                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                      {/* Sub-Navigation */}
+                      <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
+                        <button
+                          onClick={() => setAnalyticsSubTab('media')}
+                          className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer ${
+                            analyticsSubTab === 'media'
+                              ? 'bg-cyan-500 text-cyan-400 shadow-sm'
+                              : 'text-white/40 hover:text-white'
+                          }`}
+                        >
+                          Media Playback Stats
+                        </button>
+                        <button
+                          onClick={() => setAnalyticsSubTab('users')}
+                          className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer ${
+                            analyticsSubTab === 'users'
+                              ? 'bg-cyan-500 text-black font-extrabold shadow-sm'
+                              : 'text-white/40 hover:text-white'
+                          }`}
+                        >
+                          User Account Logins
+                        </button>
+                      </div>
+
+                      {/* Search Bar / Filter Area */}
+                      <div className="space-y-3">
+                        <div className="relative">
+                          <input 
+                            type="text"
+                            placeholder={analyticsSubTab === 'media' ? "Search played items..." : "Search registered usernames..."}
+                            value={analyticsSearchQuery}
+                            onChange={(e) => setAnalyticsSearchQuery(e.target.value)}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 placeholder-white/20 pl-8"
+                          />
+                          <span className="absolute left-3 top-3 text-white/20 text-xs">🔍</span>
+                          {analyticsSearchQuery && (
+                            <button 
+                              onClick={() => setAnalyticsSearchQuery('')} 
+                              className="absolute right-3 top-2.5 text-white/40 hover:text-white text-xs border-0 bg-transparent cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+
+                        {analyticsSubTab === 'media' && (
+                          <div className="flex flex-wrap gap-1.5 overflow-x-auto no-scrollbar py-1">
+                            {(['all', 'movie', 'series', 'live_event', 'fifa'] as const).map((cat) => (
+                              <button
+                                key={`filter-${cat}`}
+                                onClick={() => setAnalyticsCategoryFilter(cat)}
+                                className={`px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider border cursor-pointer whitespace-nowrap transition-colors ${
+                                  analyticsCategoryFilter === cat
+                                    ? 'bg-cyan-500 border-cyan-500 text-black font-extrabold'
+                                    : 'bg-white/5 border-white/10 text-white/50 hover:text-white'
+                                }`}
+                              >
+                                {cat === 'all' ? 'All Sections' : cat.replace('_', ' ')}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Display Data */}
+                      {analyticsLoading && (userActivities.length === 0 && mediaStats.length === 0) ? (
+                        <div className="flex flex-col items-center justify-center py-12 gap-3">
+                          <Loader2 className="animate-spin text-cyan-400" size={24} />
+                          <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Gathering real-time stats...</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {analyticsSubTab === 'media' ? (
+                            (() => {
+                              const filtered = mediaStats.filter((stat: any) => {
+                                const matchQuery = !analyticsSearchQuery || 
+                                  stat.itemName?.toLowerCase().includes(analyticsSearchQuery.toLowerCase()) ||
+                                  stat.itemId?.toLowerCase().includes(analyticsSearchQuery.toLowerCase());
+                                const matchCategory = analyticsCategoryFilter === 'all' || stat.category === analyticsCategoryFilter;
+                                return matchQuery && matchCategory;
+                              });
+
+                              if (filtered.length === 0) {
+                                return (
+                                  <div className="text-center py-8 bg-white/5 border border-dashed border-white/10 rounded-2xl">
+                                    <span className="text-xs text-white/30 font-medium">No playback records found matching query</span>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1 no-scrollbar pb-6">
+                                  {filtered.map((stat: any, index) => {
+                                    const viewers = stat.users ? Object.keys(stat.users) : [];
+                                    const viewersCount = viewers.length;
+                                    
+                                    return (
+                                      <div 
+                                        key={`stat-${stat.itemId}-${index}`}
+                                        className="p-3 bg-white/5 border border-white/5 rounded-2xl flex flex-col gap-2 hover:bg-white/10 transition-colors"
+                                      >
+                                        <div className="flex items-start justify-between gap-4">
+                                          <div className="min-w-0">
+                                            <span className="text-[10px] uppercase font-bold tracking-wider text-cyan-400 bg-cyan-950/40 border border-cyan-800/30 px-1.5 py-0.5 rounded-md mr-2">
+                                              {stat.category === 'live_event' ? 'LIVE EVENT' : stat.category?.toUpperCase()}
+                                            </span>
+                                            <h4 className="text-xs font-black text-white italic tracking-tight uppercase inline md:block mt-1 leading-normal">
+                                              {stat.itemName}
+                                            </h4>
+                                          </div>
+                                          <div className="text-right shrink-0">
+                                            <div className="text-cyan-400 text-sm font-black italic tracking-tighter shadow-sm">
+                                              {stat.totalPlays || 0} <span className="text-[9px] font-black uppercase text-white/40">PLAYS</span>
+                                            </div>
+                                            <div className="text-[9px] font-medium text-white/30 mt-0.5">
+                                              {viewersCount} unique watcher{viewersCount === 1 ? '' : 's'}
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {viewers.length > 0 && (
+                                          <div className="flex flex-col gap-1.5 pt-1.5 border-t border-white/5">
+                                            <span className="text-[8px] font-black uppercase text-white/30 tracking-widest text-left block">Viewers (Account Usernames):</span>
+                                            <div className="flex flex-wrap gap-1">
+                                              {viewers.map((usr: string) => (
+                                                <span 
+                                                  key={`viewer-${usr}`}
+                                                  className="text-[9px] font-bold text-white/70 bg-white/5 border border-white/10 px-2 py-0.5 rounded-lg"
+                                                >
+                                                  {usr}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        <div className="text-[9px] text-white/20 text-right uppercase tracking-wider pt-0.5">
+                                          Last Played: {stat.lastPlayed ? new Date(stat.lastPlayed).toLocaleString() : 'Never'}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })()
+                          ) : (
+                            (() => {
+                              const filtered = userActivities.filter((act: any) => {
+                                return !analyticsSearchQuery || act.username?.toLowerCase().includes(analyticsSearchQuery.toLowerCase());
+                              });
+
+                              if (filtered.length === 0) {
+                                return (
+                                  <div className="text-center py-8 bg-white/5 border border-dashed border-white/10 rounded-2xl">
+                                    <span className="text-xs text-white/30 font-medium font-bold">No user login accounts found matching query</span>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1 no-scrollbar pb-6">
+                                  {filtered.map((act: any, index) => (
+                                    <div 
+                                      key={`user-${act.username}-${index}`}
+                                      className="p-3 bg-white/5 border border-white/5 rounded-2xl flex flex-col gap-2 hover:bg-white/10 transition-colors"
+                                    >
+                                      <div className="flex items-center justify-between gap-4">
+                                        <div className="flex items-center gap-2.5">
+                                          <div className="w-8 h-8 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 font-black text-xs flex items-center justify-center uppercase shadow-inner">
+                                            {act.username ? act.username.slice(0, 2) : 'U'}
+                                          </div>
+                                          <div className="flex flex-col">
+                                            <span className="text-xs font-black text-white italic tracking-tight uppercase leading-none">{act.username}</span>
+                                            <span className="text-[9px] text-white/30 uppercase tracking-widest mt-1">First active: {act.firstActive ? new Date(act.firstActive).toLocaleDateString() : 'N/A'}</span>
+                                          </div>
+                                        </div>
+
+                                        <div className="text-right">
+                                          <div className="text-cyan-400 text-sm font-black italic tracking-tighter">
+                                            {act.loginCount || 1} <span className="text-[9px] uppercase font-black text-white/40">LOGINS</span>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      <div className="flex justify-between items-center text-[9px] text-white/30 bg-black/20 p-2 rounded-xl mt-1.5 border border-white/5">
+                                        <div className="uppercase tracking-wider">
+                                          Last login: {act.lastLogin ? new Date(act.lastLogin).toLocaleString() : 'N/A'}
+                                        </div>
+                                        <div className="font-bold text-cyan-400 flex items-center gap-1 select-none">
+                                          Active Session Verified
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {(activeAdminTab === 'psl' || activeAdminTab === 'ipl' || activeAdminTab === 'app') && (
                     <button 
                       onClick={handleUpdateUrl}
@@ -6881,7 +7521,7 @@ export default function App() {
 
       {/* Floating FIFA 2026 Badge (on the right-side center) */}
       <AnimatePresence>
-        {activeTab !== 'fifa' && (
+        {activeTab !== 'fifa' && !selectedItem && !selectedFreeMovie && !selectedFreeSeries && !isSyncingDetails && !playingFreeMovie && !playingFreeSeries && !playingLiveStream && !playingLiveEvent && !playingEpisode && !playingFreeEpisode && !playingTrailerUrl && (
           <motion.div 
             initial={{ opacity: 0, x: 50 }}
             animate={{ opacity: 1, x: 0 }}
