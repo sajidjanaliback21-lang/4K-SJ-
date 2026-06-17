@@ -385,7 +385,7 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed && (parsed.host?.includes('lb-skip.vercel.app') || !parsed.host)) {
-          parsed.host = 'https://hdsj.store';
+          parsed.host = 'https://4ksjpun-lbff.hf.space';
           localStorage.setItem('iptv_creds', JSON.stringify(parsed));
         }
         return parsed;
@@ -2571,7 +2571,7 @@ export default function App() {
       return;
     }
     // Set the New Base URL - Use the legacy server for downloads only
-    const host = action === 'download' ? 'https://lb-skip.vercel.app' : 'https://hdsj.store';
+    const host = action === 'download' ? 'https://lb-skip.vercel.app' : 'https://4ksjpun-lbff.hf.space';
 
     const isLive = !!(item as any).stream_type && (item as any).stream_type === 'live';
     const isSeries = !!(episodeId || (item as any).series_id);
@@ -3166,7 +3166,7 @@ export default function App() {
                           is_embed: false,
                           isLive: true,
                           sources: [{
-                            src: `https://hdsj.store/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`,
+                            src: `https://4ksjpun-lbff.hf.space/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`,
                             type: 'application/x-mpegURL'
                           }]
                         }} 
@@ -3228,7 +3228,7 @@ export default function App() {
                         {copiedId === playingLiveStream.stream_id ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
                       </button>
                       <button 
-                        onClick={() => window.location.href = formatVlcUrl(`https://hdsj.store/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`)}
+                        onClick={() => window.location.href = formatVlcUrl(`https://4ksjpun-lbff.hf.space/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`)}
                         className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg font-black text-[9px] transition-all shadow-lg shadow-orange-500/20 uppercase tracking-widest italic"
                       >
                         <Play size={12} fill="white" /> VLC
@@ -6747,7 +6747,7 @@ export default function App() {
                             type="text" 
                             value={newFreeSeries.playlist_url || ''}
                             onChange={(e) => setNewFreeSeries({...newFreeSeries, playlist_url: e.target.value})}
-                            placeholder="e.g. https://hdsj.store/series_links/spider/playlist.m3u"
+                            placeholder="e.g. https://4ksjpun-lbff.hf.space/series_links/spider/playlist.m3u"
                             className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
                           />
                         </div>

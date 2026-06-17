@@ -2,14 +2,14 @@ import axios from 'axios';
 import { XtreamCredentials, Category, Stream, Series, LoginResponse, LiveStream } from '../types';
 
 export const DEFAULT_CREDENTIALS: XtreamCredentials = {
-  host: 'https://hdsj.store',
+  host: 'https://4ksjpun-lbff.hf.space',
   username: 'webplayer44',
   password: '62246624',
 };
 
 const sanitizeHost = (host: string): string => {
   if (!host || host.includes('lb-skip.vercel.app')) {
-    return 'https://hdsj.store';
+    return 'https://4ksjpun-lbff.hf.space';
   }
   return host;
 };
@@ -90,7 +90,7 @@ export const xtreamApi = {
   },
 
   getStreamUrl: (creds: XtreamCredentials, streamId: string, extension: string = 'mp4', type: 'movie' | 'series' | 'live' = 'movie') => {
-    const host = 'https://hdsj.store';
+    const host = 'https://4ksjpun-lbff.hf.space';
     if (type === 'live') {
       return `${host}/live/${creds.username}/${creds.password}/${streamId}.m3u8`;
     }

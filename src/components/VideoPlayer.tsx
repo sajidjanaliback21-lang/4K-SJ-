@@ -510,16 +510,56 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             if (hlsRef.current) hlsRef.current.destroy();
 
             const hls = new Hls({
-              liveSyncDurationCount: 3,
-              liveMaxLatencyDurationCount: 10,
               enableWorker: true,
               lowLatencyMode: true,
-              backBufferLength: 90,
+              backBufferLength: 30, // smaller backbuffer is faster/lighter
+              maxBufferLength: 8,   // smaller buffer duration for faster load
+              maxMaxBufferLength: 15,
+              liveSyncDurationCount: 1, // Start playing after buffering just 1 segment instead of 3!
+              liveMaxLatencyDurationCount: 3,
+              appendErrorMaxRetry: 5,
             });
             
             hlsRef.current = hls;
             hls.loadSource(url);
             hls.attachMedia(video);
+
+            // Handle fatal loading/media errors by automatically recovering/retrying
+            hls.on(Hls.Events.ERROR, (event, data) => {
+              if (data.fatal) {
+                switch (data.type) {
+                  case Hls.ErrorTypes.NETWORK_ERROR:
+                    console.warn('Fatal network-error encountered on HLS stream, attempting recovery...', data);
+                    hls.startLoad();
+                    break;
+                  case Hls.ErrorTypes.MEDIA_ERROR:
+                    console.warn('Fatal media-error encountered on HLS stream, attempting recovery...', data);
+                    hls.recoverMediaError();
+                    break;
+                  default:
+                    console.error('Fatal HLS stream error, destroying and restarting loader', data);
+                    try {
+                      hls.destroy();
+                      const restartedHls = new Hls({
+                        enableWorker: true,
+                        lowLatencyMode: true,
+                        backBufferLength: 30,
+                        maxBufferLength: 8,
+                        maxMaxBufferLength: 15,
+                        liveSyncDurationCount: 1,
+                        liveMaxLatencyDurationCount: 3,
+                        appendErrorMaxRetry: 5,
+                      });
+                      hlsRef.current = restartedHls;
+                      restartedHls.loadSource(url);
+                      restartedHls.attachMedia(video);
+                    } catch (e) {
+                      console.error('Could not restart HLS stream loader', e);
+                    }
+                    break;
+                }
+              }
+            });
             
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
               const quality = hls.levels.map((level, index) => ({
@@ -1091,16 +1131,36 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Only hide the loading screen when the HTML5 <video> element fires the playing event.
     // The playing event fires when actual playback begins (after buffer is ready and DRM decryption is complete)
     art.on('video:playing', () => {
-      setLoadingText('SECURED');
-      setTimeout(() => {
+      if (isLiveStream) {
         setIsLoading(false);
         hasCompletedInitialLoad.current = true;
-      }, 800);
+      } else {
+        setLoadingText('SECURED');
+        setTimeout(() => {
+          setIsLoading(false);
+          hasCompletedInitialLoad.current = true;
+        }, 800);
+      }
     });
 
-    // Show loading screen if the video stops to buffer mid-stream or during startup
+    // Also hide loading indicator as soon as live stream video can start playing
+    art.on('video:canplay', () => {
+      if (isLiveStream) {
+        setIsLoading(false);
+        hasCompletedInitialLoad.current = true;
+      }
+    });
+
+    art.on('video:loadedmetadata', () => {
+      if (isLiveStream) {
+        setIsLoading(false);
+        hasCompletedInitialLoad.current = true;
+      }
+    });
+
+    // Show loading screen if the video stops to buffer mid-stream or during startup (bypassed for active live streams)
     art.on('video:waiting', () => {
-      if (!hasCompletedInitialLoad.current) {
+      if (!isLiveStream && !hasCompletedInitialLoad.current) {
         setLoadingText('BUFFERING...');
         setIsLoading(true);
       }
