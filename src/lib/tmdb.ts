@@ -133,7 +133,10 @@ export async function fetchTrendingMovies(): Promise<TmdbTrendingItem[]> {
 export async function fetchTrendingSeries(): Promise<TmdbTrendingItem[]> {
   const cacheKey = 'trending_series';
   const cached = getCachedItem(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    const hasEmptyTitles = Array.isArray(cached) && cached.some((item: any) => !item.title);
+    if (!hasEmptyTitles) return cached;
+  }
 
   try {
     const url = `${BASE_URL}/3/discover/tv?api_key=${TMDB_API_KEY}&sort_by=popularity.desc&page=1`;
@@ -141,7 +144,7 @@ export async function fetchTrendingSeries(): Promise<TmdbTrendingItem[]> {
     const results = data.results || [];
     const formatted = results.slice(0, 10).map((item: any) => ({
       id: item.id,
-      title: item.title || item.original_title || '',
+      title: item.name || item.original_name || item.title || item.original_title || '',
       poster_url: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : undefined,
       backdrop_url: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : undefined,
       rating: item.vote_average ? parseFloat(item.vote_average.toFixed(1)) : undefined,
