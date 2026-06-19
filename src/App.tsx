@@ -10,6 +10,7 @@ import {
   LogIn, 
   LogOut, 
   Lock,
+  Unlock,
   Film, 
   Tv, 
   Clapperboard,
@@ -488,7 +489,8 @@ export default function App() {
     status: 'Live',
     order: '',
     stream_id: '',
-    feed_type: 'iptv' // 'iptv' or 'custom'
+    feed_type: 'iptv', // 'iptv' or 'custom'
+    is_premium: true
   });
 
   // FIFA Drag and Drop Reordering States
@@ -2136,6 +2138,8 @@ export default function App() {
     const pathForWrite = editingFifaChannelId ? `fifa_channels/${editingFifaChannelId}` : 'fifa_channels';
     const orderVal = (newFifaChannel.order !== undefined && newFifaChannel.order !== '' && !isNaN(Number(newFifaChannel.order))) ? Number(newFifaChannel.order) : 999999;
     
+    const isPremiumVal = isIptv ? true : (newFifaChannel.is_premium !== undefined ? !!newFifaChannel.is_premium : true);
+
     const payload = {
       name: newFifaChannel.name,
       feed_type: newFifaChannel.feed_type || 'iptv',
@@ -2145,6 +2149,7 @@ export default function App() {
       is_embed: isIptv ? false : !!newFifaChannel.is_embed,
       status: newFifaChannel.status || 'Live',
       order: orderVal,
+      is_premium: isPremiumVal,
       updatedAt: new Date().toISOString()
     };
 
@@ -2166,7 +2171,8 @@ export default function App() {
         status: 'Live',
         order: '',
         stream_id: '',
-        feed_type: 'iptv'
+        feed_type: 'iptv',
+        is_premium: true
       });
     } catch (error) {
       console.error("Error saving FIFA channel:", error);
@@ -2824,12 +2830,7 @@ export default function App() {
             </button>
             <button 
               onClick={() => { 
-                if (!isLoggedIn) {
-                  showToast("Please login with a premium account to access FIFA 2026 feeds", "error");
-                  setShowLoginModal(true);
-                } else {
-                  setActiveTab('fifa');
-                }
+                setActiveTab('fifa');
               }}
               className={cn(
                 "flex items-center gap-2 text-sm font-medium transition-all hover:scale-105 relative group",
@@ -3774,25 +3775,6 @@ export default function App() {
             )}
           </div>
         ) : activeTab === 'fifa' ? (
-          !isLoggedIn ? (
-            <div className="max-w-md mx-auto py-16 px-6 text-center bg-gradient-to-br from-[#021f0b] to-black border border-emerald-500/30 rounded-3xl shadow-xl flex flex-col items-center gap-6 text-white animate-in">
-              <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center border border-emerald-500/25 text-emerald-400">
-                <Trophy size={38} className="animate-pulse" />
-              </div>
-              <div>
-                <h3 className="text-xl font-display font-black text-white italic tracking-tight uppercase">Premium Account Required</h3>
-                <p className="text-xs text-white/50 mt-2 leading-relaxed">
-                  The FIFA World Cup 2026 Live Arena feeds are reserved exclusively for premium registered subscribers.
-                </p>
-              </div>
-              <button 
-                onClick={() => setShowLoginModal(true)}
-                className="bg-emerald-500 hover:bg-emerald-400 text-black px-8 py-3.5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-lg active:scale-95 duration-200 cursor-pointer"
-              >
-                Login with Subscription
-              </button>
-            </div>
-          ) : (
             <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="relative overflow-hidden bg-gradient-to-br from-[#021f0b] via-[#040905] to-[#010903] border border-emerald-500/30 rounded-[2.5rem] p-6 md:p-8 shadow-[0_0_80px_rgba(16,185,129,0.15)] text-white">
               {/* Glowing background */}
@@ -3846,54 +3828,71 @@ export default function App() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {fifaChannels.map((chan, idx) => (
-                        <div 
-                          key={`fifa-signal-${chan.id}-${idx}`}
-                          className="flex items-center justify-between bg-gradient-to-r from-[#031c0a]/40 to-[#040905] p-4 rounded-2xl border border-emerald-500/10 hover:border-emerald-500/30 hover:scale-[1.01] transition-all duration-300 group shadow-lg"
-                        >
-                          <div className="flex items-start gap-3 pr-2 min-w-0 flex-1">
-                            {/* Visual Indicator of Connection Type */}
-                            <div className="w-10 h-10 rounded-xl bg-emerald-500/5 border border-emerald-500/20 flex items-center justify-center shrink-0">
-                              {chan.feed_type === 'iptv' || chan.is_iptv || chan.stream_id ? (
-                                <Crown size={16} className="text-yellow-400 animate-pulse" />
-                              ) : (
-                                <Tv size={16} className="text-emerald-400" />
-                              )}
-                            </div>
+                      {fifaChannels.map((chan, idx) => {
+                        const isPremiumChan = chan.feed_type === 'iptv' || chan.is_iptv || !!chan.stream_id || chan.is_premium === true;
+                        
+                        return (
+                          <div 
+                            key={`fifa-signal-${chan.id}-${idx}`}
+                            className="flex items-center justify-between bg-gradient-to-r from-[#031c0a]/40 to-[#040905] p-4 rounded-2xl border border-emerald-500/10 hover:border-emerald-500/30 hover:scale-[1.01] transition-all duration-300 group shadow-lg"
+                          >
+                            <div className="flex items-start gap-3 pr-2 min-w-0 flex-1">
+                              {/* Visual Indicator of Connection Type */}
+                              <div className="w-10 h-10 rounded-xl bg-emerald-500/5 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                                {chan.feed_type === 'iptv' || chan.is_iptv || chan.stream_id ? (
+                                  <Crown size={16} className="text-yellow-400 animate-pulse" />
+                                ) : (
+                                  <Tv size={16} className="text-emerald-400" />
+                                )}
+                              </div>
 
-                            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                              <span className="text-xs sm:text-sm font-bold text-white group-hover:text-emerald-300 transition-colors truncate">
-                                {chan.order !== undefined && chan.order !== 999999 ? `${chan.order}. ` : ''}{chan.name}
-                              </span>
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase leading-none ${
-                                  chan.status === 'Offline' ? 'bg-red-500/20 text-red-500' : 'bg-emerald-500/20 text-emerald-400 animate-pulse'
-                                }`}>
-                                  {chan.status || 'Live'}
+                              <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                <span className="text-xs sm:text-sm font-bold text-white group-hover:text-emerald-300 transition-colors truncate">
+                                  {chan.order !== undefined && chan.order !== 999999 ? `${chan.order}. ` : ''}{chan.name}
                                 </span>
-                                <span className="text-[7px] text-white/30 font-bold uppercase tracking-widest leading-none">
-                                  {chan.feed_type === 'iptv' || chan.is_iptv || chan.stream_id ? '🌟 PREMIUM SUBSCRIPTION FEED' : '🔗 DIRECT STRETCH FEED'}
-                                </span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase leading-none ${
+                                    chan.status === 'Offline' ? 'bg-red-500/20 text-red-500' : 'bg-emerald-500/20 text-emerald-400 animate-pulse'
+                                  }`}>
+                                    {chan.status || 'Live'}
+                                  </span>
+                                  <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase leading-none flex items-center gap-1 ${
+                                    isPremiumChan 
+                                      ? 'bg-rose-500/15 text-rose-400 border border-rose-500/25' 
+                                      : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25'
+                                  }`}>
+                                    {isPremiumChan ? <Lock size={9} /> : <Unlock size={9} />}
+                                    {isPremiumChan ? 'Premium/لاگ ان' : 'Free/مفت'}
+                                  </span>
+                                  <span className="text-[7px] text-white/30 font-bold uppercase tracking-widest leading-none">
+                                    {chan.feed_type === 'iptv' || chan.is_iptv || chan.stream_id ? '🌟 PREMIUM SUBSCRIPTION FEED' : '🔗 DIRECT STRETCH FEED'}
+                                  </span>
+                                </div>
                               </div>
                             </div>
-                          </div>
 
-                          <button 
-                            onClick={() => {
-                              const playUrl = getFifaPlayUrl(chan);
-                              setPlayingFifaChannel({
-                                ...chan,
-                                play_url: playUrl
-                              });
-                              trackMediaPlayback(chan, 'fifa');
-                            }}
-                            className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md cursor-pointer active:scale-95 shrink-0"
-                          >
-                            <Play size={10} fill="black" />
-                            PLAY
-                          </button>
-                        </div>
-                      ))}
+                            <button 
+                              onClick={() => {
+                                if (isPremiumChan && !isLoggedIn) {
+                                  showToast("یہ ایک پریمیم چیاینل ہے، براہ کرم پہلے لاگ ان کریں یا سبسکرپشن حاصل کریں۔", "error");
+                                  setShowLoginModal(true);
+                                  return;
+                                }
+                                const playUrl = getFifaPlayUrl(chan);
+                                setPlayingFifaChannel({
+                                  ...chan,
+                                  play_url: playUrl
+                                });
+                                trackMediaPlayback(chan, 'fifa');
+                              }}
+                              className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md cursor-pointer active:scale-95 shrink-0"
+                            >
+                              <Play size={10} fill="black" />
+                              PLAY
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -3916,8 +3915,7 @@ export default function App() {
               </div>
             </div>
           </div>
-        )
-      ) : (
+        ) : (
           <>
             {/* Premium Category Bar */}
             <div className="flex flex-col gap-4 mb-6">
@@ -7212,6 +7210,41 @@ export default function App() {
                           </div>
                         </div>
 
+                        {/* Access Requirement Selection */}
+                        <div className="space-y-3">
+                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Access Type (Eligibility check on play)</label>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
+                            <button
+                              type="button"
+                              onClick={() => setNewFifaChannel({ ...newFifaChannel, is_premium: false })}
+                              disabled={newFifaChannel.feed_type === 'iptv'}
+                              className={`py-3 px-4 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all duration-300 cursor-pointer flex items-center justify-center gap-2 ${
+                                !newFifaChannel.is_premium && newFifaChannel.feed_type !== 'iptv'
+                                  ? 'bg-emerald-500 text-black border-emerald-500 shadow-md'
+                                  : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white/80 disabled:opacity-20 disabled:pointer-events-none'
+                              }`}
+                            >
+                              🔓 Free for Everyone (No login needed)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setNewFifaChannel({ ...newFifaChannel, is_premium: true })}
+                              className={`py-3 px-4 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all duration-300 cursor-pointer flex items-center justify-center gap-2 ${
+                                newFifaChannel.is_premium || newFifaChannel.feed_type === 'iptv'
+                                  ? 'bg-rose-500 text-white border-rose-500 shadow-md'
+                                  : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white/80'
+                              }`}
+                            >
+                              🔒 Premium Only (Requires Subscription Login)
+                            </button>
+                          </div>
+                          {newFifaChannel.feed_type === 'iptv' && (
+                            <p className="text-[9px] text-[#FF4C5E] mt-1 font-bold">
+                              ⚠️ IPTV ID channels utilize subscription streams and are forced to "Premium Only".
+                            </p>
+                          )}
+                        </div>
+
                         {newFifaChannel.feed_type === 'iptv' ? (
                           <div className="space-y-2 animate-in fade-in duration-200">
                             <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">IPTV Channel Stream ID</label>
@@ -7357,7 +7390,8 @@ export default function App() {
                                         status: item.status || 'Live',
                                         order: item.order !== undefined && item.order !== 999999 ? String(item.order) : '',
                                         stream_id: item.stream_id || '',
-                                        feed_type: item.feed_type || (item.stream_id ? 'iptv' : 'custom')
+                                        feed_type: item.feed_type || (item.stream_id ? 'iptv' : 'custom'),
+                                        is_premium: item.is_premium !== undefined ? !!item.is_premium : (item.feed_type === 'iptv' || !!item.stream_id)
                                       });
                                     }}
                                     className="w-8 h-8 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 flex items-center justify-center transition-all"
@@ -7660,13 +7694,8 @@ export default function App() {
             <motion.button
               id="fifa-floating-badge"
               onClick={() => {
-                if (!isLoggedIn) {
-                  showToast("Please login with a premium account to access FIFA 2026 feeds", "error");
-                  setShowLoginModal(true);
-                } else {
-                  setActiveTab('fifa');
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }
+                setActiveTab('fifa');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               whileHover={{ scale: 1.08, x: -6 }}
               whileTap={{ scale: 0.95 }}
