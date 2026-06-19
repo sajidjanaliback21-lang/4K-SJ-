@@ -489,6 +489,11 @@ export default function App() {
     order: ''
   });
 
+  // FIFA 2026 Premium Subscription IPTV Channels
+  const [fifaIpTv1588, setFifaIpTv1588] = useState<any[]>([]);
+  const [fifaIpTv1452, setFifaIpTv1452] = useState<any[]>([]);
+  const [isFifaIpTvLoading, setIsFifaIpTvLoading] = useState<boolean>(false);
+
   // FIFA Drag and Drop Reordering States
   const [draggedFifaIndex, setDraggedFifaIndex] = useState<number | null>(null);
   const [draggedOverFifaIndex, setDraggedOverFifaIndex] = useState<number | null>(null);
@@ -990,6 +995,48 @@ export default function App() {
 
     return () => unsubscribe();
   }, []);
+
+  // Fetch Premium IPTV Categories for FIFA 2026 (1588 & 1452)
+  useEffect(() => {
+    let active = true;
+    const fetchFifaIpTvChannels = async () => {
+      if (!isLoggedIn || !creds || !creds.username || activeTab !== 'fifa') {
+        return;
+      }
+
+      setIsFifaIpTvLoading(true);
+      try {
+        console.log("Fetching FIFA Premium categories: 1588 and 1452...");
+        const [streams1588, streams1452] = await Promise.all([
+          xtreamApi.getLiveStreams(creds, '1588').catch((err) => {
+            console.error("Error fetching FIFA Category 1588 channels:", err);
+            return [];
+          }),
+          xtreamApi.getLiveStreams(creds, '1452').catch((err) => {
+            console.error("Error fetching FIFA Category 1452 channels:", err);
+            return [];
+          })
+        ]);
+
+        if (active) {
+          setFifaIpTv1588(streams1588 || []);
+          setFifaIpTv1452(streams1452 || []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch premium FIFA feeds:", err);
+      } finally {
+        if (active) {
+          setIsFifaIpTvLoading(false);
+        }
+      }
+    };
+
+    fetchFifaIpTvChannels();
+
+    return () => {
+      active = false;
+    };
+  }, [isLoggedIn, creds, activeTab]);
 
   // Test connection
   useEffect(() => {
@@ -2791,7 +2838,14 @@ export default function App() {
                Watch Free
             </button>
             <button 
-              onClick={() => { setActiveTab('fifa'); }}
+              onClick={() => { 
+                if (!isLoggedIn) {
+                  showToast("Please login with a premium account to access FIFA 2026 feeds", "error");
+                  setShowLoginModal(true);
+                } else {
+                  setActiveTab('fifa');
+                }
+              }}
               className={cn(
                 "flex items-center gap-2 text-sm font-medium transition-all hover:scale-105 relative group",
                 activeTab === 'fifa' ? "text-emerald-400 font-bold" : "text-white/60 hover:text-white"
@@ -3735,8 +3789,27 @@ export default function App() {
             )}
           </div>
         ) : activeTab === 'fifa' ? (
-          <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="relative overflow-hidden bg-gradient-to-br from-[#021f0b] via-[#040905] to-[#010903] border border-emerald-500/30 rounded-[2.5rem] p-6 md:p-8 shadow-[0_0_80px_rgba(16,185,129,0.15)] text-white">
+          !isLoggedIn ? (
+            <div className="max-w-md mx-auto py-16 px-6 text-center bg-gradient-to-br from-[#021f0b] to-black border border-emerald-500/30 rounded-3xl shadow-xl flex flex-col items-center gap-6 text-white animate-in">
+              <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center border border-emerald-500/25 text-emerald-400">
+                <Trophy size={38} className="animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-xl font-display font-black text-white italic tracking-tight uppercase">Premium Account Required</h3>
+                <p className="text-xs text-white/50 mt-2 leading-relaxed">
+                  The FIFA World Cup 2026 Live Arena feeds are reserved exclusively for premium registered subscribers.
+                </p>
+              </div>
+              <button 
+                onClick={() => setShowLoginModal(true)}
+                className="bg-emerald-500 hover:bg-emerald-400 text-black px-8 py-3.5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-lg active:scale-95 duration-200 cursor-pointer"
+              >
+                Login with Subscription
+              </button>
+            </div>
+          ) : (
+            <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="relative overflow-hidden bg-gradient-to-br from-[#021f0b] via-[#040905] to-[#010903] border border-emerald-500/30 rounded-[2.5rem] p-6 md:p-8 shadow-[0_0_80px_rgba(16,185,129,0.15)] text-white">
               {/* Glowing background */}
               <div className="absolute -top-12 -right-12 w-48 h-48 bg-yellow-500/10 rounded-full blur-3xl animate-pulse" />
               <div className="absolute -bottom-12 -left-12 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl" />
@@ -3764,40 +3837,41 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="py-8">
-                {isFifaChannelsLoading ? (
-                  <div className="flex flex-col items-center justify-center py-16 gap-3">
-                    <Loader2 className="animate-spin text-emerald-400" size={40} />
-                    <p className="text-xs text-white/40 uppercase tracking-widest font-black">Syncing Live Feeds...</p>
+              <div className="py-6 space-y-8 relative z-10">
+                {/* 1. Curated Channels (Admin Manually Added) */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 border-l-4 border-emerald-500 pl-3">
+                    <h3 className="text-xs font-black text-white/90 uppercase tracking-[0.25em] italic">
+                      📡 Curated Special Feeds
+                    </h3>
+                    <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                      ADMIN CHOICE
+                    </span>
                   </div>
-                ) : fifaChannels.length === 0 ? (
-                  <div className="text-center py-16 px-6 flex flex-col items-center gap-4 border border-dashed border-emerald-500/15 rounded-3xl bg-emerald-950/5">
-                    <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center">
-                      <Radio size={32} className="text-emerald-500/50" />
+
+                  {isFifaChannelsLoading ? (
+                    <div className="flex items-center justify-center py-8 gap-2 bg-emerald-950/5 border border-emerald-500/10 rounded-2xl">
+                      <Loader2 className="animate-spin text-emerald-400" size={18} />
+                      <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Syncing Choice Feeds...</p>
                     </div>
-                    <div>
-                      <p className="text-sm font-black uppercase text-white/60 tracking-wider">No FIFA channels configured</p>
-                      <p className="text-xs text-white/40 mt-1.5 max-w-[340px] mx-auto">
-                        Channels added by the admin will show up here in real-time. Stand by for live matches!
-                      </p>
+                  ) : fifaChannels.length === 0 ? (
+                    <div className="text-center py-8 px-4 border border-dashed border-emerald-500/10 rounded-2xl bg-emerald-950/5">
+                      <p className="text-[10px] font-bold uppercase text-white/40 tracking-wider">No curated feeds active at this time</p>
                     </div>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1 pb-1">SELECT STREAM FEED</p>
+                  ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {fifaChannels.map((chan, idx) => (
                         <div 
-                          key={`fifa-page-${chan.id}-${idx}`}
-                          className="flex items-center justify-between bg-gradient-to-r from-emerald-950/20 to-[#040905] p-5 rounded-2xl border border-emerald-500/15 hover:border-emerald-500/40 hover:scale-[1.01] transition-all duration-300 group shadow-lg"
+                          key={`fifa-curated-${chan.id}-${idx}`}
+                          className="flex items-center justify-between bg-gradient-to-r from-emerald-950/20 to-[#040905] p-4 rounded-2xl border border-emerald-500/10 hover:border-emerald-500/30 hover:scale-[1.01] transition-all duration-300 group shadow-md"
                         >
-                          <div className="flex flex-col gap-1.5 pr-4 min-w-0 flex-1">
-                            <span className="text-sm font-bold text-white group-hover:text-emerald-300 transition-colors truncate">
+                          <div className="flex flex-col gap-1 pr-3 min-w-0 flex-1">
+                            <span className="text-xs sm:text-sm font-bold text-white group-hover:text-emerald-300 transition-colors truncate">
                               {chan.order !== undefined && chan.order !== 999999 ? `${chan.order}. ` : ''}{chan.name}
                             </span>
                             <div className="flex items-center gap-2">
-                              <span className={`text-[9px] font-black px-2 py-0.5 rounded ${
-                                chan.status === 'Offline' ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400 animate-pulse'
+                              <span className={`text-[8px] font-black px-1.5 py-0.5 rounded ${
+                                chan.status === 'Offline' ? 'bg-red-500/20 text-red-500' : 'bg-emerald-500/20 text-emerald-400 animate-pulse'
                               }`}>
                                 {chan.status || 'Live'}
                               </span>
@@ -3809,7 +3883,7 @@ export default function App() {
                               setPlayingFifaChannel(chan);
                               trackMediaPlayback(chan, 'fifa');
                             }}
-                            className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-black px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg hover:shadow-emerald-500/20 cursor-pointer active:scale-95 ml-2"
+                            className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md cursor-pointer active:scale-95 shrink-0"
                           >
                             <Play size={10} fill="black" />
                             PLAY
@@ -3817,8 +3891,146 @@ export default function App() {
                         </div>
                       ))}
                     </div>
+                  )}
+                </div>
+
+                {/* 2. FIFA Live Channels Category I (ID 1588) */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 border-l-4 border-yellow-500 pl-3">
+                    <h3 className="text-xs font-black text-white/90 uppercase tracking-[0.25em] italic">
+                      🏟️ FIFA premium matches I (1588)
+                    </h3>
+                    <span className="text-[9px] bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                      Premium Arena
+                    </span>
                   </div>
-                )}
+
+                  {isFifaIpTvLoading ? (
+                    <div className="flex items-center justify-center py-8 gap-2 bg-emerald-950/5 border border-emerald-500/10 rounded-2xl">
+                      <Loader2 className="animate-spin text-emerald-400" size={18} />
+                      <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Connecting Arena I...</p>
+                    </div>
+                  ) : fifaIpTv1588.length === 0 ? (
+                    <div className="text-center py-8 px-4 border border-dashed border-emerald-500/10 rounded-2xl bg-emerald-950/5">
+                      <p className="text-[10px] font-bold uppercase text-white/40 tracking-wider">No active matches or channels in Category 1588</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {fifaIpTv1588.map((chan, idx) => (
+                        <div 
+                          key={`fifa-1588-${chan.stream_id}-${idx}`}
+                          className="flex items-center justify-between bg-gradient-to-r from-emerald-950/20 to-black p-4 rounded-2xl border border-emerald-500/10 hover:border-emerald-500/30 hover:scale-[1.01] transition-all duration-300 group shadow-md"
+                        >
+                          <div className="flex items-center gap-3 pr-3 min-w-0 flex-1">
+                            {chan.stream_icon && (
+                              <div className="w-8 h-8 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 hidden xs:block">
+                                <img 
+                                  src={chan.stream_icon} 
+                                  alt="" 
+                                  className="w-full h-full object-contain p-0.5"
+                                  onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/live/200/200?blur=1'; }}
+                                />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <span className="text-xs sm:text-sm font-bold text-white group-hover:text-emerald-300 transition-colors block truncate font-sans">
+                                {chan.name}
+                              </span>
+                              <span className="text-[8px] text-yellow-500 uppercase tracking-wider font-extrabold block">Trans-Arena Feed</span>
+                            </div>
+                          </div>
+
+                          <button 
+                            onClick={() => {
+                              setPlayingFifaChannel({
+                                id: `iptv-1588-${chan.stream_id}`,
+                                name: chan.name,
+                                play_url: `https://4ksjpun-lbff.hf.space/live/${creds.username}/${creds.password}/${chan.stream_id}.m3u8`,
+                                is_embed: false,
+                                status: 'Live',
+                                icon: chan.stream_icon
+                              });
+                              trackMediaPlayback({ id: chan.stream_id, name: chan.name }, 'fifa');
+                            }}
+                            className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md cursor-pointer active:scale-95 shrink-0"
+                          >
+                            <Play size={10} fill="black" />
+                            PLAY
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. FIFA Live Channels Category II (ID 1452) */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 border-l-4 border-cyan-500 pl-3">
+                    <h3 className="text-xs font-black text-white/90 uppercase tracking-[0.25em] italic">
+                      📺 FIFA Premium matches II (1452)
+                    </h3>
+                    <span className="text-[9px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                      Co-Streams
+                    </span>
+                  </div>
+
+                  {isFifaIpTvLoading ? (
+                    <div className="flex items-center justify-center py-8 gap-2 bg-emerald-950/5 border border-emerald-500/10 rounded-2xl">
+                      <Loader2 className="animate-spin text-emerald-400" size={18} />
+                      <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Connecting Arena II...</p>
+                    </div>
+                  ) : fifaIpTv1452.length === 0 ? (
+                    <div className="text-center py-8 px-4 border border-dashed border-emerald-500/10 rounded-2xl bg-emerald-950/5">
+                      <p className="text-[10px] font-bold uppercase text-white/40 tracking-wider">No active matches or channels in Category 1452</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {fifaIpTv1452.map((chan, idx) => (
+                        <div 
+                          key={`fifa-1452-${chan.stream_id}-${idx}`}
+                          className="flex items-center justify-between bg-gradient-to-r from-emerald-950/20 to-black p-4 rounded-2xl border border-emerald-500/10 hover:border-emerald-500/30 hover:scale-[1.01] transition-all duration-300 group shadow-md"
+                        >
+                          <div className="flex items-center gap-3 pr-3 min-w-0 flex-1">
+                            {chan.stream_icon && (
+                              <div className="w-8 h-8 rounded-lg overflow-hidden bg-white/5 border border-white/10 shrink-0 hidden xs:block">
+                                <img 
+                                  src={chan.stream_icon} 
+                                  alt="" 
+                                  className="w-full h-full object-contain p-0.5"
+                                  onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/live/200/200?blur=1'; }}
+                                />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <span className="text-xs sm:text-sm font-bold text-white group-hover:text-emerald-300 transition-colors block truncate font-sans">
+                                {chan.name}
+                              </span>
+                              <span className="text-[8px] text-cyan-400 uppercase tracking-wider font-extrabold block">Extra Stream Signal</span>
+                            </div>
+                          </div>
+
+                          <button 
+                            onClick={() => {
+                              setPlayingFifaChannel({
+                                id: `iptv-1452-${chan.stream_id}`,
+                                name: chan.name,
+                                play_url: `https://4ksjpun-lbff.hf.space/live/${creds.username}/${creds.password}/${chan.stream_id}.m3u8`,
+                                is_embed: false,
+                                status: 'Live',
+                                icon: chan.stream_icon
+                              });
+                              trackMediaPlayback({ id: chan.stream_id, name: chan.name }, 'fifa');
+                            }}
+                            className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md cursor-pointer active:scale-95 shrink-0"
+                          >
+                            <Play size={10} fill="black" />
+                            PLAY
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* WhatsApp community banner */}
@@ -3838,7 +4050,8 @@ export default function App() {
               </div>
             </div>
           </div>
-        ) : (
+        )
+      ) : (
           <>
             {/* Premium Category Bar */}
             <div className="flex flex-col gap-4 mb-6">
@@ -7532,8 +7745,13 @@ export default function App() {
             <motion.button
               id="fifa-floating-badge"
               onClick={() => {
-                setActiveTab('fifa');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
+                if (!isLoggedIn) {
+                  showToast("Please login with a premium account to access FIFA 2026 feeds", "error");
+                  setShowLoginModal(true);
+                } else {
+                  setActiveTab('fifa');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
               }}
               whileHover={{ scale: 1.08, x: -6 }}
               whileTap={{ scale: 0.95 }}
