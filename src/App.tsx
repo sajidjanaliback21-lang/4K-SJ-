@@ -1684,7 +1684,7 @@ export default function App() {
     } else if (type === 'free_series') {
       setLoadingTmdb(true);
       setLoadingInfo(false);
-      handleSelectFreeSeriesWithPass(item);
+      setSelectedFreeSeries(item);
     }
   };
 
