@@ -1684,7 +1684,7 @@ export default function App() {
     } else if (type === 'free_series') {
       setLoadingTmdb(true);
       setLoadingInfo(false);
-      setSelectedFreeSeries(item);
+      handlePlayFreeSeries(item);
     }
   };
 
@@ -7016,107 +7016,120 @@ export default function App() {
                             </p>
                           </div>
 
-                          {/* Existing Episodes List */}
-                          {newFreeSeries.episodes && newFreeSeries.episodes.length > 0 && (
-                            <div className="space-y-2">
-                              <label className="text-[9px] font-bold text-white/30 uppercase tracking-wider px-1">Added Episodes List ({newFreeSeries.episodes.length})</label>
-                              <div className="max-h-[220px] overflow-y-auto pr-2 no-scrollbar space-y-1.5">
-                                {newFreeSeries.episodes.map((ep, index) => (
-                                  <div key={ep.id || index} className="flex items-center justify-between bg-white/5 border border-white/10 px-4 py-3 rounded-xl gap-4">
-                                    <div className="flex items-center gap-3 min-w-0">
-                                      <div className="text-[10px] bg-cyan-500/10 text-cyan-400 font-bold px-2 py-1 rounded shrink-0">
-                                        S{ep.season} E{ep.episode_num}
+                          {newFreeSeries.playlist_url && newFreeSeries.playlist_url.trim() !== '' ? (
+                            <div className="bg-purple-950/20 border border-purple-500/20 rounded-2xl p-5 text-center space-y-2">
+                              <span className="text-xs font-black text-purple-400 uppercase tracking-widest block">
+                                ℹ️ Manual Episodes Panel Disabled
+                              </span>
+                              <p className="text-[10px] text-white/50 leading-relaxed max-w-md mx-auto">
+                                Since you have entered a <strong>Playlist M3U URL</strong> above, the system will load and parse episodes directly from your M3U link automatically. Single/Manual Episode entry is hidden to avoid conflicts.
+                              </p>
+                            </div>
+                          ) : (
+                            <>
+                              {/* Existing Episodes List */}
+                              {newFreeSeries.episodes && newFreeSeries.episodes.length > 0 && (
+                                <div className="space-y-2">
+                                  <label className="text-[9px] font-bold text-white/30 uppercase tracking-wider px-1">Added Episodes List ({newFreeSeries.episodes.length})</label>
+                                  <div className="max-h-[220px] overflow-y-auto pr-2 no-scrollbar space-y-1.5">
+                                    {newFreeSeries.episodes.map((ep, index) => (
+                                      <div key={ep.id || index} className="flex items-center justify-between bg-white/5 border border-white/10 px-4 py-3 rounded-xl gap-4">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                          <div className="text-[10px] bg-cyan-500/10 text-cyan-400 font-bold px-2 py-1 rounded shrink-0">
+                                            S{ep.season} E{ep.episode_num}
+                                          </div>
+                                          <div className="flex flex-col min-w-0">
+                                            <span className="text-[11px] text-white font-bold truncate">{ep.title}</span>
+                                            <span className="text-[9px] text-white/30 truncate">{ep.play_url}</span>
+                                          </div>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoveManualEpisode(ep.id)}
+                                          className="p-1.5 hover:bg-red-500/10 text-red-400 rounded-lg transition-colors cursor-pointer shrink-0"
+                                          title="Remove Episode"
+                                        >
+                                          <Trash2 size={13} />
+                                        </button>
                                       </div>
-                                      <div className="flex flex-col min-w-0">
-                                        <span className="text-[11px] text-white font-bold truncate">{ep.title}</span>
-                                        <span className="text-[9px] text-white/30 truncate">{ep.play_url}</span>
-                                      </div>
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveManualEpisode(ep.id)}
-                                      className="p-1.5 hover:bg-red-500/10 text-red-400 rounded-lg transition-colors cursor-pointer shrink-0"
-                                      title="Remove Episode"
-                                    >
-                                      <Trash2 size={13} />
-                                    </button>
+                                    ))}
                                   </div>
-                                ))}
+                                </div>
+                              )}
+
+                              {/* Add New Episode Inputs Row */}
+                              <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 space-y-4">
+                                <h5 className="text-[10px] font-black text-cyan-400 uppercase tracking-widest flex items-center gap-1.5">
+                                  <span>➕ Add New Episode</span>
+                                </h5>
+
+                                <div className="grid grid-cols-3 gap-3">
+                                  <div className="space-y-1">
+                                    <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Season</label>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={manualEpisodeInput.season}
+                                      onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, season: e.target.value })}
+                                      placeholder="Season"
+                                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Episode #</label>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={manualEpisodeInput.episode_num}
+                                      onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, episode_num: e.target.value })}
+                                      placeholder="Episode"
+                                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Title (Optional)</label>
+                                    <input
+                                      type="text"
+                                      value={manualEpisodeInput.title}
+                                      onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, title: e.target.value })}
+                                      placeholder={`Episode ${manualEpisodeInput.episode_num}`}
+                                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                  <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Stream / Play URL</label>
+                                  <input
+                                    type="text"
+                                    value={manualEpisodeInput.play_url}
+                                    onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, play_url: e.target.value })}
+                                    placeholder="Enter episode .m3u8 or .mp4 link"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                                  />
+                                </div>
+
+                                <div className="space-y-1">
+                                  <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Download URL (Optional)</label>
+                                  <input
+                                    type="text"
+                                    value={manualEpisodeInput.download_url}
+                                    onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, download_url: e.target.value })}
+                                    placeholder="Enter episode direct file download link"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                                  />
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={handleAddManualEpisode}
+                                  className="w-full py-2.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-cyan-500/20 active:scale-[0.98] cursor-pointer"
+                                >
+                                  Add Episode to List
+                                </button>
                               </div>
-                            </div>
+                            </>
                           )}
-
-                          {/* Add New Episode Inputs Row */}
-                          <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 space-y-4">
-                            <h5 className="text-[10px] font-black text-cyan-400 uppercase tracking-widest flex items-center gap-1.5">
-                              <span>➕ Add New Episode</span>
-                            </h5>
-
-                            <div className="grid grid-cols-3 gap-3">
-                              <div className="space-y-1">
-                                <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Season</label>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  value={manualEpisodeInput.season}
-                                  onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, season: e.target.value })}
-                                  placeholder="Season"
-                                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Episode #</label>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  value={manualEpisodeInput.episode_num}
-                                  onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, episode_num: e.target.value })}
-                                  placeholder="Episode"
-                                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Title (Optional)</label>
-                                <input
-                                  type="text"
-                                  value={manualEpisodeInput.title}
-                                  onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, title: e.target.value })}
-                                  placeholder={`Episode ${manualEpisodeInput.episode_num}`}
-                                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                                />
-                              </div>
-                            </div>
-
-                            <div className="space-y-1">
-                              <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Stream / Play URL</label>
-                              <input
-                                type="text"
-                                value={manualEpisodeInput.play_url}
-                                onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, play_url: e.target.value })}
-                                placeholder="Enter episode .m3u8 or .mp4 link"
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                              />
-                            </div>
-
-                            <div className="space-y-1">
-                              <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Download URL (Optional)</label>
-                              <input
-                                type="text"
-                                value={manualEpisodeInput.download_url}
-                                onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, download_url: e.target.value })}
-                                placeholder="Enter episode direct file download link"
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                              />
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={handleAddManualEpisode}
-                              className="w-full py-2.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-cyan-500/20 active:scale-[0.98] cursor-pointer"
-                            >
-                              Add Episode to List
-                            </button>
-                          </div>
                         </div>
                       )}
 
