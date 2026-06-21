@@ -38,7 +38,8 @@ import {
   Plus,
   Youtube,
   Radio,
-  GripVertical
+  GripVertical,
+  Trash2
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -515,7 +516,18 @@ export default function App() {
   });
 
   const [newFreeMovie, setNewFreeMovie] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, password: '' });
-  const [newFreeSeries, setNewFreeSeries] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', playlist_url: '', is_embed: false, password: '' });
+  const [newFreeSeries, setNewFreeSeries] = useState({ 
+    tmdb_id: '', 
+    name: '', 
+    poster_url: '', 
+    play_url: '', 
+    download_url: '', 
+    playlist_url: '', 
+    is_embed: false, 
+    password: '', 
+    episodes: [] as Array<{ id: string, season: string, episode_num: string, title: string, play_url: string, download_url?: string }>
+  });
+  const [manualEpisodeInput, setManualEpisodeInput] = useState({ season: '1', episode_num: '1', title: '', play_url: '', download_url: '' });
   const [passwordProtectedItem, setPasswordProtectedItem] = useState<{ item: any; type: 'movie' | 'series'; callback: () => void } | null>(null);
   const [enteredPassword, setEnteredPassword] = useState('');
   const [passwordError, setPasswordError] = useState(false);
@@ -2428,6 +2440,40 @@ export default function App() {
       } finally {
         setIsM3uLoading(false);
       }
+    } else if (series.episodes && series.episodes.length > 0) {
+      const parsedMap: Record<string, any[]> = {};
+      series.episodes.forEach((ep: any) => {
+        const s = String(ep.season || '1');
+        if (!parsedMap[s]) {
+          parsedMap[s] = [];
+        }
+        parsedMap[s].push({
+          id: ep.id || `ep_manual_${s}_${ep.episode_num}`,
+          episode_num: ep.episode_num || '1',
+          title: ep.title || `Episode ${ep.episode_num}`,
+          play_url: ep.play_url,
+          download_url: ep.download_url || ''
+        });
+      });
+      // Sort episodes in each season by episode_num
+      Object.keys(parsedMap).forEach((s) => {
+        parsedMap[s].sort((a,b) => (Number(a.episode_num) || 0) - (Number(b.episode_num) || 0));
+      });
+      setFreeSeriesEpisodesMap(parsedMap);
+      
+      const seasons = Object.keys(parsedMap).sort((a,b)=>Number(a)-Number(b));
+      if (seasons.length > 0) {
+        const firstSeason = seasons[0];
+        setSelectedFreeSeason(firstSeason);
+        const firstEp = parsedMap[firstSeason]?.[0];
+        if (firstEp) {
+          setPlayingFreeEpisode({
+            ...firstEp,
+            season: firstSeason
+          });
+          setFreeSeriesActiveUrl(firstEp.play_url);
+        }
+      }
     } else {
       setFreeSeriesEpisodesMap(null);
       setPlayingFreeEpisode(null);
@@ -2500,6 +2546,25 @@ export default function App() {
   const handleOpenFreeSeriesDownloadModal = async (series: any) => {
     if (!series) return;
     if (!series.playlist_url) {
+      if (series.episodes && series.episodes.length > 0) {
+        // We have manually added episodes! Populate the list directly instead of requesting M3U
+        const list: any[] = [];
+        series.episodes.forEach((ep: any) => {
+          list.push({
+            ...ep,
+            id: ep.id || `ep_manual_${ep.season || '1'}_${ep.episode_num}`,
+            episode_num: ep.episode_num || '1',
+            title: ep.title || `Episode ${ep.episode_num}`,
+            play_url: ep.play_url,
+            download_url: ep.download_url || '',
+            season: ep.season || '1'
+          });
+        });
+        setFreeDownloadModalEpisodes(list);
+        setShowFreeDownloadModal(true);
+        setIsFreeDownloadLoading(false);
+        return;
+      }
       // Direct file download fallback for simple movies/series
       const filename = `${series.name || 'series'}.${series.play_url?.split('.').pop() || 'mp4'}`;
       triggerDownload(series.download_url || series.play_url, filename);
@@ -2541,9 +2606,66 @@ export default function App() {
     }
   };
 
+  const handleAddManualEpisode = () => {
+    if (!manualEpisodeInput.play_url) {
+      alert("Episode play URL is required");
+      return;
+    }
+    const episodeNum = manualEpisodeInput.episode_num || '1';
+    const seasonVal = manualEpisodeInput.season || '1';
+    const titleVal = manualEpisodeInput.title.trim() || `Episode ${episodeNum}`;
+    
+    // Generate unique ID
+    const newEpId = `ep_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    
+    const newEp = {
+      id: newEpId,
+      season: seasonVal,
+      episode_num: episodeNum,
+      title: titleVal,
+      play_url: manualEpisodeInput.play_url.trim(),
+      download_url: manualEpisodeInput.download_url.trim()
+    };
+    
+    // Append to free series episodes list
+    const updatedEpisodes = [...(newFreeSeries.episodes || []), newEp];
+    
+    // Sort array by season and then by episode_num
+    updatedEpisodes.sort((a, b) => {
+      const sA = Number(a.season) || 1;
+      const sB = Number(b.season) || 1;
+      if (sA !== sB) return sA - sB;
+      return (Number(a.episode_num) || 1) - (Number(b.episode_num) || 1);
+    });
+    
+    setNewFreeSeries({
+      ...newFreeSeries,
+      episodes: updatedEpisodes
+    });
+    
+    // Auto-increment episode number for the next addition
+    const nextEpNum = (Number(episodeNum) + 1).toString();
+    setManualEpisodeInput({
+      season: seasonVal,
+      episode_num: nextEpNum,
+      title: '',
+      play_url: '',
+      download_url: ''
+    });
+  };
+
+  const handleRemoveManualEpisode = (episodeId: string) => {
+    const updatedEpisodes = (newFreeSeries.episodes || []).filter(ep => ep.id !== episodeId);
+    setNewFreeSeries({
+      ...newFreeSeries,
+      episodes: updatedEpisodes
+    });
+  };
+
   const handleAddFreeSeries = async () => {
-    if (!newFreeSeries.name || !newFreeSeries.poster_url || (!newFreeSeries.play_url && !newFreeSeries.playlist_url)) {
-      alert("Please fill name, poster URL, and either Streaming Link or Playlist M3U URL");
+    const hasManualEpisodes = newFreeSeries.episodes && newFreeSeries.episodes.length > 0;
+    if (!newFreeSeries.name || !newFreeSeries.poster_url || (!newFreeSeries.play_url && !newFreeSeries.playlist_url && !hasManualEpisodes)) {
+      alert("Please fill name, poster URL, and either Streaming Link, Playlist M3U URL, or add at least one Manual Episode");
       return;
     }
     try {
@@ -2559,7 +2681,17 @@ export default function App() {
           createdAt: new Date().toISOString()
         });
       }
-      setNewFreeSeries({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', playlist_url: '', is_embed: false, password: '' });
+      setNewFreeSeries({ 
+        tmdb_id: '', 
+        name: '', 
+        poster_url: '', 
+        play_url: '', 
+        download_url: '', 
+        playlist_url: '', 
+        is_embed: false, 
+        password: '', 
+        episodes: [] 
+      });
     } catch (error) {
       console.error("Error saving free series:", error);
     }
@@ -6121,7 +6253,7 @@ export default function App() {
                 </p>
 
                 {/* Free Series Actions & Playlist Selector */}
-                {!selectedFreeSeries.playlist_url ? (
+                {(!selectedFreeSeries.playlist_url && !(selectedFreeSeries.episodes && selectedFreeSeries.episodes.length > 0)) ? (
                   <div className="flex flex-col gap-3 pt-2">
                     <button 
                       onClick={() => {
@@ -6873,6 +7005,121 @@ export default function App() {
                         <label htmlFor="is_embed_admin" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Embed Mode</label>
                       </div>
 
+                      {activeAdminTab === 'free_series' && (
+                        <div className="border border-white/5 bg-white/[0.02] rounded-3xl p-6 space-y-5">
+                          <div>
+                            <h4 className="text-xs font-black text-white uppercase tracking-widest">
+                              Manually Managed / Weekly Episodes Panel
+                            </h4>
+                            <p className="text-[10px] text-white/40 mt-1 leading-normal">
+                              Use this to input manual episodes week-by-week. If a series gets episodes every Monday, add them here. Leave the central "Playlist M3U URL" empty.
+                            </p>
+                          </div>
+
+                          {/* Existing Episodes List */}
+                          {newFreeSeries.episodes && newFreeSeries.episodes.length > 0 && (
+                            <div className="space-y-2">
+                              <label className="text-[9px] font-bold text-white/30 uppercase tracking-wider px-1">Added Episodes List ({newFreeSeries.episodes.length})</label>
+                              <div className="max-h-[220px] overflow-y-auto pr-2 no-scrollbar space-y-1.5">
+                                {newFreeSeries.episodes.map((ep, index) => (
+                                  <div key={ep.id || index} className="flex items-center justify-between bg-white/5 border border-white/10 px-4 py-3 rounded-xl gap-4">
+                                    <div className="flex items-center gap-3 min-w-0">
+                                      <div className="text-[10px] bg-cyan-500/10 text-cyan-400 font-bold px-2 py-1 rounded shrink-0">
+                                        S{ep.season} E{ep.episode_num}
+                                      </div>
+                                      <div className="flex flex-col min-w-0">
+                                        <span className="text-[11px] text-white font-bold truncate">{ep.title}</span>
+                                        <span className="text-[9px] text-white/30 truncate">{ep.play_url}</span>
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveManualEpisode(ep.id)}
+                                      className="p-1.5 hover:bg-red-500/10 text-red-400 rounded-lg transition-colors cursor-pointer shrink-0"
+                                      title="Remove Episode"
+                                    >
+                                      <Trash2 size={13} />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Add New Episode Inputs Row */}
+                          <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 space-y-4">
+                            <h5 className="text-[10px] font-black text-cyan-400 uppercase tracking-widest flex items-center gap-1.5">
+                              <span>➕ Add New Episode</span>
+                            </h5>
+
+                            <div className="grid grid-cols-3 gap-3">
+                              <div className="space-y-1">
+                                <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Season</label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={manualEpisodeInput.season}
+                                  onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, season: e.target.value })}
+                                  placeholder="Season"
+                                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Episode #</label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={manualEpisodeInput.episode_num}
+                                  onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, episode_num: e.target.value })}
+                                  placeholder="Episode"
+                                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Title (Optional)</label>
+                                <input
+                                  type="text"
+                                  value={manualEpisodeInput.title}
+                                  onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, title: e.target.value })}
+                                  placeholder={`Episode ${manualEpisodeInput.episode_num}`}
+                                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Stream / Play URL</label>
+                              <input
+                                type="text"
+                                value={manualEpisodeInput.play_url}
+                                onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, play_url: e.target.value })}
+                                placeholder="Enter episode .m3u8 or .mp4 link"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Download URL (Optional)</label>
+                              <input
+                                type="text"
+                                value={manualEpisodeInput.download_url}
+                                onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, download_url: e.target.value })}
+                                placeholder="Enter episode direct file download link"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500/50"
+                              />
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={handleAddManualEpisode}
+                              className="w-full py-2.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-cyan-500/20 active:scale-[0.98] cursor-pointer"
+                            >
+                              Add Episode to List
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       <button 
                         onClick={activeAdminTab === 'free_movies' ? handleAddFreeMovie : handleAddFreeSeries}
                         className={`w-full py-4 rounded-2xl text-xs font-black uppercase tracking-[0.2em] transition-all shadow-xl ${
@@ -6917,7 +7164,8 @@ export default function App() {
                                         download_url: item.download_url || '',
                                         playlist_url: item.playlist_url || '',
                                         is_embed: !!item.is_embed,
-                                        password: item.password || ''
+                                        password: item.password || '',
+                                        episodes: item.episodes || []
                                       });
                                     }
                                   }}
