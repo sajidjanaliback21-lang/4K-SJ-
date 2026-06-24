@@ -3,9 +3,12 @@ import { createServer as createViteServer } from "vite";
 import axios from "axios";
 import path from "path";
 import { fileURLToPath } from "url";
+import https from "https";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
 // Simple in-memory cache for proxy requests
 const cache = new Map<string, { data: any; expiry: number }>();
@@ -40,6 +43,7 @@ async function startServer() {
         params,
         timeout: 60000, // Increased timeout to 60s
         maxContentLength: 100 * 1024 * 1024, // 100MB limit
+        httpsAgent,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
           'Accept': '*/*',
@@ -92,6 +96,7 @@ async function startServer() {
         url: targetUrl,
         responseType: 'stream',
         headers: headers,
+        httpsAgent,
         timeout: 0, // No timeout for streaming
       });
 

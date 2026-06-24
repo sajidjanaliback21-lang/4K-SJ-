@@ -1492,7 +1492,33 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     if (onReadyRef.current) onReadyRef.current(art);
 
+    const handleSpacebar = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target && (
+          target.tagName === 'INPUT' || 
+          target.tagName === 'TEXTAREA' || 
+          target.contentEditable === 'true'
+        )
+      ) {
+        return;
+      }
+
+      if (e.code === 'Space' || e.key === ' ' || e.keyCode === 32) {
+        e.preventDefault();
+        if (art) {
+          if (art.playing) {
+            art.pause();
+          } else {
+            art.play();
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', handleSpacebar);
+
     return () => {
+      window.removeEventListener('keydown', handleSpacebar);
       setEqPortalTarget(null);
       if (hlsRef.current) hlsRef.current.destroy();
       if (mpegtsRef.current) {
