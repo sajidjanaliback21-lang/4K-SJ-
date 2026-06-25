@@ -3332,9 +3332,9 @@ export default function App() {
           ) : (
           <div className="flex flex-col gap-6">
             {/* IPTV Layout for Live TV */}
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               {/* Left Column: Player (Span 2) */}
-              <div className="lg:col-span-2 space-y-4">
+              <div className="md:col-span-2 space-y-4">
                 <div className="relative aspect-video rounded-[2rem] overflow-hidden bg-black border border-white/10 shadow-2xl group group-hover:border-cyan-500/50 transition-all duration-500">
                   {playingLiveStream ? (
                     <div className="w-full h-full">
@@ -3421,9 +3421,9 @@ export default function App() {
               </div>
  
               {/* Right Column: Categories & Channels List */}
-              <div className="lg:col-span-1 lg:h-[calc(100vh-280px)] min-h-[500px] flex flex-col gap-6">
+              <div className="md:col-span-1 md:h-[calc(100vh-280px)] min-h-[500px] flex flex-col gap-6">
                 {/* Categories Scroll */}
-                <div className="flex flex-col gap-3 lg:hidden">
+                <div className="flex flex-col gap-3 md:hidden">
                   <h3 className="text-xs font-black text-white/30 uppercase tracking-[0.3em] px-2 italic">Categories</h3>
                   <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
                     {currentCategories.map((cat, idx) => (
@@ -3473,7 +3473,7 @@ export default function App() {
                         <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Scanning channels...</span>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                      <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                         {currentItems
                           .filter(item => item.name.toLowerCase().includes(liveSearchQuery.toLowerCase()))
                           .map((item, idx) => (
@@ -3551,7 +3551,7 @@ export default function App() {
               </div>
 
               {/* Rightmost Column: Vertical Categories list (visible only on desktop) */}
-              <div className="hidden lg:flex flex-col gap-4 lg:col-span-1 sticky top-24 self-start bg-black/25 p-4 rounded-[2rem] border border-white/5 shadow-2xl backdrop-blur-xl">
+              <div className="hidden md:flex flex-col gap-4 md:col-span-1 sticky top-24 self-start bg-black/25 p-4 rounded-[2rem] border border-white/5 shadow-2xl backdrop-blur-xl">
                 <div className="flex items-center gap-2 px-2">
                   <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20">
                     <LayoutGrid size={16} className="text-cyan-400" />
@@ -4084,9 +4084,9 @@ export default function App() {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col lg:flex-row gap-8 items-start w-full">
+          <div className="flex flex-col md:flex-row gap-8 items-start w-full">
             {/* Premium Category Side Panel (Vertical on desktop, Horizontal on mobile) */}
-            <div className="w-full lg:w-72 lg:shrink-0 lg:sticky lg:top-24 space-y-4">
+            <div className="w-full md:w-72 md:shrink-0 md:sticky md:top-24 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20">
@@ -4104,13 +4104,13 @@ export default function App() {
               </div>
 
               <div className="relative group w-full">
-                <div className="flex flex-row lg:flex-col items-stretch lg:items-stretch gap-2 overflow-x-auto lg:overflow-x-visible no-scrollbar pb-2 lg:pb-0 snap-x snap-mandatory">
+                <div className="flex flex-row md:flex-col items-stretch md:items-stretch gap-2 overflow-x-auto md:overflow-x-visible no-scrollbar pb-2 md:pb-0 snap-x snap-mandatory">
                   {currentCategories.map((cat, idx) => (
                     <button
                       key={`${activeTab}-cat-${cat.category_id}-${idx}`}
                       onClick={() => setCurrentSelectedCategory(cat.category_id)}
                       className={cn(
-                        "relative whitespace-nowrap lg:whitespace-normal text-left px-5 py-2.5 rounded-xl text-xs md:text-sm font-bold transition-all duration-300 snap-start gpu w-full shrink-0 lg:shrink",
+                        "relative whitespace-nowrap md:whitespace-normal text-left px-5 py-2.5 rounded-xl text-xs md:text-sm font-bold transition-all duration-300 snap-start gpu w-full shrink-0 md:shrink",
                         currentSelectedCategory === cat.category_id 
                           ? "text-black" 
                           : "text-white/50 hover:text-white bg-white/5 border border-white/5 hover:border-white/20"
@@ -4123,8 +4123,8 @@ export default function App() {
                           transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
                         />
                       )}
-                      <div className="relative z-10 flex flex-row lg:flex-col items-center lg:items-start justify-between">
-                        <span className="leading-tight truncate pr-2 lg:pr-0">{cat.category_name}</span>
+                      <div className="relative z-10 flex flex-row md:flex-col items-center md:items-start justify-between">
+                        <span className="leading-tight truncate pr-2 md:pr-0">{cat.category_name}</span>
                         {cat.category_id === '0' && (
                           <span className="text-[8px] md:text-[9px] opacity-60 font-medium mt-0.5 whitespace-nowrap shrink-0">
                             {activeTab === 'movies' ? totalMovieCount : (activeTab === 'series' ? totalSeriesCount : totalLiveCount)} Items
@@ -4144,7 +4144,7 @@ export default function App() {
                   ))}
                 </div>
                 {/* Fade edges on mobile/tablet */}
-                <div className="absolute top-0 right-0 bottom-2 w-12 bg-gradient-to-l from-[#020617] to-transparent pointer-events-none lg:hidden" />
+                <div className="absolute top-0 right-0 bottom-2 w-12 bg-gradient-to-l from-[#020617] to-transparent pointer-events-none md:hidden" />
               </div>
             </div>
 
