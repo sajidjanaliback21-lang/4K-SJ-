@@ -386,7 +386,7 @@ export default function App() {
     if (loggedIn && saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed && (parsed.host?.includes('lb-skip.vercel.app') || !parsed.host)) {
+        if (parsed && (parsed.host?.includes('lb-skip.vercel.app') || parsed.host?.includes('sjstorehot-lbskip.hf.space') || !parsed.host)) {
           parsed.host = 'https://4ksjpun-lbff.hf.space';
           localStorage.setItem('iptv_creds', JSON.stringify(parsed));
         }
@@ -2751,7 +2751,7 @@ export default function App() {
       return;
     }
     // Set the New Base URL - Use the legacy server for downloads only
-    const host = action === 'download' ? 'https://lb-skip.vercel.app' : 'https://4ksjpun-lbff.hf.space';
+    const host = action === 'download' ? 'https://sjstorehot-lbskip.hf.space' : 'https://4ksjpun-lbff.hf.space';
 
     const isLive = !!(item as any).stream_type && (item as any).stream_type === 'live';
     const isSeries = !!(episodeId || (item as any).series_id);
@@ -3558,7 +3558,7 @@ export default function App() {
                   </div>
                   <h3 className="text-xs font-black text-white uppercase tracking-widest italic">Categories</h3>
                 </div>
-                <div className="flex flex-col gap-2 overflow-y-auto max-h-[calc(100vh-320px)] no-scrollbar pr-1">
+                <div className="flex flex-col gap-2 overflow-y-auto max-h-[calc(100vh-320px)] desktop-scrollbar pr-1">
                   {currentCategories.map((cat, idx) => (
                     <button
                       key={`iptv-cat-vertical-${cat.category_id}-${idx}`}
@@ -4104,7 +4104,7 @@ export default function App() {
               </div>
 
               <div className="relative group w-full">
-                <div className="flex flex-row md:flex-col items-stretch md:items-stretch gap-2 overflow-x-auto md:overflow-x-visible no-scrollbar pb-2 md:pb-0 snap-x snap-mandatory">
+                <div className="flex flex-row md:flex-col items-stretch md:items-stretch gap-2 overflow-x-auto md:overflow-y-auto md:max-h-[calc(100vh-240px)] desktop-scrollbar pb-2 md:pb-0 md:pr-1 snap-x snap-mandatory">
                   {currentCategories.map((cat, idx) => (
                     <button
                       key={`${activeTab}-cat-${cat.category_id}-${idx}`}
@@ -4643,12 +4643,43 @@ export default function App() {
                     </div>
 
                     {/* Cast Info Box (Desktop horizontal side scroll or tidy layout) */}
-                    <div className="bg-black/45 backdrop-blur-md rounded-2xl p-3 border border-white/10 flex flex-col gap-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
-                      <span className="text-[10px] font-black text-[#00D1FF] uppercase tracking-[0.2em] leading-none mb-1 block">
-                        🎭 Cast & Stars
-                      </span>
+                    <div className="bg-black/45 backdrop-blur-md rounded-2xl p-3 border border-white/10 flex flex-col gap-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.4)] relative">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-[#00D1FF] uppercase tracking-[0.2em] leading-none mb-1 block">
+                          🎭 Cast & Stars
+                        </span>
+                        {/* Desktop-only Navigation Buttons */}
+                        {castingList.length > 3 && (
+                          <div className="hidden md:flex items-center gap-1 mb-1">
+                            <button 
+                              onClick={(e) => {
+                                const container = e.currentTarget.closest('.relative')?.querySelector('.cast-scroll-container');
+                                if (container) {
+                                  container.scrollBy({ left: -120, behavior: 'smooth' });
+                                }
+                              }}
+                              className="w-5 h-5 flex items-center justify-center bg-white/5 hover:bg-[#00D1FF]/20 border border-white/10 hover:border-[#00D1FF]/30 text-white hover:text-[#00D1FF] rounded-full transition-all cursor-pointer shadow-md"
+                              title="Previous"
+                            >
+                              <ChevronRight size={10} className="rotate-180" />
+                            </button>
+                            <button 
+                              onClick={(e) => {
+                                const container = e.currentTarget.closest('.relative')?.querySelector('.cast-scroll-container');
+                                if (container) {
+                                  container.scrollBy({ left: 120, behavior: 'smooth' });
+                                }
+                              }}
+                              className="w-5 h-5 flex items-center justify-center bg-white/5 hover:bg-[#00D1FF]/20 border border-white/10 hover:border-[#00D1FF]/30 text-white hover:text-[#00D1FF] rounded-full transition-all cursor-pointer shadow-md"
+                              title="Next"
+                            >
+                              <ChevronRight size={10} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       {castingList.length > 0 ? (
-                        <div className="flex gap-3 overflow-x-auto no-scrollbar items-center py-0.5">
+                        <div className="cast-scroll-container flex gap-3 overflow-x-auto no-scrollbar items-center py-0.5">
                           {castingList.map((actor, idx) => {
                             const grad = stringToColorGradient(actor.name);
                             return (
@@ -4821,7 +4852,7 @@ export default function App() {
                             </div>
 
                             {/* Episodes List (Compact Height to guarantee zero scrolling!) */}
-                            <div className="space-y-1.5 max-h-[140px] lg:max-h-[180px] overflow-y-auto pr-1 no-scrollbar pb-1">
+                            <div className="space-y-1.5 max-h-[140px] lg:max-h-[180px] overflow-y-auto pr-1 desktop-scrollbar pb-1">
                               {seriesInfo.episodes[selectedSeason || '']?.map((episode: any, idx: number) => (
                                 <div 
                                   key={`episode-desk-${episode.id}-${idx}`}
@@ -5732,12 +5763,43 @@ export default function App() {
                   </div>
 
                   {/* Cast Info Box (Adjacent to Poster) */}
-                  <div className="flex-1 min-w-0 bg-black/45 backdrop-blur-md rounded-xl sm:rounded-2xl p-2.5 sm:p-3 md:p-3.5 border border-white/10 flex flex-col gap-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
-                    <span className="text-[8px] sm:text-[9.5px] font-black text-[#00D1FF] uppercase tracking-[0.2em] leading-none mb-1 block">
-                      🎭 Cast & Stars
-                    </span>
+                  <div className="flex-1 min-w-0 bg-black/45 backdrop-blur-md rounded-xl sm:rounded-2xl p-2.5 sm:p-3 md:p-3.5 border border-white/10 flex flex-col gap-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.4)] relative">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[8px] sm:text-[9.5px] font-black text-[#00D1FF] uppercase tracking-[0.2em] leading-none mb-1 block">
+                        🎭 Cast & Stars
+                      </span>
+                      {/* Desktop-only Navigation Buttons */}
+                      {castingList.length > 3 && (
+                        <div className="hidden md:flex items-center gap-1 mb-1">
+                          <button 
+                            onClick={(e) => {
+                              const container = e.currentTarget.closest('.relative')?.querySelector('.cast-scroll-container');
+                              if (container) {
+                                container.scrollBy({ left: -120, behavior: 'smooth' });
+                              }
+                            }}
+                            className="w-5 h-5 flex items-center justify-center bg-white/5 hover:bg-[#00D1FF]/20 border border-white/10 hover:border-[#00D1FF]/30 text-white hover:text-[#00D1FF] rounded-full transition-all cursor-pointer shadow-md"
+                            title="Previous"
+                          >
+                            <ChevronRight size={10} className="rotate-180" />
+                          </button>
+                          <button 
+                            onClick={(e) => {
+                              const container = e.currentTarget.closest('.relative')?.querySelector('.cast-scroll-container');
+                              if (container) {
+                                container.scrollBy({ left: 120, behavior: 'smooth' });
+                              }
+                            }}
+                            className="w-5 h-5 flex items-center justify-center bg-white/5 hover:bg-[#00D1FF]/20 border border-white/10 hover:border-[#00D1FF]/30 text-white hover:text-[#00D1FF] rounded-full transition-all cursor-pointer shadow-md"
+                            title="Next"
+                          >
+                            <ChevronRight size={10} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                     {castingList.length > 0 ? (
-                      <div className="flex gap-2 sm:gap-3 md:gap-4 overflow-x-auto no-scrollbar items-center py-0.5">
+                      <div className="cast-scroll-container flex gap-2 sm:gap-3 md:gap-4 overflow-x-auto no-scrollbar items-center py-0.5">
                         {castingList.map((actor, idx) => {
                           const grad = stringToColorGradient(actor.name);
                           return (
@@ -6458,12 +6520,43 @@ export default function App() {
                   </div>
 
                   {/* Cast Info Box (Adjacent to Poster) */}
-                  <div className="flex-1 min-w-0 bg-black/45 backdrop-blur-md rounded-xl sm:rounded-2xl p-2.5 sm:p-3 md:p-3.5 border border-white/10 flex flex-col gap-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
-                    <span className="text-[8px] sm:text-[9.5px] font-black text-purple-400 uppercase tracking-[0.2em] leading-none mb-1 block">
-                      🎭 Cast & Stars
-                    </span>
+                  <div className="flex-1 min-w-0 bg-black/45 backdrop-blur-md rounded-xl sm:rounded-2xl p-2.5 sm:p-3 md:p-3.5 border border-white/10 flex flex-col gap-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.4)] relative">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[8px] sm:text-[9.5px] font-black text-purple-400 uppercase tracking-[0.2em] leading-none mb-1 block">
+                        🎭 Cast & Stars
+                      </span>
+                      {/* Desktop-only Navigation Buttons */}
+                      {castingList.length > 3 && (
+                        <div className="hidden md:flex items-center gap-1 mb-1">
+                          <button 
+                            onClick={(e) => {
+                              const container = e.currentTarget.closest('.relative')?.querySelector('.cast-scroll-container');
+                              if (container) {
+                                container.scrollBy({ left: -120, behavior: 'smooth' });
+                              }
+                            }}
+                            className="w-5 h-5 flex items-center justify-center bg-white/5 hover:bg-[#00D1FF]/20 border border-white/10 hover:border-[#00D1FF]/30 text-white hover:text-[#00D1FF] rounded-full transition-all cursor-pointer shadow-md"
+                            title="Previous"
+                          >
+                            <ChevronRight size={10} className="rotate-180" />
+                          </button>
+                          <button 
+                            onClick={(e) => {
+                              const container = e.currentTarget.closest('.relative')?.querySelector('.cast-scroll-container');
+                              if (container) {
+                                container.scrollBy({ left: 120, behavior: 'smooth' });
+                              }
+                            }}
+                            className="w-5 h-5 flex items-center justify-center bg-white/5 hover:bg-[#00D1FF]/20 border border-white/10 hover:border-[#00D1FF]/30 text-white hover:text-[#00D1FF] rounded-full transition-all cursor-pointer shadow-md"
+                            title="Next"
+                          >
+                            <ChevronRight size={10} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                     {castingList.length > 0 ? (
-                      <div className="flex gap-2 sm:gap-3 md:gap-4 overflow-x-auto no-scrollbar items-center py-0.5">
+                      <div className="cast-scroll-container flex gap-2 sm:gap-3 md:gap-4 overflow-x-auto no-scrollbar items-center py-0.5">
                         {castingList.map((actor, idx) => {
                           const grad = stringToColorGradient(actor.name);
                           return (
@@ -6617,7 +6710,7 @@ export default function App() {
                         </div>
 
                         {/* Episodes List */}
-                        <div className="space-y-2 max-h-[300px] md:max-h-[400px] overflow-y-auto pr-1 md:pr-2 no-scrollbar pb-4">
+                        <div className="space-y-2 max-h-[300px] md:max-h-[400px] overflow-y-auto pr-1 md:pr-2 desktop-scrollbar pb-4">
                           {freeSeriesEpisodesMap[selectedFreeSeason || '']?.map((episode: any, idx: number) => (
                             <div 
                               key={`free-episode-${episode.id}-${idx}`}

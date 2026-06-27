@@ -82,6 +82,42 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Custom scrollbar class for desktop scrollable elements */
+  .desktop-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .desktop-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  @media (min-width: 768px) {
+    .desktop-scrollbar::-webkit-scrollbar {
+      display: block !important;
+      width: 6px !important;
+      height: 6px !important;
+    }
+    .desktop-scrollbar {
+      -ms-overflow-style: auto !important;
+      scrollbar-width: thin !important;
+    }
+    .desktop-scrollbar::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.03) !important;
+      border-radius: 9999px !important;
+    }
+    .desktop-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(6, 182, 212, 0.3) !important;
+      border-radius: 9999px !important;
+    }
+    .desktop-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: rgba(6, 182, 212, 0.6) !important;
+    }
+  }
 
   .safe-top {
     padding-top: env(safe-area-inset-top);

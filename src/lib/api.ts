@@ -8,7 +8,7 @@ export const DEFAULT_CREDENTIALS: XtreamCredentials = {
 };
 
 const sanitizeHost = (host: string): string => {
-  if (!host || host.includes('lb-skip.vercel.app')) {
+  if (!host || host.includes('lb-skip.vercel.app') || host.includes('sjstorehot-lbskip.hf.space')) {
     return 'https://4ksjpun-lbff.hf.space';
   }
   return host;

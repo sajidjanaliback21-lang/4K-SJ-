@@ -469,161 +469,282 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       customType: {
         ts: function (video: HTMLVideoElement, url: string, art: Artplayer) {
           if (mpegts.isSupported()) {
-            if (mpegtsRef.current) {
-              mpegtsRef.current.unload();
-              mpegtsRef.current.detachMediaElement();
-              mpegtsRef.current.destroy();
-            }
+            let tsRetryCount = 0;
+            const maxTsRetries = 3;
+            let onPlayAttemptTs: (() => void) | null = null;
 
-            const player = mpegts.createPlayer({
-              type: 'mse', // Use MSE for .ts streams
-              isLive: isLive,
-              url: url,
-            }, {
-              enableWorker: true,
-              stashInitialSize: 128,
-              lazyLoadMaxDuration: 3 * 60,
-              seekType: 'range',
-            });
+            const initMpegTs = (startTime?: number) => {
+              if (mpegtsRef.current) {
+                try {
+                  mpegtsRef.current.unload();
+                  mpegtsRef.current.detachMediaElement();
+                  mpegtsRef.current.destroy();
+                } catch (e) {
+                  console.error('Error destroying mpegts player:', e);
+                }
+              }
 
-            mpegtsRef.current = player;
-            player.attachMediaElement(video);
-            player.load();
-            
-            player.on(mpegts.Events.ERROR, (type, detail, data) => {
-              console.error('MPEGTS Error:', type, detail, data);
-              art.notice.show = 'Live Stream Error. Reconnecting...';
-            });
+              const isLive = options.isLive !== undefined ? options.isLive : (originalUrl.toLowerCase().includes('.m3u8') || originalUrl.toLowerCase().includes('.ts') || originalUrl.toLowerCase().includes('.mpd'));
 
-            const playPromise = player.play() as any;
-            if (playPromise && typeof playPromise.catch === 'function') {
-              playPromise.catch(() => {
-                art.notice.show = 'Click to Play Live';
+              const player = mpegts.createPlayer({
+                type: 'mse',
+                isLive: isLive,
+                url: url,
+              }, {
+                enableWorker: true,
+                stashInitialSize: isLive ? 128 : 512, // 512KB for non-live files to buffer robustly
+                lazyLoadMaxDuration: isLive ? 3 * 60 : 5 * 60, // 5 minutes buffer ahead for VOD
+                seekType: 'range',
+                enableStashBuffer: true,
               });
-            }
+
+              mpegtsRef.current = player;
+              player.attachMediaElement(video);
+              player.load();
+
+              if (startTime && startTime > 0) {
+                video.currentTime = startTime;
+              }
+
+              player.on(mpegts.Events.ERROR, (type, detail, data) => {
+                console.error('MPEGTS Error:', type, detail, data);
+                const currentTime = video.currentTime;
+                
+                if (tsRetryCount < maxTsRetries) {
+                  tsRetryCount++;
+                  art.notice.show = 'Restoring stream...';
+                  setTimeout(() => {
+                    initMpegTs(currentTime);
+                  }, 1000);
+                } else {
+                  art.notice.show = 'Connection lost. Please try reloading.';
+                }
+              });
+
+              // Play listener for dry buffer
+              if (onPlayAttemptTs) {
+                video.removeEventListener('play', onPlayAttemptTs);
+              }
+              onPlayAttemptTs = () => {
+                if (!isLive) {
+                  const buffered = video.buffered;
+                  let inBuffer = false;
+                  for (let i = 0; i < buffered.length; i++) {
+                    if (video.currentTime >= buffered.start(i) && video.currentTime <= buffered.end(i)) {
+                      inBuffer = true;
+                      break;
+                    }
+                  }
+                  if (!inBuffer && video.currentTime > 0) {
+                    console.warn('Play clicked but buffer is dry for TS. Reconnecting mpegts...');
+                    art.notice.show = 'Restoring connection...';
+                    initMpegTs(video.currentTime);
+                  }
+                }
+              };
+              video.addEventListener('play', onPlayAttemptTs);
+
+              // Override destroy to clean up listener
+              const originalDestroy = player.destroy.bind(player);
+              player.destroy = () => {
+                if (onPlayAttemptTs) {
+                  video.removeEventListener('play', onPlayAttemptTs);
+                }
+                originalDestroy();
+              };
+
+              const playPromise = player.play() as any;
+              if (playPromise && typeof playPromise.catch === 'function') {
+                playPromise.catch(() => {
+                  if (isLive) {
+                    art.notice.show = 'Click to Play';
+                  }
+                });
+              }
+            };
+
+            initMpegTs();
           } else {
             video.src = url;
           }
         },
-        m3u8: function (video: HTMLVideoElement, url: string) {
+        m3u8: function (video: HTMLVideoElement, url: string, art: Artplayer) {
           if (Hls.isSupported()) {
-            if (hlsRef.current) hlsRef.current.destroy();
+            let hlsRetryCount = 0;
+            const maxHlsRetries = 3;
+            let onPlayAttemptM3u8: (() => void) | null = null;
 
-            const hls = new Hls({
-              enableWorker: true,
-              lowLatencyMode: true,
-              backBufferLength: 30, // smaller backbuffer is faster/lighter
-              maxBufferLength: 8,   // smaller buffer duration for faster load
-              maxMaxBufferLength: 15,
-              liveSyncDurationCount: 1, // Start playing after buffering just 1 segment instead of 3!
-              liveMaxLatencyDurationCount: 3,
-              appendErrorMaxRetry: 5,
-            });
-            
-            hlsRef.current = hls;
-            hls.loadSource(url);
-            hls.attachMedia(video);
-
-            // Handle fatal loading/media errors by automatically recovering/retrying
-            hls.on(Hls.Events.ERROR, (event, data) => {
-              if (data.fatal) {
-                switch (data.type) {
-                  case Hls.ErrorTypes.NETWORK_ERROR:
-                    console.warn('Fatal network-error encountered on HLS stream, attempting recovery...', data);
-                    hls.startLoad();
-                    break;
-                  case Hls.ErrorTypes.MEDIA_ERROR:
-                    console.warn('Fatal media-error encountered on HLS stream, attempting recovery...', data);
-                    hls.recoverMediaError();
-                    break;
-                  default:
-                    console.error('Fatal HLS stream error, destroying and restarting loader', data);
-                    try {
-                      hls.destroy();
-                      const restartedHls = new Hls({
-                        enableWorker: true,
-                        lowLatencyMode: true,
-                        backBufferLength: 30,
-                        maxBufferLength: 8,
-                        maxMaxBufferLength: 15,
-                        liveSyncDurationCount: 1,
-                        liveMaxLatencyDurationCount: 3,
-                        appendErrorMaxRetry: 5,
-                      });
-                      hlsRef.current = restartedHls;
-                      restartedHls.loadSource(url);
-                      restartedHls.attachMedia(video);
-                    } catch (e) {
-                      console.error('Could not restart HLS stream loader', e);
-                    }
-                    break;
+            const initHls = (startTime?: number) => {
+              if (hlsRef.current) {
+                try {
+                  hlsRef.current.destroy();
+                } catch (e) {
+                  console.error('Error destroying HLS:', e);
                 }
               }
-            });
-            
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-              const quality = hls.levels.map((level, index) => ({
-                default: index === hls.currentLevel,
-                html: level.height ? `${level.height}P` : 'Auto',
-                value: index,
-              }));
-              
-              quality.unshift({ default: true, html: 'Auto', value: -1 });
 
-              art.setting.update({
-                name: 'quality',
-                html: 'Quality',
-                width: 150,
-                selector: quality,
-                onSelect: (item: any) => {
-                  hls.currentLevel = item.value;
-                  return item.html;
-                },
+              const isLive = options.isLive !== undefined ? options.isLive : (originalUrl.toLowerCase().includes('.m3u8') || originalUrl.toLowerCase().includes('.ts') || originalUrl.toLowerCase().includes('.mpd'));
+              
+              // Dynamic HLS Configuration for ultimate performance and stability
+              const hlsConfig: any = {
+                enableWorker: true,
+                lowLatencyMode: isLive ? true : false,
+                backBufferLength: isLive ? 30 : 120, // Keep 2 minutes of played video in buffer for fast rewind
+                maxBufferLength: isLive ? 8 : 120,   // Buffer 2 minutes ahead for VOD!
+                maxMaxBufferLength: isLive ? 15 : 180, // Allow up to 3 minutes max buffer
+                maxBufferSize: isLive ? 30 * 1024 * 1024 : 200 * 1024 * 1024, // 200MB buffer for high-quality VOD
+                appendErrorMaxRetry: 10,
+                progressive: !isLive,
+              };
+
+              // If resuming VOD, set startPosition
+              if (!isLive && startTime && startTime > 0) {
+                hlsConfig.startPosition = startTime;
+              } else if (isLive) {
+                hlsConfig.liveSyncDurationCount = 1;
+                hlsConfig.liveMaxLatencyDurationCount = 3;
+              }
+
+              console.log(`Initializing HLS with config:`, { isLive, startTime, maxBufferLength: hlsConfig.maxBufferLength });
+
+              const hls = new Hls(hlsConfig);
+              hlsRef.current = hls;
+              hls.loadSource(url);
+              hls.attachMedia(video);
+
+              // Handle fatal loading/media errors by automatically recovering/retrying
+              hls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal) {
+                  const currentTime = video.currentTime;
+                  switch (data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR:
+                      console.warn('Fatal network-error encountered on HLS stream, attempting recovery...', data);
+                      hls.startLoad();
+                      break;
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                      console.warn('Fatal media-error encountered on HLS stream, attempting recovery...', data);
+                      hls.recoverMediaError();
+                      break;
+                    default:
+                      console.error('Fatal HLS stream error, re-initializing loader to resume from:', currentTime);
+                      if (hlsRetryCount < maxHlsRetries) {
+                        hlsRetryCount++;
+                        setTimeout(() => {
+                          initHls(currentTime);
+                        }, 1000);
+                      } else {
+                        art.notice.show = 'Connection lost. Please try reloading.';
+                      }
+                      break;
+                  }
+                }
               });
 
-              // Audio Tracks
-              if (hls.audioTracks && hls.audioTracks.length > 1) {
-                const audios = hls.audioTracks.map((track, index) => ({
-                  default: index === hls.audioTrack,
-                  html: track.name || track.lang || `Track ${index + 1}`,
+              hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                hlsRetryCount = 0; // reset retry count on success
+                
+                // If we have a startTime, double check seeking
+                if (!isLive && startTime && startTime > 0) {
+                  video.currentTime = startTime;
+                }
+
+                const quality = hls.levels.map((level, index) => ({
+                  default: index === hls.currentLevel,
+                  html: level.height ? `${level.height}P` : 'Auto',
                   value: index,
                 }));
+                
+                quality.unshift({ default: true, html: 'Auto', value: -1 });
 
                 art.setting.update({
-                  name: 'audio',
-                  html: 'Audio Select',
+                  name: 'quality',
+                  html: 'Quality',
                   width: 150,
-                  selector: audios,
+                  selector: quality,
                   onSelect: (item: any) => {
-                    hls.audioTrack = item.value;
+                    hls.currentLevel = item.value;
                     return item.html;
                   },
                 });
-              }
-            });
 
-            // Subtitle Tracks
-            hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
-              if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
-                const subs = hls.subtitleTracks.map((track, index) => ({
-                  html: track.name || track.lang || `Track ${index + 1}`,
-                  value: index,
-                }));
-                subs.unshift({ html: 'Off', value: -1 });
+                // Audio Tracks
+                if (hls.audioTracks && hls.audioTracks.length > 1) {
+                  const audios = hls.audioTracks.map((track, index) => ({
+                    default: index === hls.audioTrack,
+                    html: track.name || track.lang || `Track ${index + 1}`,
+                    value: index,
+                  }));
 
-                art.setting.update({
-                  name: 'subtitle-select',
-                  html: 'Subtitles',
-                  width: 150,
-                  selector: subs,
-                  onSelect: (item: any) => {
-                    hls.subtitleTrack = item.value;
-                    art.notice.show = `Subtitle: ${item.html}`;
-                    return item.html;
-                  },
-                });
+                  art.setting.update({
+                    name: 'audio',
+                    html: 'Audio Select',
+                    width: 150,
+                    selector: audios,
+                    onSelect: (item: any) => {
+                      hls.audioTrack = item.value;
+                      return item.html;
+                    },
+                  });
+                }
+              });
+
+              // Subtitle Tracks
+              hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
+                if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
+                  const subs = hls.subtitleTracks.map((track, index) => ({
+                    html: track.name || track.lang || `Track ${index + 1}`,
+                    value: index,
+                  }));
+                  subs.unshift({ html: 'Off', value: -1 });
+
+                  art.setting.update({
+                    name: 'subtitle-select',
+                    html: 'Subtitles',
+                    width: 150,
+                    selector: subs,
+                    onSelect: (item: any) => {
+                      hls.subtitleTrack = item.value;
+                      art.notice.show = `Subtitle: ${item.html}`;
+                      return item.html;
+                    },
+                  });
+                }
+              });
+
+              // Play listener for dry buffer
+              if (onPlayAttemptM3u8) {
+                video.removeEventListener('play', onPlayAttemptM3u8);
               }
-            });
+              onPlayAttemptM3u8 = () => {
+                if (!isLive) {
+                  const buffered = video.buffered;
+                  let inBuffer = false;
+                  for (let i = 0; i < buffered.length; i++) {
+                    if (video.currentTime >= buffered.start(i) && video.currentTime <= buffered.end(i)) {
+                      inBuffer = true;
+                      break;
+                    }
+                  }
+                  if (!inBuffer && video.currentTime > 0) {
+                    console.warn('Play clicked but buffer is dry for M3U8. Reconnecting HLS...');
+                    art.notice.show = 'Restoring connection...';
+                    initHls(video.currentTime);
+                  }
+                }
+              };
+              video.addEventListener('play', onPlayAttemptM3u8);
+
+              // Override destroy to clean up listener
+              const originalDestroy = hls.destroy.bind(hls);
+              hls.destroy = () => {
+                if (onPlayAttemptM3u8) {
+                  video.removeEventListener('play', onPlayAttemptM3u8);
+                }
+                originalDestroy();
+              };
+            };
+
+            initHls();
           } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = url;
           }
@@ -1185,6 +1306,29 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     art.template.$container.addEventListener('contextmenu', preventContext, true);
     art.on('view:contextmenu', (e: MouseEvent) => e.preventDefault());
 
+    // Handle native HTML5 video errors for non-live streams dynamically to prevent resetting to 00:00
+    const onNativeVideoError = (e: Event) => {
+      console.warn('Native video element error fired:', e);
+      const video = art.template.$video;
+      const error = video.error;
+      const isLive = options.isLive !== undefined ? options.isLive : (originalUrl.toLowerCase().includes('.m3u8') || originalUrl.toLowerCase().includes('.ts') || originalUrl.toLowerCase().includes('.mpd'));
+      
+      if (error && !isLive && video.currentTime > 0) {
+        console.warn(`Native error code ${error.code} detected. Recovering connection from second: ${video.currentTime}`);
+        art.notice.show = 'Restoring connection...';
+        const lastTime = video.currentTime;
+        const currentUrl = art.url;
+        
+        art.switchUrl(currentUrl).then(() => {
+          art.video.currentTime = lastTime;
+          art.play().catch(() => {});
+        }).catch((err) => {
+          console.error('Failed to recover via switchUrl:', err);
+        });
+      }
+    };
+    art.template.$video.addEventListener('error', onNativeVideoError, true);
+
     // Add Seek Indicators Layers with enhanced animations
     art.layers.add({
       name: 'seek-left',
@@ -1543,6 +1687,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (playerRef.current) {
         art.template.$video.removeEventListener('contextmenu', preventContext, true);
         art.template.$container.removeEventListener('contextmenu', preventContext, true);
+        art.template.$video.removeEventListener('error', onNativeVideoError, true);
         
         const elements = [video, mask, container].filter(Boolean);
         elements.forEach(el => {
