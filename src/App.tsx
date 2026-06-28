@@ -386,8 +386,8 @@ export default function App() {
     if (loggedIn && saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed && (parsed.host?.includes('lb-skip.vercel.app') || parsed.host?.includes('sjstorehot-lbskip.hf.space') || !parsed.host)) {
-          parsed.host = 'https://4ksjpun-lbff.hf.space';
+        if (parsed && (parsed.host?.includes('lb-skip.vercel.app') || parsed.host?.includes('4ksjpun-lbff.hf.space') || !parsed.host)) {
+          parsed.host = 'https://sjstorehot-lbskip.hf.space';
           localStorage.setItem('iptv_creds', JSON.stringify(parsed));
         }
         return parsed;
@@ -2208,9 +2208,9 @@ export default function App() {
     if (!chan) return '';
     if (chan.feed_type === 'iptv' || chan.is_iptv || chan.stream_id) {
       if (creds && creds.username && creds.password) {
-        return `https://4ksjpun-lbff.hf.space/live/${creds.username}/${creds.password}/${chan.stream_id}.m3u8`;
+        return `https://sjstorehot-lbskip.hf.space/live/${creds.username}/${creds.password}/${chan.stream_id}.m3u8`;
       }
-      return `https://4ksjpun-lbff.hf.space/live/demo/demo/${chan.stream_id}.m3u8`;
+      return `https://sjstorehot-lbskip.hf.space/live/demo/demo/${chan.stream_id}.m3u8`;
     }
     return chan.play_url || '';
   };
@@ -2750,8 +2750,8 @@ export default function App() {
       alert("Please enter a valid username and password in settings.");
       return;
     }
-    // Set the New Base URL - Use the legacy server for downloads only
-    const host = action === 'download' ? 'https://sjstorehot-lbskip.hf.space' : 'https://4ksjpun-lbff.hf.space';
+    // Set the New Base URL
+    const host = 'https://sjstorehot-lbskip.hf.space';
 
     const isLive = !!(item as any).stream_type && (item as any).stream_type === 'live';
     const isSeries = !!(episodeId || (item as any).series_id);
@@ -3348,7 +3348,7 @@ export default function App() {
                           is_embed: false,
                           isLive: true,
                           sources: [{
-                            src: `https://4ksjpun-lbff.hf.space/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`,
+                            src: `https://sjstorehot-lbskip.hf.space/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`,
                             type: 'application/x-mpegURL'
                           }]
                         }} 
@@ -3410,7 +3410,7 @@ export default function App() {
                         {copiedId === playingLiveStream.stream_id ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
                       </button>
                       <button 
-                        onClick={() => window.location.href = formatVlcUrl(`https://4ksjpun-lbff.hf.space/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`)}
+                        onClick={() => window.location.href = formatVlcUrl(`https://sjstorehot-lbskip.hf.space/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`)}
                         className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg font-black text-[9px] transition-all shadow-lg shadow-orange-500/20 uppercase tracking-widest italic"
                       >
                         <Play size={12} fill="white" /> VLC
@@ -7346,7 +7346,7 @@ export default function App() {
                             type="text" 
                             value={newFreeSeries.playlist_url || ''}
                             onChange={(e) => setNewFreeSeries({...newFreeSeries, playlist_url: e.target.value})}
-                            placeholder="e.g. https://4ksjpun-lbff.hf.space/series_links/spider/playlist.m3u"
+                            placeholder="e.g. https://sjstorehot-lbskip.hf.space/series_links/spider/playlist.m3u"
                             className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
                           />
                         </div>
