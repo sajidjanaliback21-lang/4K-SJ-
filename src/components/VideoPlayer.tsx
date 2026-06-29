@@ -78,6 +78,89 @@ const parseDRMUrl = (url: string) => {
   return { cleanUrl, clearKeys, isDrm };
 };
 
+const setupShakaLiveDvr = (video: HTMLVideoElement, shakaPlayer: any, art: any) => {
+  if (!shakaPlayer) {
+    return;
+  }
+
+  const originalCurrentTimeDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
+  const originalDurationDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'duration');
+
+  if (!originalCurrentTimeDescriptor || !originalDurationDescriptor) return;
+
+  const originalCurrentTimeGetter = originalCurrentTimeDescriptor.get;
+  const originalCurrentTimeSetter = originalCurrentTimeDescriptor.set;
+  const originalDurationGetter = originalDurationDescriptor.get;
+
+  if (!originalCurrentTimeGetter || !originalCurrentTimeSetter || !originalDurationGetter) return;
+
+  Object.defineProperty(video, 'duration', {
+    configurable: true,
+    enumerable: true,
+    get: function () {
+      try {
+        const range = shakaPlayer.seekRange();
+        if (range && typeof range.start === 'number' && typeof range.end === 'number') {
+          const total = range.end - range.start;
+          if (total > 0) return total;
+        }
+      } catch (_) {}
+      return originalDurationGetter.call(video);
+    }
+  });
+
+  Object.defineProperty(video, 'currentTime', {
+    configurable: true,
+    enumerable: true,
+    get: function () {
+      const realTime = originalCurrentTimeGetter.call(video);
+      try {
+        const stack = new Error().stack || '';
+        if (stack.toLowerCase().includes('shaka')) {
+          return realTime;
+        }
+        const range = shakaPlayer.seekRange();
+        if (range && typeof range.start === 'number' && typeof range.end === 'number') {
+          const total = range.end - range.start;
+          if (total > 0) {
+            return Math.max(0, realTime - range.start);
+          }
+        }
+      } catch (_) {}
+      return realTime;
+    },
+    set: function (value: number) {
+      try {
+        const range = shakaPlayer.seekRange();
+        if (range && typeof range.start === 'number' && typeof range.end === 'number') {
+          const total = range.end - range.start;
+          if (total > 0) {
+            const stack = new Error().stack || '';
+            if (stack.toLowerCase().includes('shaka')) {
+              originalCurrentTimeSetter.call(video, value);
+              return;
+            } else {
+              const absoluteTime = range.start + value;
+              originalCurrentTimeSetter.call(video, absoluteTime);
+              return;
+            }
+          }
+        }
+      } catch (_) {}
+      originalCurrentTimeSetter.call(video, value);
+    }
+  });
+
+  const originalDestroy = shakaPlayer.destroy.bind(shakaPlayer);
+  shakaPlayer.destroy = async () => {
+    try {
+      Object.defineProperty(video, 'duration', originalDurationDescriptor);
+      Object.defineProperty(video, 'currentTime', originalCurrentTimeDescriptor);
+    } catch (_) {}
+    return originalDestroy();
+  };
+};
+
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ 
   options, 
   onReady, 
@@ -356,7 +439,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             (originalUrl.toLowerCase().includes('.mp4') ? 'mp4' : 
             (originalUrl.toLowerCase().includes('.webm') ? 'webm' : 
             (isMkv ? 'mkv' : (isTs ? 'ts' : undefined))))),
-      isLive: isLive,
+      isLive: isMpd ? false : isLive,
       poster: options.poster || '',
       autoplay: true,
       autoSize: false,
@@ -377,7 +460,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       autoOrientation: true,
       airplay: true,
       lock: true,
-      autoPlayback: true,
+      autoPlayback: !isMpd && !isLiveStream && !isLive,
       fastForward: false,
       gesture: false, // Disable default gestures (swipe to seek, volume, brightness)
       hotkey: false, // Disable default hotkeys to prevent conflict
@@ -791,42 +874,29 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             shakaRef.current = shakaPlayer;
             (window as any).globalShakaPlayer = shakaPlayer;
 
-            // Intercept premature play requests to allow keys to load and buffer to build
-            const originalPlay = video.play.bind(video);
-            let isReadyToPlay = video.readyState >= 3;
-
-            const onCanPlay = () => {
-              isReadyToPlay = true;
-              video.play = originalPlay; // Restore original play function
-              console.log("Video element fired 'canplay' - starting playback naturally");
-              originalPlay().catch((err) => {
-                console.log("Play after canplay failed:", err);
-              });
-              video.removeEventListener('canplay', onCanPlay);
-            };
-
-            if (!isReadyToPlay) {
-              video.addEventListener('canplay', onCanPlay);
-              video.play = async () => {
-                if (isReadyToPlay || video.readyState >= 3) {
-                  video.play = originalPlay; // Restore original play function
-                  return originalPlay();
-                }
-                console.log("Play call ignored until 'canplay' event fires to build sufficient buffer.");
-                return Promise.resolve();
-              };
-            }
-
             const shakaConfig: any = {
               manifest: {
                 dash: {
-                  ignoreMinBufferTime: true
+                  ignoreMinBufferTime: true,
+                  autoCorrectDrift: true,
+                  initialSegmentLimit: 2,
+                  defaultPresentationDelay: 2
                 }
               },
               streaming: {
-                rebufferingGoal: 2,
-                bufferingGoal: 6,
-                ignoreTextStreamFailures: true
+                rebufferingGoal: 1.0,
+                bufferingGoal: 2.5,
+                lowLatencyMode: true,
+                safeSeekOffset: 5,
+                stallEnabled: true,
+                stallThreshold: 1.0,
+                stallSkip: 0.1,
+                ignoreTextStreamFailures: true,
+                inaccurateManifestTolerance: 2
+              },
+              abr: {
+                enabled: true,
+                defaultBandwidthEstimate: 1000000
               }
             };
 
@@ -895,6 +965,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             shakaPlayer.load(cleanUrl).then(() => {
               setupShakaQuality();
+              setupShakaLiveDvr(video, shakaPlayer, art);
             }).catch((err: any) => {
               console.error('Shaka player load error:', err);
               art.notice.show = 'DASH Stream Error';
@@ -1036,42 +1107,29 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             shakaRef.current = shakaPlayer;
             (window as any).globalShakaPlayer = shakaPlayer;
 
-            // Intercept premature play requests to allow keys to load and buffer to build
-            const originalPlay = video.play.bind(video);
-            let isReadyToPlay = video.readyState >= 3;
-
-            const onCanPlay = () => {
-              isReadyToPlay = true;
-              video.play = originalPlay; // Restore original play function
-              console.log("Video element fired 'canplay' - starting playback naturally");
-              originalPlay().catch((err) => {
-                console.log("Play after canplay failed:", err);
-              });
-              video.removeEventListener('canplay', onCanPlay);
-            };
-
-            if (!isReadyToPlay) {
-              video.addEventListener('canplay', onCanPlay);
-              video.play = async () => {
-                if (isReadyToPlay || video.readyState >= 3) {
-                  video.play = originalPlay; // Restore original play function
-                  return originalPlay();
-                }
-                console.log("Play call ignored until 'canplay' event fires to build sufficient buffer.");
-                return Promise.resolve();
-              };
-            }
-
             const shakaConfig: any = {
               manifest: {
                 dash: {
-                  ignoreMinBufferTime: true
+                  ignoreMinBufferTime: true,
+                  autoCorrectDrift: true,
+                  initialSegmentLimit: 2,
+                  defaultPresentationDelay: 2
                 }
               },
               streaming: {
-                rebufferingGoal: 2,
-                bufferingGoal: 6,
-                ignoreTextStreamFailures: true
+                rebufferingGoal: 1.0,
+                bufferingGoal: 2.5,
+                lowLatencyMode: true,
+                safeSeekOffset: 5,
+                stallEnabled: true,
+                stallThreshold: 1.0,
+                stallSkip: 0.1,
+                ignoreTextStreamFailures: true,
+                inaccurateManifestTolerance: 2
+              },
+              abr: {
+                enabled: true,
+                defaultBandwidthEstimate: 1000000
               }
             };
 
@@ -1140,6 +1198,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             shakaPlayer.load(cleanUrl).then(() => {
               setupShakaQuality();
+              setupShakaLiveDvr(video, shakaPlayer, art);
             }).catch((err: any) => {
               console.error('Shaka player load error:', err);
               art.notice.show = 'DASH Stream Error';

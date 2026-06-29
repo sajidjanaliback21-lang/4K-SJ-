@@ -380,6 +380,37 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const parseKeysFromUrl = (url: string) => {
+  if (!url) return { base: '', keys: '' };
+  const pipeIdx = url.indexOf('|');
+  if (pipeIdx !== -1) {
+    const base = url.substring(0, pipeIdx);
+    const drmStr = url.substring(pipeIdx + 1);
+    const params = new URLSearchParams(drmStr);
+    const license = params.get('drmLicense') || params.get('license') || '';
+    return { base, keys: license };
+  }
+  const questionIdx = url.indexOf('?');
+  if (questionIdx !== -1) {
+    const base = url.substring(0, questionIdx);
+    const searchStr = url.substring(questionIdx + 1);
+    if (searchStr.includes('drmScheme') || searchStr.includes('drmLicense')) {
+      const params = new URLSearchParams(searchStr);
+      const license = params.get('drmLicense') || params.get('license') || '';
+      return { base, keys: license };
+    }
+  }
+  return { base: url, keys: '' };
+};
+
+const buildUrlWithKeys = (base: string, keys: string) => {
+  const trimmedBase = base.trim();
+  const trimmedKeys = keys.trim();
+  if (!trimmedKeys) return trimmedBase;
+  const cleanBase = parseKeysFromUrl(trimmedBase).base;
+  return `${cleanBase}|drmScheme=clearkey&drmLicense=${trimmedKeys}`;
+};
+
 export default function App() {
   const [creds, setCreds] = useState<XtreamCredentials>(() => {
     const saved = localStorage.getItem('iptv_creds');
@@ -854,13 +885,13 @@ export default function App() {
   useEffect(() => {
     const testConnection = async () => {
       try {
-        await getDocFromServer(doc(db, 'settings', 'psl'));
+        await getDoc(doc(db, 'settings', 'psl'));
         console.log("Firestore Connection Test: Success");
       } catch (error) {
         if (error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Firestore Connection Test: Failed (Client is offline)");
+          console.warn("Firestore Connection Test: Using offline local cache");
         } else {
-          console.error("Firestore Connection Test: Error", error);
+          console.warn("Firestore Connection Test: Cache-enabled or offline mode", error);
         }
       }
     };
@@ -1034,10 +1065,10 @@ export default function App() {
     const testConnection = async () => {
       try {
         const pslDocRef = doc(db, 'settings', 'psl');
-        await getDocFromServer(pslDocRef);
+        await getDoc(pslDocRef);
       } catch (error) {
         if (error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Firebase connection error: check configuration.");
+          console.warn("Firebase connection operating in offline/cached mode.");
         }
       }
     };
@@ -7693,7 +7724,7 @@ export default function App() {
 
                         <div className="space-y-3">
                           {newLiveEvent.channels.map((channel, cIdx) => (
-                            <div key={`chan-edit-${cIdx}`} className="flex flex-col bg-black/40 p-3 rounded-xl border border-white/5 space-y-3">
+                            <div key={`chan-edit-${cIdx}`} className="flex flex-col bg-black/40 p-4 rounded-xl border border-white/5 space-y-3">
                               <div className="flex flex-col md:flex-row gap-3 items-end md:items-center">
                                 <div className="w-full md:w-1/4 space-y-1">
                                   <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">Channel Name</label>
@@ -7711,22 +7742,70 @@ export default function App() {
                                 </div>
 
                                 <div className="w-full md:flex-1 space-y-1">
-                                  <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">Stream / MPD / Play Link</label>
-                                  <input 
-                                    type="text" 
-                                    value={channel.play_url}
-                                    onChange={(e) => {
-                                      const updatedCh = [...newLiveEvent.channels];
-                                      updatedCh[cIdx].play_url = e.target.value;
-                                      if (e.target.value.toLowerCase().includes('.mpd')) {
-                                        updatedCh[cIdx].is_mpd = true;
-                                        updatedCh[cIdx].is_embed = false;
-                                      }
-                                      setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                    }}
-                                    placeholder="e.g. m3u8 link, .mpd link, or embed stream"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                                  />
+                                  {channel.is_mpd ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">MPD Manifest URL</label>
+                                        <input 
+                                          type="text" 
+                                          value={parseKeysFromUrl(channel.play_url).base}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            const parsed = parseKeysFromUrl(val);
+                                            const updatedCh = [...newLiveEvent.channels];
+                                            if (parsed.keys) {
+                                              updatedCh[cIdx].play_url = val;
+                                            } else {
+                                              const keys = parseKeysFromUrl(channel.play_url).keys;
+                                              updatedCh[cIdx].play_url = buildUrlWithKeys(val, keys);
+                                            }
+                                            setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                          }}
+                                          placeholder="e.g. .mpd manifest link"
+                                          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                                        />
+                                      </div>
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">ClearKey (kid:key)</label>
+                                        <input 
+                                          type="text" 
+                                          value={parseKeysFromUrl(channel.play_url).keys}
+                                          onChange={(e) => {
+                                            const keysVal = e.target.value;
+                                            const base = parseKeysFromUrl(channel.play_url).base;
+                                            const updatedCh = [...newLiveEvent.channels];
+                                            updatedCh[cIdx].play_url = buildUrlWithKeys(base, keysVal);
+                                            setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                          }}
+                                          placeholder="e.g. kid:key (Paste Separately)"
+                                          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none font-mono placeholder:text-white/20"
+                                        />
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-1">
+                                      <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">Stream / Play Link</label>
+                                      <input 
+                                        type="text" 
+                                        value={channel.play_url}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          const parsed = parseKeysFromUrl(val);
+                                          const updatedCh = [...newLiveEvent.channels];
+                                          if (parsed.keys || val.toLowerCase().includes('.mpd')) {
+                                            updatedCh[cIdx].play_url = val;
+                                            updatedCh[cIdx].is_mpd = true;
+                                            updatedCh[cIdx].is_embed = false;
+                                          } else {
+                                            updatedCh[cIdx].play_url = val;
+                                          }
+                                          setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                        }}
+                                        placeholder="e.g. m3u8 link, .mpd link, or embed stream"
+                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                                      />
+                                    </div>
+                                  )}
                                 </div>
 
                                 <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-3 py-2 h-[38px]">
@@ -7774,8 +7853,6 @@ export default function App() {
                                   </button>
                                 )}
                               </div>
-
-
                             </div>
                           ))}
                         </div>
@@ -7971,25 +8048,89 @@ export default function App() {
                           </div>
                         ) : (
                           <div className="space-y-4 animate-in fade-in duration-200">
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Custom Stream Link / MPD Link / Embed URL</label>
-                              <input 
-                                type="text" 
-                                value={newFifaChannel.play_url}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  const isMpd = val.toLowerCase().includes('.mpd');
-                                  setNewFifaChannel({
-                                    ...newFifaChannel, 
-                                    play_url: val,
-                                    is_mpd: isMpd ? true : newFifaChannel.is_mpd,
-                                    is_embed: isMpd ? false : newFifaChannel.is_embed
-                                  });
-                                }}
-                                placeholder="e.g. http://server.com/live.m3u8 or .mpd URL, or iframe URL"
-                                className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                              />
-                            </div>
+                            {newFifaChannel.is_mpd ? (
+                              <>
+                                <div className="space-y-2">
+                                  <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">MPD Manifest URL (Base Link)</label>
+                                  <input 
+                                    type="text" 
+                                    value={parseKeysFromUrl(newFifaChannel.play_url).base}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      const parsed = parseKeysFromUrl(val);
+                                      if (parsed.keys) {
+                                        setNewFifaChannel({
+                                          ...newFifaChannel,
+                                          play_url: val,
+                                          is_mpd: true,
+                                          is_embed: false
+                                        });
+                                      } else {
+                                        const currentKeys = parseKeysFromUrl(newFifaChannel.play_url).keys;
+                                        setNewFifaChannel({
+                                          ...newFifaChannel,
+                                          play_url: buildUrlWithKeys(val, currentKeys),
+                                          is_mpd: true,
+                                          is_embed: false
+                                        });
+                                      }
+                                    }}
+                                    placeholder="e.g. https://server.com/manifest.mpd"
+                                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <div className="flex justify-between items-center px-1">
+                                    <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest">DRM ClearKey Keys (Paste Separately)</label>
+                                    <span className="text-[9px] text-cyan-400/80 font-mono">Format: kid:key</span>
+                                  </div>
+                                  <input 
+                                    type="text" 
+                                    value={parseKeysFromUrl(newFifaChannel.play_url).keys}
+                                    onChange={(e) => {
+                                      const keysVal = e.target.value;
+                                      const base = parseKeysFromUrl(newFifaChannel.play_url).base;
+                                      setNewFifaChannel({
+                                        ...newFifaChannel,
+                                        play_url: buildUrlWithKeys(base, keysVal),
+                                        is_mpd: true,
+                                        is_embed: false
+                                      });
+                                    }}
+                                    placeholder="e.g. ab12cd34ef567890ab12cd34ef567890:1234567890abcdef1234567890abcdef"
+                                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50 font-mono placeholder:text-white/20"
+                                  />
+                                </div>
+                              </>
+                            ) : (
+                              <div className="space-y-2">
+                                <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Custom Stream Link / Embed URL</label>
+                                <input 
+                                  type="text" 
+                                  value={newFifaChannel.play_url}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    const parsed = parseKeysFromUrl(val);
+                                    if (parsed.keys || val.toLowerCase().includes('.mpd')) {
+                                      setNewFifaChannel({
+                                        ...newFifaChannel, 
+                                        play_url: val,
+                                        is_mpd: true,
+                                        is_embed: false
+                                      });
+                                    } else {
+                                      setNewFifaChannel({
+                                        ...newFifaChannel, 
+                                        play_url: val,
+                                        is_embed: val.toLowerCase().includes('iframe') || !val.toLowerCase().includes('.m3u8') && !val.toLowerCase().includes('.ts')
+                                      });
+                                    }
+                                  }}
+                                  placeholder="e.g. http://server.com/live.m3u8 or iframe embed URL"
+                                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                                />
+                              </div>
+                            )}
 
                             <div className="flex flex-wrap gap-4 pt-1">
                               <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3">
