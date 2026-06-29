@@ -7,7 +7,7 @@ import * as dashjs from 'dashjs';
 // @ts-ignore
 import shaka from 'shaka-player';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldCheck, Cpu, Globe, Sliders, X, SkipForward, List, Tv, Download, Gauge, RotateCcw, Pencil, Check, Zap } from 'lucide-react';
+import { ShieldCheck, Shield, Cpu, Globe, Sliders, X, SkipForward, List, Tv, Download, Gauge, RotateCcw, Pencil, Check, Zap } from 'lucide-react';
 
 interface VideoPlayerProps {
   options: {
@@ -287,6 +287,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const originalUrl = source?.src || '';
   const sourceUrl = getProxiedUrl(originalUrl);
   const isEmbed = options.is_embed || false;
+
+  const [isAntiPopupActive, setIsAntiPopupActive] = useState(() => {
+    const saved = localStorage.getItem('anti_popup_enabled');
+    return saved !== 'false';
+  });
+
+  useEffect(() => {
+    const handleStorage = () => {
+      setIsAntiPopupActive(localStorage.getItem('anti_popup_enabled') !== 'false');
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  const toggleAntiPopup = () => {
+    const next = !isAntiPopupActive;
+    localStorage.setItem('anti_popup_enabled', next ? 'true' : 'false');
+    setIsAntiPopupActive(next);
+    window.dispatchEvent(new Event('storage'));
+  };
 
   const isLiveStream = React.useMemo(() => {
     const isHls = originalUrl.toLowerCase().includes('.m3u8') || source?.type === 'application/x-mpegURL';
@@ -1833,13 +1853,31 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       </AnimatePresence>
 
       {isEmbeddable(originalUrl) ? (
-        <iframe
-          src={originalUrl}
-          className="absolute inset-0 w-full h-full border-0 m-0 p-0"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          allowFullScreen
-          referrerPolicy="no-referrer"
-        />
+        <div className="absolute inset-0 w-full h-full bg-black">
+          <iframe
+            src={originalUrl}
+            className="w-full h-full border-0 m-0 p-0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+            referrerPolicy="no-referrer"
+            sandbox={isAntiPopupActive ? "allow-scripts allow-same-origin allow-presentation allow-forms allow-pointer-lock" : undefined}
+          />
+          {/* Floating Ad-Shield / Anti-Popup Controller */}
+          <div className="absolute top-[20px] left-[20px] z-[99] pointer-events-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleAntiPopup}
+              className={`w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md border transition-all duration-300 shadow-lg cursor-pointer ${
+                isAntiPopupActive 
+                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 animate-none' 
+                  : 'bg-rose-500/15 border-rose-500/30 text-rose-400 hover:bg-rose-500/25'
+              }`}
+              title={isAntiPopupActive ? "Disable Anti-Popup (If player fails)" : "Enable Anti-Popup AdBlocker"}
+            >
+              <Shield className={`w-4 h-4 ${isAntiPopupActive ? 'text-emerald-400' : 'text-rose-400 animate-pulse'}`} />
+            </button>
+          </div>
+        </div>
       ) : (
         <div 
           ref={artRef} 

@@ -11,6 +11,7 @@ import {
   LogOut, 
   Lock,
   Unlock,
+  Shield,
   Film, 
   Tv, 
   Clapperboard,
@@ -559,6 +560,7 @@ export default function App() {
     free_movies_enabled: true,
     free_series_enabled: true,
     live_events_enabled: true,
+    anti_popup_enabled: true,
     psl_title: 'PSL',
     ipl_title: 'IPL',
     free_movies_title: 'FREE CINEMA',
@@ -566,6 +568,25 @@ export default function App() {
     live_events_title: 'LIVE EVENTS'
   });
   const [newAppSettings, setNewAppSettings] = useState(appSettings);
+  const [isAntiPopupActive, setIsAntiPopupActive] = useState(() => {
+    const saved = localStorage.getItem('anti_popup_enabled');
+    return saved !== 'false';
+  });
+
+  useEffect(() => {
+    const handleStorage = () => {
+      setIsAntiPopupActive(localStorage.getItem('anti_popup_enabled') !== 'false');
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  const toggleAntiPopup = () => {
+    const next = !isAntiPopupActive;
+    localStorage.setItem('anti_popup_enabled', next ? 'true' : 'false');
+    setIsAntiPopupActive(next);
+    window.dispatchEvent(new Event('storage'));
+  };
   const [showWebPlayer, setShowWebPlayer] = useState(false);
   const [webPlayUrl, setWebPlayUrl] = useState('');
   const [webPlayTitle, setWebPlayTitle] = useState('');
@@ -858,6 +879,7 @@ export default function App() {
           free_movies_enabled: data.free_movies_enabled ?? true,
           free_series_enabled: data.free_series_enabled ?? true,
           live_events_enabled: data.live_events_enabled ?? true,
+          anti_popup_enabled: data.anti_popup_enabled ?? true,
           psl_title: data.psl_title || 'PSL',
           ipl_title: data.ipl_title || 'IPL',
           free_movies_title: data.free_movies_title || 'FREE CINEMA',
@@ -6957,12 +6979,30 @@ export default function App() {
                   </div>
                 )}
                 {playingFreeSeries.is_embed ? (
-                  <iframe
-                    src={playingFreeSeries.play_url || undefined}
-                    className="w-full h-full border-0"
-                    allowFullScreen
-                    referrerPolicy="no-referrer"
-                  />
+                  <div className="absolute inset-0 w-full h-full bg-black">
+                    <iframe
+                      src={playingFreeSeries.play_url || undefined}
+                      className="w-full h-full border-0"
+                      allowFullScreen
+                      referrerPolicy="no-referrer"
+                      sandbox={isAntiPopupActive ? "allow-scripts allow-same-origin allow-presentation allow-forms allow-pointer-lock" : undefined}
+                    />
+                    {/* Floating Ad-Shield / Anti-Popup Controller */}
+                    <div className="absolute top-[20px] left-[20px] z-[99] pointer-events-auto flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={toggleAntiPopup}
+                        className={`w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md border transition-all duration-300 shadow-lg cursor-pointer ${
+                          isAntiPopupActive 
+                            ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25' 
+                            : 'bg-rose-500/15 border-rose-500/30 text-rose-400 hover:bg-rose-500/25'
+                        }`}
+                        title={isAntiPopupActive ? "Disable Anti-Popup (If player fails)" : "Enable Anti-Popup AdBlocker"}
+                      >
+                        <Shield className={`w-4 h-4 ${isAntiPopupActive ? 'text-emerald-400' : 'text-rose-400 animate-pulse'}`} />
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                   (!isM3uLoading && (freeSeriesActiveUrl || playingFreeSeries.play_url)) ? (
                     <VideoPlayer 
@@ -7159,6 +7199,25 @@ export default function App() {
                           placeholder="Category Title"
                           className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-rose-500/50"
                         />
+                      </div>
+                      {/* Popup & Redirect Shield Toggle */}
+                      <div className="p-4 bg-gradient-to-br from-emerald-500/10 via-transparent to-transparent rounded-2xl border border-emerald-500/20 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Shield className="w-4 h-4 text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]" />
+                            <h4 className="text-xs font-black text-emerald-400 uppercase tracking-widest">Popup & Ads Shield</h4>
+                          </div>
+                          <button 
+                            type="button"
+                            onClick={() => setNewAppSettings(prev => ({ ...prev, anti_popup_enabled: !prev.anti_popup_enabled }))}
+                            className={cn("w-12 h-6 rounded-full relative transition-all duration-300 shadow-[inset_0_2px_4px_rgba(0,0,0,0.4)]", newAppSettings.anti_popup_enabled !== false ? "bg-emerald-500" : "bg-white/10")}
+                          >
+                            <motion.div animate={{ x: newAppSettings.anti_popup_enabled !== false ? 26 : 2 }} className="w-5 h-5 bg-white rounded-full absolute top-0.5 shadow-md" />
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-white/50 font-medium leading-relaxed">
+                          Blocks iframe-based players from opening popups, redirecting this page, or opening new windows. Note: If a stream fails to load, try disabling this.
+                        </p>
                       </div>
                     </div>
                   </div>
