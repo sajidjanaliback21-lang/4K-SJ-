@@ -879,8 +879,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 dash: {
                   ignoreMinBufferTime: true,
                   autoCorrectDrift: true,
-                  initialSegmentLimit: 2,
-                  defaultPresentationDelay: 2
+                  initialSegmentLimit: 2
                 }
               },
               streaming: {
@@ -908,6 +907,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }
 
             shakaPlayer.configure(shakaConfig);
+
+            // Prevent manifest caching
+            shakaPlayer.getNetworkingEngine().registerRequestFilter((type: any, request: any) => {
+              if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST) {
+                request.uris = request.uris.map((uri: string) => {
+                  const separator = uri.indexOf('?') === -1 ? '?' : '&';
+                  return uri + separator + '_ts=' + Date.now();
+                });
+              }
+            });
 
             const setupShakaQuality = () => {
               const tracks = shakaPlayer.getVariantTracks();
@@ -1112,8 +1121,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 dash: {
                   ignoreMinBufferTime: true,
                   autoCorrectDrift: true,
-                  initialSegmentLimit: 2,
-                  defaultPresentationDelay: 2
+                  initialSegmentLimit: 2
                 }
               },
               streaming: {
@@ -1141,6 +1149,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }
 
             shakaPlayer.configure(shakaConfig);
+
+            // Prevent manifest caching
+            shakaPlayer.getNetworkingEngine().registerRequestFilter((type: any, request: any) => {
+              if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST) {
+                request.uris = request.uris.map((uri: string) => {
+                  const separator = uri.indexOf('?') === -1 ? '?' : '&';
+                  return uri + separator + '_ts=' + Date.now();
+                });
+              }
+            });
 
             const setupShakaQuality = () => {
               const tracks = shakaPlayer.getVariantTracks();
