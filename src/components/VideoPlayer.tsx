@@ -178,6 +178,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const mpegtsRef = useRef<any>(null);
   const dashRef = useRef<any>(null);
   const shakaRef = useRef<any>(null);
+  const latestMpdUrlRef = useRef<string | null>(null);
   const lastClickTimeRef = useRef<number>(0);
   const userSelectedSpeedRef = useRef<number>(1.0);
   const hasCompletedInitialLoad = useRef<boolean>(false);
@@ -425,10 +426,326 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     hasCompletedInitialLoad.current = false;
 
+    const cleanAllActivePlayers = async () => {
+      // 1. Destroy HLS
+      if (hlsRef.current) {
+        try {
+          hlsRef.current.destroy();
+        } catch (e) {
+          console.warn('Error destroying HLS:', e);
+        }
+        hlsRef.current = null;
+      }
+
+      // 2. Destroy mpeg-ts
+      if (mpegtsRef.current) {
+        try {
+          mpegtsRef.current.unload();
+          mpegtsRef.current.detachMediaElement();
+          mpegtsRef.current.destroy();
+        } catch (e) {
+          console.warn('Error destroying mpegts:', e);
+        }
+        mpegtsRef.current = null;
+      }
+
+      // 3. Destroy dash.js
+      if (dashRef.current) {
+        try {
+          dashRef.current.destroy();
+        } catch (e) {
+          console.warn('Error destroying dash:', e);
+        }
+        dashRef.current = null;
+      }
+
+      // 4. Destroy Shaka Player and await its asynchronous cleanup
+      if (shakaRef.current) {
+        const shakaToDestroy = shakaRef.current;
+        shakaRef.current = null;
+        try {
+          await shakaToDestroy.destroy();
+        } catch (e) {
+          console.warn('Error destroying shaka:', e);
+        }
+      }
+      (window as any).globalShakaPlayer = null;
+    };
+
     const isHls = originalUrl.toLowerCase().includes('.m3u8') || source.type === 'application/x-mpegURL';
     const isTs = originalUrl.toLowerCase().includes('.ts') || source.type === 'video/mp2t';
     const isMkv = originalUrl.toLowerCase().includes('.mkv');
     const isMpd = originalUrl.toLowerCase().includes('.mpd') || source.type === 'application/dash+xml' || source.type === 'dash';
+    const initMpdOrDash = (video: HTMLVideoElement, url: string, art: Artplayer) => {
+      // Track latest MPD load to prevent race conditions or overlapping loads
+      latestMpdUrlRef.current = url;
+
+      const initMpdPlayer = async () => {
+        // Verify if this is still the latest requested URL
+        if (latestMpdUrlRef.current !== url) return;
+
+        // Clean all active players to prevent simultaneous active decoders/loaders
+        await cleanAllActivePlayers();
+
+        if (latestMpdUrlRef.current !== url) return;
+
+        const { cleanUrl, clearKeys } = parseDRMUrl(url);
+
+        shaka.polyfill.installAll();
+        if (shaka.Player.isBrowserSupported()) {
+          const shakaPlayer = new shaka.Player(video);
+          shakaRef.current = shakaPlayer;
+          (window as any).globalShakaPlayer = shakaPlayer;
+
+          const shakaConfig: any = {
+            manifest: {
+              dash: {
+                ignoreMinBufferTime: true,
+                autoCorrectDrift: true,
+                initialSegmentLimit: 2
+              }
+            },
+            streaming: {
+              rebufferingGoal: 1.0,
+              bufferingGoal: 2.5,
+              lowLatencyMode: true,
+              safeSeekOffset: 5,
+              stallEnabled: true,
+              stallThreshold: 1.0,
+              stallSkip: 0.1,
+              ignoreTextStreamFailures: true,
+              inaccurateManifestTolerance: 2
+            },
+            abr: {
+              enabled: true,
+              defaultBandwidthEstimate: 1000000
+            }
+          };
+
+          if (Object.keys(clearKeys).length > 0) {
+            shakaConfig.drm = {
+              clearKeys: clearKeys,
+              delayLicenseRequestUntilPlayed: false
+            };
+          }
+
+          shakaPlayer.configure(shakaConfig);
+
+          // Prevent manifest caching safely on MPD without breaking signed URLs or throwing import exceptions
+          shakaPlayer.getNetworkingEngine().registerRequestFilter((type: any, request: any) => {
+            let isManifest = false;
+            try {
+              if (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType) {
+                isManifest = type === shaka.net.NetworkingEngine.RequestType.MANIFEST;
+              } else {
+                isManifest = type === 0;
+              }
+            } catch (_) {
+              isManifest = type === 0;
+            }
+
+            if (isManifest && request && request.uris) {
+              request.uris = request.uris.map((uri: string) => {
+                if (!uri) return uri;
+                const lower = uri.toLowerCase();
+                const isSigned = lower.includes('token=') || 
+                                 lower.includes('sign=') || 
+                                 lower.includes('hash=') || 
+                                 lower.includes('auth=') || 
+                                 lower.includes('expires=') || 
+                                 lower.includes('hdnts=') ||
+                                 lower.includes('security=');
+                if (isSigned) {
+                  return uri;
+                }
+                const separator = uri.indexOf('?') === -1 ? '?' : '&';
+                return uri + separator + '_ts=' + Date.now();
+              });
+            }
+          });
+
+          const setupShakaQuality = () => {
+            const tracks = shakaPlayer.getVariantTracks();
+            const uniqueTracksByHeight: Record<number, any> = {};
+            tracks.forEach((track: any) => {
+              if (track.height) {
+                const existing = uniqueTracksByHeight[track.height];
+                if (!existing || track.bandwidth > existing.bandwidth) {
+                  uniqueTracksByHeight[track.height] = track;
+                }
+              }
+            });
+            const sortedHeights = Object.keys(uniqueTracksByHeight)
+              .map(Number)
+              .sort((a, b) => b - a);
+
+            if (sortedHeights.length > 0) {
+              const qualityItems = sortedHeights.map((height) => {
+                const track = uniqueTracksByHeight[height];
+                const isActive = track.active;
+                return {
+                  default: isActive,
+                  html: `${height}P`,
+                  value: track.id,
+                };
+              });
+
+              const isAbrEnabled = shakaPlayer.getConfiguration().abr.enabled;
+              qualityItems.unshift({
+                default: isAbrEnabled,
+                html: 'Auto',
+                value: -1,
+              } as any);
+
+              art.setting.update({
+                name: 'quality',
+                html: 'Quality',
+                width: 150,
+                selector: qualityItems,
+                onSelect: (item: any) => {
+                  if (item.value === -1) {
+                    shakaPlayer.configure({ abr: { enabled: true } });
+                  } else {
+                    shakaPlayer.configure({ abr: { enabled: false } });
+                    const targetTrack = tracks.find((t: any) => t.id === item.value);
+                    if (targetTrack) {
+                      shakaPlayer.selectVariantTrack(targetTrack, true);
+                    }
+                  }
+                  return item.html;
+                }
+              });
+            }
+          };
+
+          shakaPlayer.load(cleanUrl).then(() => {
+            if (latestMpdUrlRef.current !== url) {
+              shakaPlayer.destroy();
+              return;
+            }
+            setupShakaQuality();
+            setupShakaLiveDvr(video, shakaPlayer, art);
+          }).catch((err: any) => {
+            if (latestMpdUrlRef.current !== url) return;
+            console.warn('Shaka player MPD load warning details:', err);
+            art.notice.show = `MPD Stream Error: ${err ? err.code : 'unknown'}`;
+          });
+
+          shakaPlayer.addEventListener('error', (event: any) => {
+            console.error('Shaka Player Error:', event);
+          });
+        } else {
+          console.warn('Shaka player is not supported. Falling back to dash.js');
+          const player: any = dashjs.MediaPlayer().create();
+          dashRef.current = player;
+          if (Object.keys(clearKeys).length > 0) {
+            const hxeToBase64Url = (hex: string): string => {
+              const cleanHex = hex.trim().replace(/^0x/i, '');
+              if (cleanHex.length % 2 !== 0) return hex;
+              try {
+                const bytes = new Uint8Array(cleanHex.length / 2);
+                for (let i = 0; i < cleanHex.length; i += 2) {
+                  bytes[i / 2] = parseInt(cleanHex.substring(i, i + 2), 16);
+                }
+                let binary = '';
+                for (let i = 0; i < bytes.byteLength; i++) {
+                  binary += String.fromCharCode(bytes[i]);
+                }
+                return btoa(binary)
+                  .replace(/\+/g, '-')
+                  .replace(/\//g, '_')
+                  .replace(/=+$/, '');
+              } catch (e) {
+                return hex;
+              }
+            };
+            const clearkeys: any = {};
+            Object.entries(clearKeys).forEach(([kid, k]) => {
+              clearkeys[hxeToBase64Url(kid)] = hxeToBase64Url(k);
+            });
+            player.setProtectionData({
+              'org.w3.clearkey': { clearkeys }
+            });
+          }
+
+          player.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
+            const list = player.getBitrateInfoListFor('video');
+            if (list && list.length > 0) {
+              const uniqueByHeight: Record<number, any> = {};
+              list.forEach((info: any) => {
+                if (info.height) {
+                  const existing = uniqueByHeight[info.height];
+                  if (!existing || info.bitrate > existing.bitrate) {
+                    uniqueByHeight[info.height] = info;
+                  }
+                }
+              });
+              const sortedHeights = Object.keys(uniqueByHeight)
+                .map(Number)
+                .sort((a, b) => b - a);
+
+              if (sortedHeights.length > 0) {
+                const currentQualityIndex = player.getQualityFor('video');
+                const qualityItems = sortedHeights.map((height) => {
+                   const info = uniqueByHeight[height];
+                   return {
+                     default: info.qualityIndex === currentQualityIndex,
+                     html: `${height}P`,
+                     value: info.qualityIndex,
+                   };
+                });
+
+                const settings = player.getSettings();
+                const isAuto = settings && settings.streaming && settings.streaming.abr && settings.streaming.abr.autoSwitchBitrate && settings.streaming.abr.autoSwitchBitrate.video;
+
+                qualityItems.unshift({
+                  default: !!isAuto,
+                  html: 'Auto',
+                  value: -1,
+                } as any);
+
+                art.setting.update({
+                  name: 'quality',
+                  html: 'Quality',
+                  width: 150,
+                  selector: qualityItems,
+                  onSelect: (item: any) => {
+                    if (item.value === -1) {
+                      player.updateSettings({
+                        streaming: {
+                          abr: {
+                            autoSwitchBitrate: {
+                              video: true
+                            }
+                          }
+                        }
+                      });
+                    } else {
+                      player.updateSettings({
+                        streaming: {
+                          abr: {
+                            autoSwitchBitrate: {
+                              video: false
+                            }
+                          }
+                        }
+                      });
+                      player.setQualityFor('video', item.value);
+                    }
+                    return item.html;
+                  }
+                });
+              }
+            }
+          });
+
+          player.initialize(video, cleanUrl, options.autoplay || false);
+        }
+      };
+
+      initMpdPlayer();
+    };
+
     const isLive = options.isLive !== undefined ? options.isLive : (isHls || isTs || isMpd);
 
     const art = new Artplayer({
@@ -576,16 +893,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             const maxTsRetries = 3;
             let onPlayAttemptTs: (() => void) | null = null;
 
-            const initMpegTs = (startTime?: number) => {
-              if (mpegtsRef.current) {
-                try {
-                  mpegtsRef.current.unload();
-                  mpegtsRef.current.detachMediaElement();
-                  mpegtsRef.current.destroy();
-                } catch (e) {
-                  console.error('Error destroying mpegts player:', e);
-                }
-              }
+            const initMpegTs = async (startTime?: number) => {
+              await cleanAllActivePlayers();
 
               const isLive = options.isLive !== undefined ? options.isLive : (originalUrl.toLowerCase().includes('.m3u8') || originalUrl.toLowerCase().includes('.ts') || originalUrl.toLowerCase().includes('.mpd'));
 
@@ -677,14 +986,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             const maxHlsRetries = 3;
             let onPlayAttemptM3u8: (() => void) | null = null;
 
-            const initHls = (startTime?: number) => {
-              if (hlsRef.current) {
-                try {
-                  hlsRef.current.destroy();
-                } catch (e) {
-                  console.error('Error destroying HLS:', e);
-                }
-              }
+            const initHls = async (startTime?: number) => {
+              await cleanAllActivePlayers();
 
               const isLive = options.isLive !== undefined ? options.isLive : (originalUrl.toLowerCase().includes('.m3u8') || originalUrl.toLowerCase().includes('.ts') || originalUrl.toLowerCase().includes('.mpd'));
               
@@ -853,547 +1156,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           }
         },
         mpd: function (video: HTMLVideoElement, url: string, art: Artplayer) {
-          // Initializing MPD player
-          if (shakaRef.current) {
-            try {
-              shakaRef.current.destroy();
-            } catch (_) {}
-            shakaRef.current = null;
-          }
-          if (dashRef.current) {
-            try {
-              dashRef.current.destroy();
-            } catch (_) {}
-            dashRef.current = null;
-          }
-
-          const { cleanUrl, clearKeys } = parseDRMUrl(url);
-
-          shaka.polyfill.installAll();
-          if (shaka.Player.isBrowserSupported()) {
-            const shakaPlayer = new shaka.Player(video);
-            shakaRef.current = shakaPlayer;
-            (window as any).globalShakaPlayer = shakaPlayer;
-
-            const shakaConfig: any = {
-              manifest: {
-                dash: {
-                  ignoreMinBufferTime: true,
-                  autoCorrectDrift: true,
-                  initialSegmentLimit: 2
-                }
-              },
-              streaming: {
-                rebufferingGoal: 1.0,
-                bufferingGoal: 2.5,
-                lowLatencyMode: true,
-                safeSeekOffset: 5,
-                stallEnabled: true,
-                stallThreshold: 1.0,
-                stallSkip: 0.1,
-                ignoreTextStreamFailures: true,
-                inaccurateManifestTolerance: 2
-              },
-              abr: {
-                enabled: true,
-                defaultBandwidthEstimate: 1000000
-              }
-            };
-
-            if (Object.keys(clearKeys).length > 0) {
-              shakaConfig.drm = {
-                clearKeys: clearKeys,
-                delayLicenseRequestUntilPlayed: false
-              };
-            }
-
-            shakaPlayer.configure(shakaConfig);
-
-            // Prevent manifest caching safely on MPD without breaking signed URLs or throwing import exceptions
-            shakaPlayer.getNetworkingEngine().registerRequestFilter((type: any, request: any) => {
-              let isManifest = false;
-              try {
-                if (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType) {
-                  isManifest = type === shaka.net.NetworkingEngine.RequestType.MANIFEST;
-                } else {
-                  isManifest = type === 0;
-                }
-              } catch (_) {
-                isManifest = type === 0;
-              }
-
-              if (isManifest && request && request.uris) {
-                request.uris = request.uris.map((uri: string) => {
-                  if (!uri) return uri;
-                  const lower = uri.toLowerCase();
-                  const isSigned = lower.includes('token=') || 
-                                   lower.includes('sign=') || 
-                                   lower.includes('hash=') || 
-                                   lower.includes('auth=') || 
-                                   lower.includes('expires=') || 
-                                   lower.includes('hdnts=') ||
-                                   lower.includes('security=');
-                  if (isSigned) {
-                    return uri;
-                  }
-                  const separator = uri.indexOf('?') === -1 ? '?' : '&';
-                  return uri + separator + '_ts=' + Date.now();
-                });
-              }
-            });
-
-            const setupShakaQuality = () => {
-              const tracks = shakaPlayer.getVariantTracks();
-              const uniqueTracksByHeight: Record<number, any> = {};
-              tracks.forEach((track: any) => {
-                if (track.height) {
-                  const existing = uniqueTracksByHeight[track.height];
-                  if (!existing || track.bandwidth > existing.bandwidth) {
-                    uniqueTracksByHeight[track.height] = track;
-                  }
-                }
-              });
-              const sortedHeights = Object.keys(uniqueTracksByHeight)
-                .map(Number)
-                .sort((a, b) => b - a);
-
-              if (sortedHeights.length > 0) {
-                const qualityItems = sortedHeights.map((height) => {
-                  const track = uniqueTracksByHeight[height];
-                  const isActive = track.active;
-                  return {
-                    default: isActive,
-                    html: `${height}P`,
-                    value: track.id,
-                  };
-                });
-
-                const isAbrEnabled = shakaPlayer.getConfiguration().abr.enabled;
-                qualityItems.unshift({
-                  default: isAbrEnabled,
-                  html: 'Auto',
-                  value: -1,
-                } as any);
-
-                art.setting.update({
-                  name: 'quality',
-                  html: 'Quality',
-                  width: 150,
-                  selector: qualityItems,
-                  onSelect: (item: any) => {
-                    if (item.value === -1) {
-                      shakaPlayer.configure({ abr: { enabled: true } });
-                    } else {
-                      shakaPlayer.configure({ abr: { enabled: false } });
-                      const targetTrack = tracks.find((t: any) => t.id === item.value);
-                      if (targetTrack) {
-                        shakaPlayer.selectVariantTrack(targetTrack, true);
-                      }
-                    }
-                    return item.html;
-                  }
-                });
-              }
-            };
-
-            shakaPlayer.load(cleanUrl).then(() => {
-              setupShakaQuality();
-              setupShakaLiveDvr(video, shakaPlayer, art);
-            }).catch((err: any) => {
-              console.warn('Shaka player MPD load warning details:', {
-                code: err ? err.code : 'unknown',
-                category: err ? err.category : 'unknown',
-                severity: err ? err.severity : 'unknown',
-                message: err ? err.message : '',
-                data: err ? err.data : []
-              }, err);
-              art.notice.show = `MPD Stream Error: ${err ? err.code : 'unknown'}`;
-            });
-
-            shakaPlayer.addEventListener('error', (event: any) => {
-              console.error('Shaka Player Error:', event);
-              if (event && event.detail && event.detail.severity === 1) {
-                return;
-              }
-            });
-          } else {
-            console.warn('Shaka player is not supported. Falling back to dash.js');
-            const player: any = dashjs.MediaPlayer().create();
-            dashRef.current = player;
-            if (Object.keys(clearKeys).length > 0) {
-              const hxeToBase64Url = (hex: string): string => {
-                const cleanHex = hex.trim().replace(/^0x/i, '');
-                if (cleanHex.length % 2 !== 0) return hex;
-                try {
-                  const bytes = new Uint8Array(cleanHex.length / 2);
-                  for (let i = 0; i < cleanHex.length; i += 2) {
-                    bytes[i / 2] = parseInt(cleanHex.substring(i, i + 2), 16);
-                  }
-                  let binary = '';
-                  for (let i = 0; i < bytes.byteLength; i++) {
-                    binary += String.fromCharCode(bytes[i]);
-                  }
-                  return btoa(binary)
-                    .replace(/\+/g, '-')
-                    .replace(/\//g, '_')
-                    .replace(/=+$/, '');
-                } catch (e) {
-                  return hex;
-                }
-              };
-              const clearkeys: any = {};
-              Object.entries(clearKeys).forEach(([kid, k]) => {
-                clearkeys[hxeToBase64Url(kid)] = hxeToBase64Url(k);
-              });
-              player.setProtectionData({
-                'org.w3.clearkey': { clearkeys }
-              });
-            }
-
-            player.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
-              const list = player.getBitrateInfoListFor('video');
-              if (list && list.length > 0) {
-                const uniqueByHeight: Record<number, any> = {};
-                list.forEach((info: any) => {
-                  if (info.height) {
-                    const existing = uniqueByHeight[info.height];
-                    if (!existing || info.bitrate > existing.bitrate) {
-                      uniqueByHeight[info.height] = info;
-                    }
-                  }
-                });
-                const sortedHeights = Object.keys(uniqueByHeight)
-                  .map(Number)
-                  .sort((a, b) => b - a);
-
-                if (sortedHeights.length > 0) {
-                  const currentQualityIndex = player.getQualityFor('video');
-                  const qualityItems = sortedHeights.map((height) => {
-                     const info = uniqueByHeight[height];
-                     return {
-                       default: info.qualityIndex === currentQualityIndex,
-                       html: `${height}P`,
-                       value: info.qualityIndex,
-                     };
-                  });
-
-                  const settings = player.getSettings();
-                  const isAuto = settings && settings.streaming && settings.streaming.abr && settings.streaming.abr.autoSwitchBitrate && settings.streaming.abr.autoSwitchBitrate.video;
-
-                  qualityItems.unshift({
-                    default: !!isAuto,
-                    html: 'Auto',
-                    value: -1,
-                  } as any);
-
-                  art.setting.update({
-                    name: 'quality',
-                    html: 'Quality',
-                    width: 150,
-                    selector: qualityItems,
-                    onSelect: (item: any) => {
-                      if (item.value === -1) {
-                        player.updateSettings({
-                          streaming: {
-                            abr: {
-                              autoSwitchBitrate: {
-                                video: true
-                              }
-                            }
-                          }
-                        });
-                      } else {
-                        player.updateSettings({
-                          streaming: {
-                            abr: {
-                              autoSwitchBitrate: {
-                                video: false
-                              }
-                            }
-                          }
-                        });
-                        player.setQualityFor('video', item.value);
-                      }
-                      return item.html;
-                    }
-                  });
-                }
-              }
-            });
-
-            player.initialize(video, cleanUrl, options.autoplay || false);
-          }
+          initMpdOrDash(video, url, art);
         },
         dash: function (video: HTMLVideoElement, url: string, art: Artplayer) {
-          if (shakaRef.current) {
-            try {
-              shakaRef.current.destroy();
-            } catch (_) {}
-            shakaRef.current = null;
-          }
-          if (dashRef.current) {
-            try {
-              dashRef.current.destroy();
-            } catch (_) {}
-            dashRef.current = null;
-          }
-
-          const { cleanUrl, clearKeys } = parseDRMUrl(url);
-
-          shaka.polyfill.installAll();
-          if (shaka.Player.isBrowserSupported()) {
-            const shakaPlayer = new shaka.Player(video);
-            shakaRef.current = shakaPlayer;
-            (window as any).globalShakaPlayer = shakaPlayer;
-
-            const shakaConfig: any = {
-              manifest: {
-                dash: {
-                  ignoreMinBufferTime: true,
-                  autoCorrectDrift: true,
-                  initialSegmentLimit: 2
-                }
-              },
-              streaming: {
-                rebufferingGoal: 1.0,
-                bufferingGoal: 2.5,
-                lowLatencyMode: true,
-                safeSeekOffset: 5,
-                stallEnabled: true,
-                stallThreshold: 1.0,
-                stallSkip: 0.1,
-                ignoreTextStreamFailures: true,
-                inaccurateManifestTolerance: 2
-              },
-              abr: {
-                enabled: true,
-                defaultBandwidthEstimate: 1000000
-              }
-            };
-
-            if (Object.keys(clearKeys).length > 0) {
-              shakaConfig.drm = {
-                clearKeys: clearKeys,
-                delayLicenseRequestUntilPlayed: false
-              };
-            }
-
-            shakaPlayer.configure(shakaConfig);
-
-            // Prevent manifest caching safely without breaking signed URLs or throwing import exceptions
-            shakaPlayer.getNetworkingEngine().registerRequestFilter((type: any, request: any) => {
-              let isManifest = false;
-              try {
-                if (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType) {
-                  isManifest = type === shaka.net.NetworkingEngine.RequestType.MANIFEST;
-                } else {
-                  isManifest = type === 0;
-                }
-              } catch (_) {
-                isManifest = type === 0;
-              }
-
-              if (isManifest && request && request.uris) {
-                request.uris = request.uris.map((uri: string) => {
-                  if (!uri) return uri;
-                  const lower = uri.toLowerCase();
-                  const isSigned = lower.includes('token=') || 
-                                   lower.includes('sign=') || 
-                                   lower.includes('hash=') || 
-                                   lower.includes('auth=') || 
-                                   lower.includes('expires=') || 
-                                   lower.includes('hdnts=') ||
-                                   lower.includes('security=');
-                  if (isSigned) {
-                    return uri;
-                  }
-                  const separator = uri.indexOf('?') === -1 ? '?' : '&';
-                  return uri + separator + '_ts=' + Date.now();
-                });
-              }
-            });
-
-            const setupShakaQuality = () => {
-              const tracks = shakaPlayer.getVariantTracks();
-              const uniqueTracksByHeight: Record<number, any> = {};
-              tracks.forEach((track: any) => {
-                if (track.height) {
-                  const existing = uniqueTracksByHeight[track.height];
-                  if (!existing || track.bandwidth > existing.bandwidth) {
-                    uniqueTracksByHeight[track.height] = track;
-                  }
-                }
-              });
-              const sortedHeights = Object.keys(uniqueTracksByHeight)
-                .map(Number)
-                .sort((a, b) => b - a);
-
-              if (sortedHeights.length > 0) {
-                const qualityItems = sortedHeights.map((height) => {
-                  const track = uniqueTracksByHeight[height];
-                  const isActive = track.active;
-                  return {
-                    default: isActive,
-                    html: `${height}P`,
-                    value: track.id,
-                  };
-                });
-
-                const isAbrEnabled = shakaPlayer.getConfiguration().abr.enabled;
-                qualityItems.unshift({
-                  default: isAbrEnabled,
-                  html: 'Auto',
-                  value: -1,
-                } as any);
-
-                art.setting.update({
-                  name: 'quality',
-                  html: 'Quality',
-                  width: 150,
-                  selector: qualityItems,
-                  onSelect: (item: any) => {
-                    if (item.value === -1) {
-                      shakaPlayer.configure({ abr: { enabled: true } });
-                    } else {
-                      shakaPlayer.configure({ abr: { enabled: false } });
-                      const targetTrack = tracks.find((t: any) => t.id === item.value);
-                      if (targetTrack) {
-                        shakaPlayer.selectVariantTrack(targetTrack, true);
-                      }
-                    }
-                    return item.html;
-                  }
-                });
-              }
-            };
-
-            shakaPlayer.load(cleanUrl).then(() => {
-              setupShakaQuality();
-              setupShakaLiveDvr(video, shakaPlayer, art);
-            }).catch((err: any) => {
-              console.warn('Shaka player DASH load warning details:', {
-                code: err ? err.code : 'unknown',
-                category: err ? err.category : 'unknown',
-                severity: err ? err.severity : 'unknown',
-                message: err ? err.message : '',
-                data: err ? err.data : []
-              }, err);
-              art.notice.show = `DASH Stream Error: ${err ? err.code : 'unknown'}`;
-            });
-
-            shakaPlayer.addEventListener('error', (event: any) => {
-              console.error('Shaka Player Error:', event);
-              if (event && event.detail && event.detail.severity === 1) {
-                return;
-              }
-            });
-          } else {
-            console.warn('Shaka player is not supported. Falling back to dash.js');
-            const player: any = dashjs.MediaPlayer().create();
-            dashRef.current = player;
-            if (Object.keys(clearKeys).length > 0) {
-              const hxeToBase64Url = (hex: string): string => {
-                const cleanHex = hex.trim().replace(/^0x/i, '');
-                if (cleanHex.length % 2 !== 0) return hex;
-                try {
-                  const bytes = new Uint8Array(cleanHex.length / 2);
-                  for (let i = 0; i < cleanHex.length; i += 2) {
-                    bytes[i / 2] = parseInt(cleanHex.substring(i, i + 2), 16);
-                  }
-                  let binary = '';
-                  for (let i = 0; i < bytes.byteLength; i++) {
-                    binary += String.fromCharCode(bytes[i]);
-                  }
-                  return btoa(binary)
-                    .replace(/\+/g, '-')
-                    .replace(/\//g, '_')
-                    .replace(/=+$/, '');
-                } catch (e) {
-                  return hex;
-                }
-              };
-              const clearkeys: any = {};
-              Object.entries(clearKeys).forEach(([kid, k]) => {
-                clearkeys[hxeToBase64Url(kid)] = hxeToBase64Url(k);
-              });
-              player.setProtectionData({
-                'org.w3.clearkey': { clearkeys }
-              });
-            }
-
-            player.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
-              const list = player.getBitrateInfoListFor('video');
-              if (list && list.length > 0) {
-                const uniqueByHeight: Record<number, any> = {};
-                list.forEach((info: any) => {
-                  if (info.height) {
-                    const existing = uniqueByHeight[info.height];
-                    if (!existing || info.bitrate > existing.bitrate) {
-                      uniqueByHeight[info.height] = info;
-                    }
-                  }
-                });
-                const sortedHeights = Object.keys(uniqueByHeight)
-                  .map(Number)
-                  .sort((a, b) => b - a);
-
-                if (sortedHeights.length > 0) {
-                  const currentQualityIndex = player.getQualityFor('video');
-                  const qualityItems = sortedHeights.map((height) => {
-                    const info = uniqueByHeight[height];
-                    return {
-                      default: info.qualityIndex === currentQualityIndex,
-                      html: `${height}P`,
-                      value: info.qualityIndex,
-                    };
-                  });
-
-                  const settings = player.getSettings();
-                  const isAuto = settings && settings.streaming && settings.streaming.abr && settings.streaming.abr.autoSwitchBitrate && settings.streaming.abr.autoSwitchBitrate.video;
-
-                  qualityItems.unshift({
-                    default: !!isAuto,
-                    html: 'Auto',
-                    value: -1,
-                  } as any);
-
-                  art.setting.update({
-                    name: 'quality',
-                    html: 'Quality',
-                    width: 150,
-                    selector: qualityItems,
-                    onSelect: (item: any) => {
-                      if (item.value === -1) {
-                        player.updateSettings({
-                          streaming: {
-                            abr: {
-                              autoSwitchBitrate: {
-                                video: true
-                              }
-                            }
-                          }
-                        });
-                      } else {
-                        player.updateSettings({
-                          streaming: {
-                            abr: {
-                              autoSwitchBitrate: {
-                                video: false
-                              }
-                            }
-                          }
-                        });
-                        player.setQualityFor('video', item.value);
-                      }
-                      return item.html;
-                    }
-                  });
-                }
-              }
-            });
-
-            player.initialize(video, cleanUrl, options.autoplay || false);
-          }
+          initMpdOrDash(video, url, art);
         },
       },
     } as any);
