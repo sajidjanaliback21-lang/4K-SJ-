@@ -853,6 +853,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           }
         },
         mpd: function (video: HTMLVideoElement, url: string, art: Artplayer) {
+          // Initializing MPD player
           if (shakaRef.current) {
             try {
               shakaRef.current.destroy();
@@ -908,7 +909,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             shakaPlayer.configure(shakaConfig);
 
-            // Prevent manifest caching safely without breaking signed URLs or throwing import exceptions
+            // Prevent manifest caching safely on MPD without breaking signed URLs or throwing import exceptions
             shakaPlayer.getNetworkingEngine().registerRequestFilter((type: any, request: any) => {
               let isManifest = false;
               try {
@@ -999,14 +1000,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               setupShakaQuality();
               setupShakaLiveDvr(video, shakaPlayer, art);
             }).catch((err: any) => {
-              console.error('Shaka player load error details:', {
+              console.warn('Shaka player MPD load warning details:', {
                 code: err ? err.code : 'unknown',
                 category: err ? err.category : 'unknown',
                 severity: err ? err.severity : 'unknown',
                 message: err ? err.message : '',
                 data: err ? err.data : []
               }, err);
-              art.notice.show = `DASH Stream Error: ${err ? err.code : 'unknown'}`;
+              art.notice.show = `MPD Stream Error: ${err ? err.code : 'unknown'}`;
             });
 
             shakaPlayer.addEventListener('error', (event: any) => {
@@ -1270,7 +1271,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               setupShakaQuality();
               setupShakaLiveDvr(video, shakaPlayer, art);
             }).catch((err: any) => {
-              console.error('Shaka player load error details:', {
+              console.warn('Shaka player DASH load warning details:', {
                 code: err ? err.code : 'unknown',
                 category: err ? err.category : 'unknown',
                 severity: err ? err.severity : 'unknown',
