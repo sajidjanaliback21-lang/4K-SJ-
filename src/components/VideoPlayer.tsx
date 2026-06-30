@@ -908,10 +908,33 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             shakaPlayer.configure(shakaConfig);
 
-            // Prevent manifest caching
+            // Prevent manifest caching safely without breaking signed URLs or throwing import exceptions
             shakaPlayer.getNetworkingEngine().registerRequestFilter((type: any, request: any) => {
-              if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST) {
+              let isManifest = false;
+              try {
+                if (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType) {
+                  isManifest = type === shaka.net.NetworkingEngine.RequestType.MANIFEST;
+                } else {
+                  isManifest = type === 0;
+                }
+              } catch (_) {
+                isManifest = type === 0;
+              }
+
+              if (isManifest && request && request.uris) {
                 request.uris = request.uris.map((uri: string) => {
+                  if (!uri) return uri;
+                  const lower = uri.toLowerCase();
+                  const isSigned = lower.includes('token=') || 
+                                   lower.includes('sign=') || 
+                                   lower.includes('hash=') || 
+                                   lower.includes('auth=') || 
+                                   lower.includes('expires=') || 
+                                   lower.includes('hdnts=') ||
+                                   lower.includes('security=');
+                  if (isSigned) {
+                    return uri;
+                  }
                   const separator = uri.indexOf('?') === -1 ? '?' : '&';
                   return uri + separator + '_ts=' + Date.now();
                 });
@@ -976,8 +999,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               setupShakaQuality();
               setupShakaLiveDvr(video, shakaPlayer, art);
             }).catch((err: any) => {
-              console.error('Shaka player load error:', err);
-              art.notice.show = 'DASH Stream Error';
+              console.error('Shaka player load error details:', {
+                code: err ? err.code : 'unknown',
+                category: err ? err.category : 'unknown',
+                severity: err ? err.severity : 'unknown',
+                message: err ? err.message : '',
+                data: err ? err.data : []
+              }, err);
+              art.notice.show = `DASH Stream Error: ${err ? err.code : 'unknown'}`;
             });
 
             shakaPlayer.addEventListener('error', (event: any) => {
@@ -1039,12 +1068,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 if (sortedHeights.length > 0) {
                   const currentQualityIndex = player.getQualityFor('video');
                   const qualityItems = sortedHeights.map((height) => {
-                    const info = uniqueByHeight[height];
-                    return {
-                      default: info.qualityIndex === currentQualityIndex,
-                      html: `${height}P`,
-                      value: info.qualityIndex,
-                    };
+                     const info = uniqueByHeight[height];
+                     return {
+                       default: info.qualityIndex === currentQualityIndex,
+                       html: `${height}P`,
+                       value: info.qualityIndex,
+                     };
                   });
 
                   const settings = player.getSettings();
@@ -1150,10 +1179,33 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             shakaPlayer.configure(shakaConfig);
 
-            // Prevent manifest caching
+            // Prevent manifest caching safely without breaking signed URLs or throwing import exceptions
             shakaPlayer.getNetworkingEngine().registerRequestFilter((type: any, request: any) => {
-              if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST) {
+              let isManifest = false;
+              try {
+                if (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType) {
+                  isManifest = type === shaka.net.NetworkingEngine.RequestType.MANIFEST;
+                } else {
+                  isManifest = type === 0;
+                }
+              } catch (_) {
+                isManifest = type === 0;
+              }
+
+              if (isManifest && request && request.uris) {
                 request.uris = request.uris.map((uri: string) => {
+                  if (!uri) return uri;
+                  const lower = uri.toLowerCase();
+                  const isSigned = lower.includes('token=') || 
+                                   lower.includes('sign=') || 
+                                   lower.includes('hash=') || 
+                                   lower.includes('auth=') || 
+                                   lower.includes('expires=') || 
+                                   lower.includes('hdnts=') ||
+                                   lower.includes('security=');
+                  if (isSigned) {
+                    return uri;
+                  }
                   const separator = uri.indexOf('?') === -1 ? '?' : '&';
                   return uri + separator + '_ts=' + Date.now();
                 });
@@ -1218,8 +1270,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               setupShakaQuality();
               setupShakaLiveDvr(video, shakaPlayer, art);
             }).catch((err: any) => {
-              console.error('Shaka player load error:', err);
-              art.notice.show = 'DASH Stream Error';
+              console.error('Shaka player load error details:', {
+                code: err ? err.code : 'unknown',
+                category: err ? err.category : 'unknown',
+                severity: err ? err.severity : 'unknown',
+                message: err ? err.message : '',
+                data: err ? err.data : []
+              }, err);
+              art.notice.show = `DASH Stream Error: ${err ? err.code : 'unknown'}`;
             });
 
             shakaPlayer.addEventListener('error', (event: any) => {
