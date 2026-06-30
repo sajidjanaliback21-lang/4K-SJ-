@@ -411,7 +411,48 @@ const buildUrlWithKeys = (base: string, keys: string) => {
   return `${cleanBase}|drmScheme=clearkey&drmLicense=${trimmedKeys}`;
 };
 
+const getResellerKey = () => {
+  if (typeof window === 'undefined') return '';
+  const urlParams = new URLSearchParams(window.location.search);
+  const ref = urlParams.get('ref') || urlParams.get('reseller');
+  if (ref) return ref.toLowerCase();
+
+  const hostname = window.location.hostname;
+  if (!hostname) return '';
+  const parts = hostname.split('.');
+  
+  if (
+    hostname.includes('run.app') || 
+    hostname.includes('hf.space') || 
+    hostname.includes('github.io') || 
+    hostname.includes('localhost') || 
+    hostname.includes('127.0.0.1')
+  ) {
+    return '';
+  }
+
+  if (parts.length > 2) {
+    return parts[0].toLowerCase();
+  }
+  return '';
+};
+
 export default function App() {
+  // Reseller states
+  const [resellers, setResellers] = useState<any[]>([]);
+  const [activeReseller, setActiveReseller] = useState<any | null>(null);
+  const [isResellersLoading, setIsResellersLoading] = useState(true);
+  
+  const [newReseller, setNewReseller] = useState({
+    subdomain: '',
+    brand_name: '',
+    tagline: '',
+    whatsapp_number: '',
+    whatsapp_group_link: '',
+    logo_url: ''
+  });
+  const [editingResellerId, setEditingResellerId] = useState<string | null>(null);
+
   const [creds, setCreds] = useState<XtreamCredentials>(() => {
     const saved = localStorage.getItem('iptv_creds');
     const loggedIn = localStorage.getItem('iptv_logged_in') === 'true';
@@ -449,6 +490,7 @@ export default function App() {
   const [selectedMovieCategory, setSelectedMovieCategory] = useState<string>('0');
   const [selectedSeriesCategory, setSelectedSeriesCategory] = useState<string>('0');
   const [selectedLiveCategory, setSelectedLiveCategory] = useState<string>('0');
+  const [isMobileCategoriesOpen, setIsMobileCategoriesOpen] = useState(false);
   const [movieItems, setMovieItems] = useState<Stream[]>([]);
   const [seriesItems, setSeriesItems] = useState<Series[]>([]);
   const [liveItems, setLiveItems] = useState<LiveStream[]>([]);
@@ -604,6 +646,46 @@ export default function App() {
     return saved !== 'false';
   });
 
+  // Reactive reseller helper values
+  const currentBrandName = activeReseller?.brand_name || "4K•SJ";
+  const currentTagline = activeReseller?.tagline || "Premium Experience";
+  const currentWhatsappNumber = activeReseller?.whatsapp_number || "923161611304";
+  const currentWhatsappGroupLink = activeReseller?.whatsapp_group_link || "https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE";
+
+  // Real-time Firestore Sync for Resellers
+  useEffect(() => {
+    const q = query(collection(db, 'resellers'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list: any[] = [];
+      snapshot.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      setResellers(list);
+      setIsResellersLoading(false);
+
+      // Determine the active reseller
+      const resellerKey = getResellerKey();
+      const currentHost = window.location.hostname.toLowerCase();
+      
+      const matched = list.find(r => 
+        (r.subdomain && r.subdomain.toLowerCase() === resellerKey) || 
+        (r.subdomain && r.subdomain.toLowerCase() === currentHost)
+      );
+      
+      if (matched) {
+        setActiveReseller(matched);
+      } else {
+        setActiveReseller(null);
+      }
+    }, (error) => {
+      console.error("Firestore Error (Resellers):", error);
+      setIsResellersLoading(false);
+      handleFirestoreError(error, OperationType.GET, 'resellers');
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   useEffect(() => {
     const handleStorage = () => {
       setIsAntiPopupActive(localStorage.getItem('anti_popup_enabled') !== 'false');
@@ -718,7 +800,8 @@ export default function App() {
     showLoginModal ||
     showAdminLogin ||
     showDownloadConfirm ||
-    showProfileModal
+    showProfileModal ||
+    isMobileCategoriesOpen
   );
   const [newPslUrlUrdu, setNewPslUrlUrdu] = useState(pslUrlUrdu);
   const [newPslUrlEnglish, setNewPslUrlEnglish] = useState(pslUrlEnglish);
@@ -727,7 +810,7 @@ export default function App() {
   const [newPslChannel3IsEmbed, setNewPslChannel3IsEmbed] = useState(pslChannel3IsEmbed);
   const [newPslChannel3ShowLiveIcon, setNewPslChannel3ShowLiveIcon] = useState(pslChannel3ShowLiveIcon);
   const [newIplUrl, setNewIplUrl] = useState(iplUrl);
-  const [activeAdminTab, setActiveAdminTab] = useState<'psl' | 'ipl' | 'free_movies' | 'free_series' | 'live_events' | 'app' | 'fifa' | 'analytics'>('psl');
+  const [activeAdminTab, setActiveAdminTab] = useState<'psl' | 'ipl' | 'free_movies' | 'free_series' | 'live_events' | 'app' | 'fifa' | 'analytics' | 'resellers'>('psl');
   
   // Analytics State Hooks
   const [userActivities, setUserActivities] = useState<any[]>([]);
@@ -2106,6 +2189,48 @@ export default function App() {
       alert("An error occurred while fetching details.");
     } finally {
       setIsFetchingTmdb(false);
+    }
+  };
+
+  const handleAddReseller = async () => {
+    if (!newReseller.subdomain || !newReseller.brand_name) {
+      alert("Please fill all required fields (Subdomain/Domain keyword, Brand Name)");
+      return;
+    }
+    try {
+      if (editingResellerId) {
+        await updateDoc(doc(db, 'resellers', editingResellerId), {
+          ...newReseller,
+          updatedAt: new Date().toISOString()
+        });
+        setEditingResellerId(null);
+      } else {
+        await addDoc(collection(db, 'resellers'), {
+          ...newReseller,
+          createdAt: new Date().toISOString()
+        });
+      }
+      setNewReseller({
+        subdomain: '',
+        brand_name: '',
+        tagline: '',
+        whatsapp_number: '',
+        whatsapp_group_link: '',
+        logo_url: ''
+      });
+    } catch (error) {
+      console.error("Error saving reseller:", error);
+      handleFirestoreError(error, OperationType.WRITE, 'resellers');
+    }
+  };
+
+  const handleDeleteReseller = async (id: string) => {
+    if (!window.confirm("Are you sure you want to delete this reseller?")) return;
+    try {
+      await deleteDoc(doc(db, 'resellers', id));
+    } catch (error) {
+      console.error("Error deleting reseller:", error);
+      handleFirestoreError(error, OperationType.DELETE, `resellers/${id}`);
     }
   };
 
@@ -4122,10 +4247,10 @@ export default function App() {
               {/* WhatsApp community banner */}
               <div className="pt-6 border-t border-emerald-500/20 bg-gradient-to-b from-transparent to-[#011d0b]/40 flex flex-col items-center justify-center gap-4 rounded-b-[2.5rem] p-4 text-center">
                 <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-[0.25em] italic leading-relaxed max-w-lg">
-                  Share Live Football Chats with 4K•SJ Luxury Community
+                  Share Live Football Chats with {currentBrandName} Luxury Community
                 </p>
                 <a 
-                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                  href={currentWhatsappGroupLink} 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-xl font-bold text-[10px] transition-all shadow-[0_0_20px_rgba(37,211,102,0.3)] uppercase tracking-widest cursor-pointer active:scale-95"
@@ -4138,9 +4263,11 @@ export default function App() {
           </div>
         ) : (
           <div className="flex flex-col md:flex-row gap-8 items-start w-full">
-            {/* Premium Category Side Panel (Vertical on desktop, Horizontal on mobile) */}
+            {/* Premium Category Side Panel (Vertical on desktop, Drawer on mobile) */}
             <div className="w-full md:w-72 md:shrink-0 md:sticky md:top-24 space-y-4">
-              <div className="flex items-center justify-between">
+              
+              {/* Desktop Header */}
+              <div className="hidden md:flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20">
                     <LayoutGrid size={16} className="text-cyan-400" />
@@ -4156,14 +4283,44 @@ export default function App() {
                 )}
               </div>
 
-              <div className="relative group w-full">
-                <div className="flex flex-row md:flex-col items-stretch md:items-stretch gap-2 overflow-x-auto md:overflow-y-auto md:max-h-[calc(100vh-240px)] desktop-scrollbar pb-2 md:pb-0 md:pr-1 snap-x snap-mandatory">
+              {/* Mobile Beautiful Interactive Category Selector Card */}
+              <div 
+                onClick={() => setIsMobileCategoriesOpen(true)}
+                className="flex md:hidden items-center justify-between bg-white/5 border border-white/10 hover:border-white/20 rounded-2xl p-4 cursor-pointer active:scale-98 transition-all duration-300"
+                id="mobile-category-selector-trigger"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20">
+                    <LayoutGrid size={20} className="text-cyan-400 animate-pulse" />
+                  </div>
+                  <div className="text-left">
+                    <span className="text-[9px] text-cyan-400 font-black uppercase tracking-widest block leading-none mb-1">Select Category</span>
+                    <h3 className="text-sm font-display font-bold text-white tracking-tight leading-none">
+                      {currentCategories.find(c => c.category_id === currentSelectedCategory)?.category_name || "All Categories"}
+                    </h3>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!currentLoading && currentItems.length > 0 && (
+                    <div className="px-3 py-1 rounded-full bg-white/5 border border-white/10">
+                      <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest">
+                        {currentItems.length} Titles
+                      </span>
+                    </div>
+                  )}
+                  <ChevronRight size={16} className="text-white/40" />
+                </div>
+              </div>
+
+              {/* Desktop Categories Scroll List */}
+              <div className="relative group w-full hidden md:block">
+                <div className="flex flex-col items-stretch gap-2 overflow-y-auto max-h-[calc(100vh-240px)] desktop-scrollbar pr-1">
                   {currentCategories.map((cat, idx) => (
                     <button
                       key={`${activeTab}-cat-${cat.category_id}-${idx}`}
                       onClick={() => setCurrentSelectedCategory(cat.category_id)}
                       className={cn(
-                        "relative whitespace-nowrap md:whitespace-normal text-left px-5 py-2.5 rounded-xl text-xs md:text-sm font-bold transition-all duration-300 snap-start gpu w-full shrink-0 md:shrink",
+                        "relative text-left px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 w-full shrink-0 md:shrink",
                         currentSelectedCategory === cat.category_id 
                           ? "text-black" 
                           : "text-white/50 hover:text-white bg-white/5 border border-white/5 hover:border-white/20"
@@ -4176,15 +4333,15 @@ export default function App() {
                           transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
                         />
                       )}
-                      <div className="relative z-10 flex flex-row md:flex-col items-center md:items-start justify-between">
-                        <span className="leading-tight truncate pr-2 md:pr-0">{cat.category_name}</span>
+                      <div className="relative z-10 flex items-center justify-between">
+                        <span className="leading-tight truncate pr-2">{cat.category_name}</span>
                         {cat.category_id === '0' && (
-                          <span className="text-[8px] md:text-[9px] opacity-60 font-medium mt-0.5 whitespace-nowrap shrink-0">
+                          <span className="text-[9px] opacity-60 font-medium mt-0.5 whitespace-nowrap shrink-0">
                             {activeTab === 'movies' ? totalMovieCount : (activeTab === 'series' ? totalSeriesCount : totalLiveCount)} Items
                           </span>
                         )}
                         {cat.category_id === 'favorites' && (
-                          <span className="text-[8px] md:text-[9px] opacity-60 font-medium mt-0.5 whitespace-nowrap shrink-0">
+                          <span className="text-[9px] opacity-60 font-medium mt-0.5 whitespace-nowrap shrink-0">
                             {(() => {
                               const typeMap = { 'movies': 'movie', 'series': 'series', 'live': 'live' };
                               const currentType = typeMap[activeTab as 'movies' | 'series' | 'live'] || 'movie';
@@ -4196,8 +4353,6 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                {/* Fade edges on mobile/tablet */}
-                <div className="absolute top-0 right-0 bottom-2 w-12 bg-gradient-to-l from-[#020617] to-transparent pointer-events-none md:hidden" />
               </div>
             </div>
 
@@ -5274,7 +5429,7 @@ export default function App() {
                     </div>
                     {loginError.includes('Click here') && (
                       <a 
-                        href="https://wa.me/923161611304" 
+                        href={`https://wa.me/${currentWhatsappNumber}`} 
                         target="_blank" 
                         rel="noopener noreferrer"
                         className="text-cyan-400 font-bold underline hover:text-cyan-300 ml-6"
@@ -5289,14 +5444,14 @@ export default function App() {
                   type="submit"
                   className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-4 rounded-xl font-bold text-lg transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] mt-4"
                 >
-                  Login to 4K•SJ
+                  Login to {currentBrandName}
                 </button>
               </form>
 
               <div className="mt-8 pt-6 border-t border-white/10 text-center">
                 <p className="text-white/40 text-xs mb-4 uppercase tracking-widest font-bold">Don't have an account?</p>
                 <a 
-                  href="https://wa.me/923161611304" 
+                  href={`https://wa.me/${currentWhatsappNumber}`} 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-3 bg-green-500/10 hover:bg-green-500/20 text-green-400 px-6 py-3 rounded-xl font-bold transition-all border border-green-500/20 w-full justify-center"
@@ -5597,7 +5752,7 @@ export default function App() {
 
                   <div className="pt-2 flex flex-col gap-3">
                     <a 
-                      href="https://wa.me/923161611304" 
+                      href={`https://wa.me/${currentWhatsappNumber}`} 
                       target="_blank" 
                       rel="noopener noreferrer" 
                       className="w-full h-11 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98] shadow-lg shadow-emerald-500/10"
@@ -5750,6 +5905,104 @@ export default function App() {
               })}
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Premium Mobile Categories Side Drawer (Animate from left) */}
+      <AnimatePresence>
+        {isMobileCategoriesOpen && (
+          <div className="fixed inset-0 z-[110] md:hidden flex">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setIsMobileCategoriesOpen(false)}
+              className="absolute inset-0 bg-black/70 backdrop-blur-md"
+            />
+
+            {/* Side Panel */}
+            <motion.div
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 220 }}
+              className="relative w-[85%] max-w-[320px] h-full bg-[#020617]/95 border-r border-white/10 shadow-[20px_0_40px_rgba(0,0,0,0.8)] flex flex-col z-10 backdrop-blur-xl"
+            >
+              {/* Header */}
+              <div className="p-4 border-b border-white/5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20">
+                    <LayoutGrid size={16} className="text-cyan-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-display font-black text-white uppercase tracking-wider">Categories</h3>
+                    <p className="text-[9px] text-white/40 uppercase font-bold tracking-widest">{currentCategories.length} available</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsMobileCategoriesOpen(false)}
+                  className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:text-white transition-all cursor-pointer active:scale-90"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Categories list */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-2 max-h-[calc(100vh-80px)]">
+                {currentCategories.map((cat, idx) => {
+                  const isSelected = currentSelectedCategory === cat.category_id;
+                  return (
+                    <button
+                      key={`mobile-cat-${cat.category_id}-${idx}`}
+                      onClick={() => {
+                        setCurrentSelectedCategory(cat.category_id);
+                        setIsMobileCategoriesOpen(false); // Close drawer on selection!
+                      }}
+                      className={cn(
+                        "relative w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition-all duration-300 flex items-center justify-between group active:scale-[0.98]",
+                        isSelected 
+                          ? "text-black bg-gradient-to-r from-cyan-500 to-blue-500 shadow-[0_4px_12px_rgba(6,182,212,0.3)] font-extrabold font-sans" 
+                          : "text-white/60 hover:text-white bg-white/5 border border-white/5 font-sans"
+                      )}
+                    >
+                      {isSelected && (
+                        <motion.div
+                          layoutId="activeCategoryMobile"
+                          className="absolute inset-0 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl"
+                          transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                        />
+                      )}
+                      <span className="relative z-10 leading-tight truncate pr-4">{cat.category_name}</span>
+                      
+                      {cat.category_id === '0' && (
+                        <span className={cn(
+                          "relative z-10 text-[9px] font-bold px-2 py-0.5 rounded-full",
+                          isSelected ? "bg-black/10 text-black" : "bg-white/5 text-white/40"
+                        )}>
+                          {activeTab === 'movies' ? totalMovieCount : (activeTab === 'series' ? totalSeriesCount : totalLiveCount)}
+                        </span>
+                      )}
+
+                      {cat.category_id === 'favorites' && (
+                        <span className={cn(
+                          "relative z-10 text-[9px] font-bold px-2 py-0.5 rounded-full",
+                          isSelected ? "bg-black/10 text-black" : "bg-white/5 text-white/40"
+                        )}>
+                          {(() => {
+                            const typeMap = { 'movies': 'movie', 'series': 'series', 'live': 'live' };
+                            const currentType = typeMap[activeTab as 'movies' | 'series' | 'live'] || 'movie';
+                            return favorites.filter((fav: any) => fav.type === currentType).length;
+                          })()}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
@@ -5962,7 +6215,7 @@ export default function App() {
                     </a>
 
                     <a 
-                      href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                      href={currentWhatsappGroupLink} 
                       target="_blank" 
                       rel="noopener noreferrer"
                       className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-4 py-3 rounded-xl font-bold text-xs transition-all shadow-lg shadow-green-500/10"
@@ -6136,13 +6389,13 @@ export default function App() {
               <div className="p-6 bg-yellow-500/10 border-t border-yellow-500/20 flex flex-col items-center justify-center gap-4">
                 <div className="flex flex-col items-center gap-1">
                   <p className="text-sm text-yellow-400 font-bold uppercase tracking-[0.2em] text-center">
-                    Enjoy the match in {selectedPslLanguage === 'urdu' ? 'Urdu' : 'English'} with 4K•SJ Premium Experience
+                    Enjoy the match in {selectedPslLanguage === 'urdu' ? 'Urdu' : 'English'} with {currentBrandName} Premium Experience
                   </p>
                   <p className="text-[10px] text-white/40 uppercase tracking-widest">High Quality HLS Stream Enabled</p>
                 </div>
                 
                 <a 
-                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                  href={currentWhatsappGroupLink} 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest"
@@ -6216,13 +6469,13 @@ export default function App() {
               <div className="p-6 bg-blue-600/10 border-t border-blue-600/20 flex flex-col items-center justify-center gap-4">
                 <div className="flex flex-col items-center gap-1">
                   <p className="text-sm text-blue-400 font-bold uppercase tracking-[0.2em] text-center">
-                    Enjoy the match with 4K•SJ Premium Experience
+                    Enjoy the match with {currentBrandName} Premium Experience
                   </p>
                   <p className="text-[10px] text-white/40 uppercase tracking-widest">High Quality HLS Stream Enabled</p>
                 </div>
 
                 <a 
-                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                  href={currentWhatsappGroupLink} 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest"
@@ -6349,7 +6602,7 @@ export default function App() {
               <div className="p-6 bg-rose-500/10 border-t border-rose-500/20 flex flex-col items-center justify-center gap-4">
                 <div className="flex flex-col items-center gap-1">
                   <p className="text-sm text-rose-400 font-bold uppercase tracking-[0.2em] text-center">
-                    Enjoying {selectedLiveEvent.name} with 4K•SJ Luxury Experience
+                    Enjoying {selectedLiveEvent.name} with {currentBrandName} Luxury Experience
                   </p>
                   <p className="text-[10px] text-white/40 uppercase tracking-widest">
                     Active Feed: {selectedLiveEvent.channels?.[activeLiveChannelIndex]?.name || 'Primary'} Feed
@@ -6357,7 +6610,7 @@ export default function App() {
                 </div>
                 
                 <a 
-                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                  href={currentWhatsappGroupLink} 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest cursor-pointer"
@@ -6460,7 +6713,7 @@ export default function App() {
                   Don't have the password? Contact us below:
                 </p>
                 <a 
-                  href={`https://wa.me/923161611304?text=Hello!%20I%20need%20the%20password%20for%20"${encodeURIComponent(passwordProtectedItem.item.name)}"`} 
+                  href={`https://wa.me/${currentWhatsappNumber}?text=Hello!%20I%20need%20the%20password%20for%20"${encodeURIComponent(passwordProtectedItem.item.name)}"`} 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-6 py-2.5 rounded-xl font-black text-[11px] transition-all transform hover:scale-105 shadow-[0_0_15px_rgba(37,211,102,0.3)] uppercase tracking-wider cursor-pointer"
@@ -6671,7 +6924,7 @@ export default function App() {
                           : undefined
                       )}
                       <a 
-                        href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                        href={currentWhatsappGroupLink} 
                         target="_blank" 
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-3 py-1.5 rounded-full font-bold text-[10px] md:text-xs transition-all shadow-lg shadow-green-500/10 active:scale-95 cursor-pointer whitespace-nowrap"
@@ -7115,7 +7368,7 @@ export default function App() {
 
               <div className="p-6 bg-black/40 border-b border-white/5">
                 <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 overflow-x-auto no-scrollbar">
-                  {(['psl', 'ipl', 'app', 'free_movies', 'free_series', 'live_events', 'fifa', 'analytics'] as const).map((tab) => (
+                  {(['psl', 'ipl', 'app', 'free_movies', 'free_series', 'live_events', 'fifa', 'analytics', 'resellers'] as const).map((tab) => (
                     <button 
                       key={tab}
                       onClick={() => setActiveAdminTab(tab)}
@@ -7125,7 +7378,7 @@ export default function App() {
                           : 'text-white/40 hover:text-white hover:bg-white/5'
                       }`}
                     >
-                      {tab === 'app' ? 'General' : tab === 'fifa' ? 'FIFA 2026' : tab === 'analytics' ? 'STATS & ANALYTICS' : tab.replace('free_', '').replace('_', ' ').toUpperCase()}
+                      {tab === 'app' ? 'General' : tab === 'fifa' ? 'FIFA 2026' : tab === 'analytics' ? 'STATS & ANALYTICS' : tab === 'resellers' ? 'RESELLERS' : tab.replace('free_', '').replace('_', ' ').toUpperCase()}
                     </button>
                   ))}
                 </div>
@@ -8469,6 +8722,182 @@ export default function App() {
                     </div>
                   )}
 
+                  {activeAdminTab === 'resellers' && (
+                    <div className="space-y-6">
+                      <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-2xl p-5">
+                        <h4 className="text-cyan-400 font-bold uppercase text-[11px] tracking-widest mb-1">Reseller Custom Branding Engine</h4>
+                        <p className="text-xs text-white/70 leading-relaxed">
+                          Enter your reseller's subdomain or custom domain keyword. When visitors open the website via that subdomain or domain, all your default WhatsApp numbers, group links, and brand names will automatically change to their custom details. This allows multiple IPTV resellers to share your single app securely without any overlap!
+                        </p>
+                        <div className="mt-3 text-[10px] text-white/50 bg-black/40 p-3 rounded-xl border border-white/5 space-y-1">
+                          <p className="font-bold text-white uppercase tracking-wider">How to connect subdomain/domain:</p>
+                          <p>1. In Cloudflare DNS, add a <span className="text-cyan-400 font-mono font-bold">CNAME</span> record pointing your reseller's subdomain (e.g. <span className="font-mono text-cyan-400">reseller1.yourdomain.com</span>) to your main Hugging Face Space URL.</p>
+                          <p>2. Add the subdomain prefix (<span className="text-cyan-400 font-mono font-bold">reseller1</span>) below as the "Subdomain Keyword".</p>
+                          <p>3. Alternatively, you can share the link using a parameter: <span className="text-cyan-400 font-mono font-bold">https://sj.4kott.online/?ref=reseller1</span></p>
+                        </div>
+                      </div>
+
+                      {/* Reseller Form Card */}
+                      <div className="bg-white/5 border border-white/10 p-5 rounded-2xl space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-white font-bold text-sm tracking-tight">
+                            {editingResellerId ? '📝 Edit Reseller Settings' : '✨ Add New Reseller Domain Setup'}
+                          </h4>
+                          {editingResellerId && (
+                            <button
+                              onClick={() => {
+                                setEditingResellerId(null);
+                                setNewReseller({
+                                  subdomain: '',
+                                  brand_name: '',
+                                  tagline: '',
+                                  whatsapp_number: '',
+                                  whatsapp_group_link: '',
+                                  logo_url: ''
+                                });
+                              }}
+                              className="text-xs text-rose-400 hover:underline font-bold"
+                            >
+                              Cancel Edit
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Subdomain / Domain Keyword <span className="text-rose-400">*</span></label>
+                            <input
+                              type="text"
+                              placeholder="e.g. reseller1 or full subdomain"
+                              value={newReseller.subdomain}
+                              onChange={(e) => setNewReseller({ ...newReseller, subdomain: e.target.value })}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom Brand Name <span className="text-rose-400">*</span></label>
+                            <input
+                              type="text"
+                              placeholder="e.g. VIP IPTV"
+                              value={newReseller.brand_name}
+                              onChange={(e) => setNewReseller({ ...newReseller, brand_name: e.target.value })}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Slogan / Tagline</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Premium Live & VOD Experience"
+                              value={newReseller.tagline}
+                              onChange={(e) => setNewReseller({ ...newReseller, tagline: e.target.value })}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">WhatsApp Number (digits only, e.g. 923112223344)</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. 923161611304"
+                              value={newReseller.whatsapp_number}
+                              onChange={(e) => setNewReseller({ ...newReseller, whatsapp_number: e.target.value })}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                            />
+                          </div>
+
+                          <div className="sm:col-span-2">
+                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom WhatsApp Group Link</label>
+                            <input
+                              type="url"
+                              placeholder="https://chat.whatsapp.com/..."
+                              value={newReseller.whatsapp_group_link}
+                              onChange={(e) => setNewReseller({ ...newReseller, whatsapp_group_link: e.target.value })}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                            />
+                          </div>
+
+                          <div className="sm:col-span-2">
+                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom Logo URL (Optional)</label>
+                            <input
+                              type="url"
+                              placeholder="https://example.com/logo.png"
+                              value={newReseller.logo_url}
+                              onChange={(e) => setNewReseller({ ...newReseller, logo_url: e.target.value })}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={handleAddReseller}
+                          className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg active:scale-98"
+                        >
+                          {editingResellerId ? '💾 Save Reseller Changes' : '➕ Register Reseller Custom Subdomain'}
+                        </button>
+                      </div>
+
+                      {/* Reseller List */}
+                      <div className="space-y-3">
+                        <h4 className="text-white font-bold text-sm tracking-tight">👥 Active Reseller Domains ({resellers.length})</h4>
+                        {resellers.length === 0 ? (
+                          <div className="text-center p-6 bg-white/5 border border-white/10 rounded-2xl">
+                            <p className="text-xs text-white/40 font-bold uppercase tracking-wider">No resellers configured yet</p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {resellers.map((item, idx) => (
+                              <div key={`reseller-row-${item.id}-${idx}`} className="bg-white/5 border border-white/10 p-4 rounded-2xl space-y-3 flex flex-col justify-between group">
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 font-mono text-[9px] font-bold">
+                                      {item.subdomain}
+                                    </span>
+                                    <div className="flex items-center gap-1.5 opacity-60 group-hover:opacity-100 transition-opacity">
+                                      <button
+                                        onClick={() => {
+                                          setEditingResellerId(item.id);
+                                          setNewReseller({
+                                            subdomain: item.subdomain || '',
+                                            brand_name: item.brand_name || '',
+                                            tagline: item.tagline || '',
+                                            whatsapp_number: item.whatsapp_number || '',
+                                            whatsapp_group_link: item.whatsapp_group_link || '',
+                                            logo_url: item.logo_url || ''
+                                          });
+                                        }}
+                                        className="p-1.5 rounded-lg bg-white/5 hover:bg-cyan-500/20 text-white hover:text-cyan-400 transition-all cursor-pointer"
+                                        title="Edit"
+                                      >
+                                        <Pencil size={12} />
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteReseller(item.id)}
+                                        className="p-1.5 rounded-lg bg-white/5 hover:bg-rose-500/20 text-white hover:text-rose-400 transition-all cursor-pointer"
+                                        title="Delete"
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <h5 className="text-sm font-black text-white">{item.brand_name}</h5>
+                                  <p className="text-[10px] text-white/40 italic">"{item.tagline || 'Premium experience'}"</p>
+                                </div>
+
+                                <div className="pt-2 border-t border-white/5 space-y-1 text-[10px] text-white/60">
+                                  <div>📱 WA No: <span className="font-mono text-white">{item.whatsapp_number || 'N/A'}</span></div>
+                                  <div className="truncate">🔗 Group: <a href={item.whatsapp_group_link} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline font-bold">{item.whatsapp_group_link || 'N/A'}</a></div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {(activeAdminTab === 'psl' || activeAdminTab === 'ipl' || activeAdminTab === 'app') && (
                     <button 
                       onClick={handleUpdateUrl}
@@ -8660,7 +9089,7 @@ export default function App() {
                 </div>
                 
                 <a 
-                  href="https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE" 
+                  href={currentWhatsappGroupLink} 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-5 py-2.5 rounded-xl font-bold text-[10px] transition-all shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest cursor-pointer"

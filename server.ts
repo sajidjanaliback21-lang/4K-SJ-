@@ -16,8 +16,8 @@ const CACHE_TTL = 30 * 60 * 1000; // 30 minutes cache duration
 
 async function startServer() {
   const app = express();
-  // Use PORT from environment (Hugging Face uses 7860, AI Studio uses 3000)
-  const PORT = Number(process.env.PORT) || 7860;
+  // Use PORT 3000 as hardcoded and required by the AI Studio container architecture
+  const PORT = 3000;
 
   app.use(express.json());
 

@@ -158,9 +158,29 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["itemId", "itemName", "category", "totalPlays"]
+    },
+    "resellers": {
+      "title": "Resellers",
+      "description": "Information about Resellers for custom branding",
+      "type": "object",
+      "properties": {
+        "subdomain": { "type": "string", "description": "The subdomain or domain keyword to match" },
+        "brand_name": { "type": "string" },
+        "tagline": { "type": "string" },
+        "whatsapp_number": { "type": "string" },
+        "whatsapp_group_link": { "type": "string" },
+        "logo_url": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["subdomain", "brand_name"]
     }
   },
   "firestore": {
+    "/resellers/{resellerId}": {
+      "schema": "resellers",
+      "description": "Collection of resellers configurations"
+    },
     "/settings/psl": {
       "schema": "settings",
       "description": "The document containing the PSL Live stream URL"
