@@ -70,7 +70,9 @@ const parseDRMUrl = (url: string) => {
       pairs.forEach(pair => {
         const [kid, k] = pair.split(':');
         if (kid && k) {
-          clearKeys[kid.trim()] = k.trim();
+          const cleanKid = kid.trim().replace(/^0x/i, '').toLowerCase();
+          const cleanK = k.trim().replace(/^0x/i, '').toLowerCase();
+          clearKeys[cleanKid] = cleanK;
         }
       });
     }
@@ -450,7 +452,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
            lowerUrl.includes('/embed/');
   };
 
-  const cleanAllActivePlayers = async () => {
+  const cleanAllActivePlayers = async (videoElement?: HTMLVideoElement) => {
     // 1. Destroy HLS
     if (hlsRef.current) {
       try {
@@ -496,7 +498,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     (window as any).globalShakaPlayer = null;
 
     // 5. Cleanly reset the video element's source and decryption sessions to prevent MediaSource state conflicts
-    const video = artRef.current?.template?.$video;
+    const video = videoElement || playerRef.current?.template?.$video || playerRef.current?.video || artRef.current?.querySelector('video') || artRef.current?.template?.$video;
     if (video) {
       try {
         video.pause();
@@ -554,13 +556,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const initMpdOrDash = (video: HTMLVideoElement, url: string, art: Artplayer) => {
       // Track latest load to prevent race conditions or overlapping loads
       latestUrlRef.current = url;
+      let mpdRetryCount = 0;
+      const maxMpdRetries = 3;
 
-      const initMpdPlayer = async () => {
+      const initMpdPlayer = async (startTime?: number) => {
         // Verify if this is still the latest requested URL
         if (latestUrlRef.current !== url) return;
 
         // Clean all active players to prevent simultaneous active decoders/loaders
-        await cleanAllActivePlayers();
+        await cleanAllActivePlayers(video);
 
         if (latestUrlRef.current !== url) return;
 
@@ -577,30 +581,51 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               dash: {
                 ignoreMinBufferTime: true,
                 autoCorrectDrift: true,
-                initialSegmentLimit: 2
+                initialSegmentLimit: 2,
+              },
+              retryParameters: {
+                maxAttempts: 5,
+                baseDelay: 1000,
+                backoffFactor: 2,
+                fuzzFactor: 0.1,
+                timeout: 30000,
               }
             },
             streaming: {
-              rebufferingGoal: 1.0,
-              bufferingGoal: 2.5,
+              rebufferingGoal: 1.5,
+              bufferingGoal: 4.0,
               lowLatencyMode: true,
               safeSeekOffset: 5,
               stallEnabled: true,
-              stallThreshold: 1.0,
-              stallSkip: 0.1,
+              stallThreshold: 1.5,
+              stallSkip: 0.2,
               ignoreTextStreamFailures: true,
-              inaccurateManifestTolerance: 2
+              inaccurateManifestTolerance: 2,
+              retryParameters: {
+                maxAttempts: 5,
+                baseDelay: 1000,
+                backoffFactor: 2,
+                fuzzFactor: 0.1,
+                timeout: 30000,
+              }
             },
             abr: {
               enabled: true,
-              defaultBandwidthEstimate: 1000000
+              defaultBandwidthEstimate: 1500000
             }
           };
 
           if (Object.keys(clearKeys).length > 0) {
             shakaConfig.drm = {
               clearKeys: clearKeys,
-              delayLicenseRequestUntilPlayed: false
+              delayLicenseRequestUntilPlayed: false,
+              retryParameters: {
+                maxAttempts: 5,
+                baseDelay: 1000,
+                backoffFactor: 2,
+                fuzzFactor: 0.1,
+                timeout: 30000,
+              }
             };
           }
 
@@ -708,12 +733,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 return;
               }
 
+              if (startTime && startTime > 0) {
+                video.currentTime = startTime;
+              }
+
               setupShakaQuality();
               setupShakaLiveDvr(video, shakaPlayer, art);
+              mpdRetryCount = 0; // reset retry count on successful load
             } catch (err: any) {
               if (latestUrlRef.current !== url) return;
               console.warn('Shaka player MPD load warning details:', err);
-              art.notice.show = `MPD Stream Error: ${err ? err.code : 'unknown'}`;
+              
+              if (mpdRetryCount < maxMpdRetries) {
+                mpdRetryCount++;
+                art.notice.show = `Retrying MPD Stream (${mpdRetryCount}/${maxMpdRetries})...`;
+                setTimeout(() => {
+                  initMpdPlayer(video.currentTime || startTime || 0);
+                }, 1500);
+              } else {
+                art.notice.show = `MPD Stream Error: ${err ? err.code : 'unknown'}`;
+              }
             }
           };
 
@@ -721,6 +760,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
           shakaPlayer.addEventListener('error', (event: any) => {
             console.error('Shaka Player Error:', event);
+            const error = event.detail;
+            if (error && error.severity === 2 && latestUrlRef.current === url) {
+              if (mpdRetryCount < maxMpdRetries) {
+                mpdRetryCount++;
+                const currentTime = video.currentTime;
+                art.notice.show = `Recovering stream... (${mpdRetryCount}/${maxMpdRetries})`;
+                setTimeout(() => {
+                  initMpdPlayer(currentTime);
+                }, 1500);
+              } else {
+                art.notice.show = 'MPD playback failed. Please reload.';
+              }
+            }
           });
         } else {
           console.warn('Shaka player is not supported. Falling back to dash.js');
@@ -983,7 +1035,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             let onPlayAttemptTs: (() => void) | null = null;
 
             const initMpegTs = async (startTime?: number) => {
-              await cleanAllActivePlayers();
+              await cleanAllActivePlayers(video);
 
               if (latestUrlRef.current !== url) return;
 
@@ -1079,7 +1131,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             let onPlayAttemptM3u8: (() => void) | null = null;
 
             const initHls = async (startTime?: number) => {
-              await cleanAllActivePlayers();
+              await cleanAllActivePlayers(video);
 
               if (latestUrlRef.current !== url) return;
 
@@ -1745,7 +1797,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const handleSwitch = async () => {
         latestUrlRef.current = sourceUrl;
         // Clean all active engines and clear the video element's MediaSource/MediaKeys first!
-        await cleanAllActivePlayers();
+        const currentVideo = playerRef.current?.template?.$video || playerRef.current?.video;
+        await cleanAllActivePlayers(currentVideo);
 
         if (latestUrlRef.current !== sourceUrl) return;
         if (!playerRef.current) return;

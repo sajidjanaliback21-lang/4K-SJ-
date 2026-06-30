@@ -413,10 +413,33 @@ const buildUrlWithKeys = (base: string, keys: string) => {
 
 const getResellerKey = () => {
   if (typeof window === 'undefined') return '';
-  const urlParams = new URLSearchParams(window.location.search);
-  const ref = urlParams.get('ref') || urlParams.get('reseller');
+  
+  // 1. Try standard URL query params
+  let urlParams = new URLSearchParams(window.location.search);
+  let ref = urlParams.get('ref') || urlParams.get('reseller');
   if (ref) return ref.toLowerCase();
 
+  // 2. Try hash query params
+  const hash = window.location.hash;
+  if (hash && hash.includes('?')) {
+    const hashSearch = hash.split('?')[1];
+    urlParams = new URLSearchParams(hashSearch);
+    ref = urlParams.get('ref') || urlParams.get('reseller');
+    if (ref) return ref.toLowerCase();
+  }
+
+  // 3. Try document.referrer (crucial for iframes e.g. Hugging Face spaces embeds)
+  try {
+    if (document.referrer) {
+      const refUrl = new URL(document.referrer);
+      const refFromReferrer = refUrl.searchParams.get('ref') || refUrl.searchParams.get('reseller');
+      if (refFromReferrer) return refFromReferrer.toLowerCase();
+    }
+  } catch (e) {
+    // Ignore URL parse errors
+  }
+
+  // 4. Try hostname subdomain for custom domains
   const hostname = window.location.hostname;
   if (!hostname) return '';
   const parts = hostname.split('.');
