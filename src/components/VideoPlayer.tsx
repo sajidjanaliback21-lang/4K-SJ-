@@ -178,7 +178,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const mpegtsRef = useRef<any>(null);
   const dashRef = useRef<any>(null);
   const shakaRef = useRef<any>(null);
-  const latestMpdUrlRef = useRef<string | null>(null);
+  const latestUrlRef = useRef<string | null>(null);
   const lastClickTimeRef = useRef<number>(0);
   const userSelectedSpeedRef = useRef<number>(1.0);
   const hasCompletedInitialLoad = useRef<boolean>(false);
@@ -215,6 +215,47 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const areControlsShown = controlsVisible && !showEqPanel && !showSpeedPanel && !showEpisodesPanel && isFullscreen;
+
+  useEffect(() => {
+    const originalConsoleError = console.error;
+    const originalConsoleWarn = console.warn;
+    const originalConsoleLog = console.log;
+
+    const filterMessage = (args: any[]) => {
+      if (args && args.length > 0) {
+        for (const arg of args) {
+          if (typeof arg === 'string' && arg.includes('Expected MediaSource to be open during init')) {
+            return true;
+          }
+          if (arg && typeof arg === 'object' && arg.message && typeof arg.message === 'string' && arg.message.includes('Expected MediaSource to be open during init')) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    console.error = function (...args: any[]) {
+      if (filterMessage(args)) return;
+      originalConsoleError.apply(console, args);
+    };
+
+    console.warn = function (...args: any[]) {
+      if (filterMessage(args)) return;
+      originalConsoleWarn.apply(console, args);
+    };
+
+    console.log = function (...args: any[]) {
+      if (filterMessage(args)) return;
+      originalConsoleLog.apply(console, args);
+    };
+
+    return () => {
+      console.error = originalConsoleError;
+      console.warn = originalConsoleWarn;
+      console.log = originalConsoleLog;
+    };
+  }, []);
 
   const updatePlaybackSpeed = (speed: number) => {
     const clamped = Math.max(0.25, Math.min(4.0, Number(speed)));
@@ -409,6 +450,85 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
            lowerUrl.includes('/embed/');
   };
 
+  const cleanAllActivePlayers = async () => {
+    // 1. Destroy HLS
+    if (hlsRef.current) {
+      try {
+        hlsRef.current.destroy();
+      } catch (e) {
+        console.warn('Error destroying HLS:', e);
+      }
+      hlsRef.current = null;
+    }
+
+    // 2. Destroy mpeg-ts
+    if (mpegtsRef.current) {
+      try {
+        mpegtsRef.current.unload();
+        mpegtsRef.current.detachMediaElement();
+        mpegtsRef.current.destroy();
+      } catch (e) {
+        console.warn('Error destroying mpegts:', e);
+      }
+      mpegtsRef.current = null;
+    }
+
+    // 3. Destroy dash.js
+    if (dashRef.current) {
+      try {
+        dashRef.current.destroy();
+      } catch (e) {
+        console.warn('Error destroying dash:', e);
+      }
+      dashRef.current = null;
+    }
+
+    // 4. Destroy Shaka Player and await its asynchronous cleanup
+    if (shakaRef.current) {
+      const shakaToDestroy = shakaRef.current;
+      shakaRef.current = null;
+      try {
+        await shakaToDestroy.destroy();
+      } catch (e) {
+        console.warn('Error destroying shaka:', e);
+      }
+    }
+    (window as any).globalShakaPlayer = null;
+
+    // 5. Cleanly reset the video element's source and decryption sessions to prevent MediaSource state conflicts
+    const video = artRef.current?.template?.$video;
+    if (video) {
+      try {
+        video.pause();
+        video.src = '';
+        video.removeAttribute('src');
+        if (video.srcObject) {
+          video.srcObject = null;
+        }
+        if (typeof video.load === 'function') {
+          video.load();
+        }
+        if (typeof video.setMediaKeys === 'function') {
+          await video.setMediaKeys(null).catch(() => {});
+        }
+      } catch (e) {
+        console.warn('Error resetting video element during cleanAllActivePlayers:', e);
+      }
+
+      // Wait for the video element's readyState to drop to 0 (HAVE_NOTHING)
+      try {
+        let waitCount = 0;
+        while (video.readyState !== 0 && waitCount < 10) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          waitCount++;
+        }
+      } catch (_) {}
+    }
+
+    // 6. Wait for a short duration to let the browser process the video element reset
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  };
+
   const onCloseRef = useRef(onClose);
   const onReadyRef = useRef(onReady);
   const onPlayNextRef = useRef(onPlayNext);
@@ -424,76 +544,31 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   useEffect(() => {
     if (!artRef.current || !sourceUrl || isEmbeddable(originalUrl)) return;
 
+    latestUrlRef.current = sourceUrl;
     hasCompletedInitialLoad.current = false;
-
-    const cleanAllActivePlayers = async () => {
-      // 1. Destroy HLS
-      if (hlsRef.current) {
-        try {
-          hlsRef.current.destroy();
-        } catch (e) {
-          console.warn('Error destroying HLS:', e);
-        }
-        hlsRef.current = null;
-      }
-
-      // 2. Destroy mpeg-ts
-      if (mpegtsRef.current) {
-        try {
-          mpegtsRef.current.unload();
-          mpegtsRef.current.detachMediaElement();
-          mpegtsRef.current.destroy();
-        } catch (e) {
-          console.warn('Error destroying mpegts:', e);
-        }
-        mpegtsRef.current = null;
-      }
-
-      // 3. Destroy dash.js
-      if (dashRef.current) {
-        try {
-          dashRef.current.destroy();
-        } catch (e) {
-          console.warn('Error destroying dash:', e);
-        }
-        dashRef.current = null;
-      }
-
-      // 4. Destroy Shaka Player and await its asynchronous cleanup
-      if (shakaRef.current) {
-        const shakaToDestroy = shakaRef.current;
-        shakaRef.current = null;
-        try {
-          await shakaToDestroy.destroy();
-        } catch (e) {
-          console.warn('Error destroying shaka:', e);
-        }
-      }
-      (window as any).globalShakaPlayer = null;
-    };
 
     const isHls = originalUrl.toLowerCase().includes('.m3u8') || source.type === 'application/x-mpegURL';
     const isTs = originalUrl.toLowerCase().includes('.ts') || source.type === 'video/mp2t';
     const isMkv = originalUrl.toLowerCase().includes('.mkv');
     const isMpd = originalUrl.toLowerCase().includes('.mpd') || source.type === 'application/dash+xml' || source.type === 'dash';
     const initMpdOrDash = (video: HTMLVideoElement, url: string, art: Artplayer) => {
-      // Track latest MPD load to prevent race conditions or overlapping loads
-      latestMpdUrlRef.current = url;
+      // Track latest load to prevent race conditions or overlapping loads
+      latestUrlRef.current = url;
 
       const initMpdPlayer = async () => {
         // Verify if this is still the latest requested URL
-        if (latestMpdUrlRef.current !== url) return;
+        if (latestUrlRef.current !== url) return;
 
         // Clean all active players to prevent simultaneous active decoders/loaders
         await cleanAllActivePlayers();
 
-        if (latestMpdUrlRef.current !== url) return;
+        if (latestUrlRef.current !== url) return;
 
         const { cleanUrl, clearKeys } = parseDRMUrl(url);
 
         shaka.polyfill.installAll();
         if (shaka.Player.isBrowserSupported()) {
-          const shakaPlayer = new shaka.Player(video);
+          const shakaPlayer = new shaka.Player();
           shakaRef.current = shakaPlayer;
           (window as any).globalShakaPlayer = shakaPlayer;
 
@@ -618,18 +693,31 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }
           };
 
-          shakaPlayer.load(cleanUrl).then(() => {
-            if (latestMpdUrlRef.current !== url) {
-              shakaPlayer.destroy();
-              return;
+          const startShakaLoad = async () => {
+            try {
+              // Wait for asynchronous attachment before starting load to ensure perfect readyState transition!
+              await shakaPlayer.attach(video);
+              if (latestUrlRef.current !== url) {
+                shakaPlayer.destroy();
+                return;
+              }
+
+              await shakaPlayer.load(cleanUrl);
+              if (latestUrlRef.current !== url) {
+                shakaPlayer.destroy();
+                return;
+              }
+
+              setupShakaQuality();
+              setupShakaLiveDvr(video, shakaPlayer, art);
+            } catch (err: any) {
+              if (latestUrlRef.current !== url) return;
+              console.warn('Shaka player MPD load warning details:', err);
+              art.notice.show = `MPD Stream Error: ${err ? err.code : 'unknown'}`;
             }
-            setupShakaQuality();
-            setupShakaLiveDvr(video, shakaPlayer, art);
-          }).catch((err: any) => {
-            if (latestMpdUrlRef.current !== url) return;
-            console.warn('Shaka player MPD load warning details:', err);
-            art.notice.show = `MPD Stream Error: ${err ? err.code : 'unknown'}`;
-          });
+          };
+
+          startShakaLoad();
 
           shakaPlayer.addEventListener('error', (event: any) => {
             console.error('Shaka Player Error:', event);
@@ -888,6 +976,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       ],
       customType: {
         ts: function (video: HTMLVideoElement, url: string, art: Artplayer) {
+          latestUrlRef.current = url;
           if (mpegts.isSupported()) {
             let tsRetryCount = 0;
             const maxTsRetries = 3;
@@ -895,6 +984,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             const initMpegTs = async (startTime?: number) => {
               await cleanAllActivePlayers();
+
+              if (latestUrlRef.current !== url) return;
 
               const isLive = options.isLive !== undefined ? options.isLive : (originalUrl.toLowerCase().includes('.m3u8') || originalUrl.toLowerCase().includes('.ts') || originalUrl.toLowerCase().includes('.mpd'));
 
@@ -981,6 +1072,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           }
         },
         m3u8: function (video: HTMLVideoElement, url: string, art: Artplayer) {
+          latestUrlRef.current = url;
           if (Hls.isSupported()) {
             let hlsRetryCount = 0;
             const maxHlsRetries = 3;
@@ -988,6 +1080,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             const initHls = async (startTime?: number) => {
               await cleanAllActivePlayers();
+
+              if (latestUrlRef.current !== url) return;
 
               const isLive = options.isLive !== undefined ? options.isLive : (originalUrl.toLowerCase().includes('.m3u8') || originalUrl.toLowerCase().includes('.ts') || originalUrl.toLowerCase().includes('.mpd'));
               
@@ -1648,23 +1742,34 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setIsLoading(true);
       setLoadingText('LOADING VIDEO...');
       
-      const newLowerUrl = sourceUrl.toLowerCase();
-      const newIsHls = newLowerUrl.includes('.m3u8') || (source?.type === 'application/x-mpegURL');
-      const newIsTs = newLowerUrl.includes('.ts') || (source?.type === 'video/mp2t');
-      const newIsMkv = newLowerUrl.includes('.mkv');
-      const newIsMpd = newLowerUrl.includes('.mpd') || source?.type === 'application/dash+xml' || source?.type === 'dash';
-      
-      const newType = newIsHls ? 'm3u8' : 
-                      (newIsMpd ? 'mpd' :
-                      (newLowerUrl.includes('.mp4') ? 'mp4' : 
-                      (newLowerUrl.includes('.webm') ? 'webm' : 
-                      (newIsMkv ? 'mkv' : (newIsTs ? 'ts' : undefined)))));
-      
-      playerRef.current.switchUrl(sourceUrl, newType).then(() => {
-        console.log("Artplayer successfully switched source url:", sourceUrl);
-      }).catch(err => {
-        console.error("switchUrl error:", err);
-      });
+      const handleSwitch = async () => {
+        latestUrlRef.current = sourceUrl;
+        // Clean all active engines and clear the video element's MediaSource/MediaKeys first!
+        await cleanAllActivePlayers();
+
+        if (latestUrlRef.current !== sourceUrl) return;
+        if (!playerRef.current) return;
+
+        const newLowerUrl = sourceUrl.toLowerCase();
+        const newIsHls = newLowerUrl.includes('.m3u8') || (source?.type === 'application/x-mpegURL');
+        const newIsTs = newLowerUrl.includes('.ts') || (source?.type === 'video/mp2t');
+        const newIsMkv = newLowerUrl.includes('.mkv');
+        const newIsMpd = newLowerUrl.includes('.mpd') || source?.type === 'application/dash+xml' || source?.type === 'dash';
+        
+        const newType = newIsHls ? 'm3u8' : 
+                        (newIsMpd ? 'mpd' :
+                        (newLowerUrl.includes('.mp4') ? 'mp4' : 
+                        (newLowerUrl.includes('.webm') ? 'webm' : 
+                        (newIsMkv ? 'mkv' : (newIsTs ? 'ts' : undefined)))));
+        
+        playerRef.current.switchUrl(sourceUrl, newType).then(() => {
+          console.log("Artplayer successfully switched source url:", sourceUrl);
+        }).catch(err => {
+          console.error("switchUrl error:", err);
+        });
+      };
+
+      handleSwitch();
     }
   }, [sourceUrl]);
 
