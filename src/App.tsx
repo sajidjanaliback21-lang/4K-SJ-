@@ -649,8 +649,17 @@ export default function App() {
   // Reactive reseller helper values
   const currentBrandName = activeReseller?.brand_name || "4K•SJ";
   const currentTagline = activeReseller?.tagline || "Premium Experience";
-  const currentWhatsappNumber = activeReseller?.whatsapp_number || "923161611304";
-  const currentWhatsappGroupLink = activeReseller?.whatsapp_group_link || "https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE";
+  
+  // If an active reseller is matched, we MUST NOT fall back to the main admin's details.
+  // We keep it empty if the reseller hasn't specified their whatsapp_number or set it to 'N/A'.
+  const currentWhatsappNumber = activeReseller
+    ? (activeReseller.whatsapp_number && activeReseller.whatsapp_number !== 'N/A' ? activeReseller.whatsapp_number : '')
+    : "923161611304";
+
+  // If an active reseller is matched, we keep it empty if the reseller hasn't specified their whatsapp_group_link or set it to 'N/A'.
+  const currentWhatsappGroupLink = activeReseller
+    ? (activeReseller.whatsapp_group_link && activeReseller.whatsapp_group_link !== 'N/A' ? activeReseller.whatsapp_group_link : '')
+    : "https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE";
 
   // Real-time Firestore Sync for Resellers
   useEffect(() => {
@@ -4245,20 +4254,22 @@ export default function App() {
               </div>
 
               {/* WhatsApp community banner */}
-              <div className="pt-6 border-t border-emerald-500/20 bg-gradient-to-b from-transparent to-[#011d0b]/40 flex flex-col items-center justify-center gap-4 rounded-b-[2.5rem] p-4 text-center">
-                <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-[0.25em] italic leading-relaxed max-w-lg">
-                  Share Live Football Chats with {currentBrandName} Luxury Community
-                </p>
-                <a 
-                  href={currentWhatsappGroupLink} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-xl font-bold text-[10px] transition-all shadow-[0_0_20px_rgba(37,211,102,0.3)] uppercase tracking-widest cursor-pointer active:scale-95"
-                >
-                  <MessageCircle size={14} fill="white" />
-                  JOIN FOOTBALL WHATSAPP
-                </a>
-              </div>
+              {currentWhatsappGroupLink && (
+                <div className="pt-6 border-t border-emerald-500/20 bg-gradient-to-b from-transparent to-[#011d0b]/40 flex flex-col items-center justify-center gap-4 rounded-b-[2.5rem] p-4 text-center">
+                  <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-[0.25em] italic leading-relaxed max-w-lg">
+                    Share Live Football Chats with {currentBrandName} Luxury Community
+                  </p>
+                  <a 
+                    href={currentWhatsappGroupLink} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-xl font-bold text-[10px] transition-all shadow-[0_0_20px_rgba(37,211,102,0.3)] uppercase tracking-widest cursor-pointer active:scale-95"
+                  >
+                    <MessageCircle size={14} fill="white" />
+                    JOIN FOOTBALL WHATSAPP
+                  </a>
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -5427,7 +5438,7 @@ export default function App() {
                       <AlertCircle size={14} /> 
                       <span>{loginError.includes('Click here') ? loginError.split('Click here')[0] : loginError}</span>
                     </div>
-                    {loginError.includes('Click here') && (
+                    {loginError.includes('Click here') && currentWhatsappNumber && (
                       <a 
                         href={`https://wa.me/${currentWhatsappNumber}`} 
                         target="_blank" 
@@ -5448,19 +5459,21 @@ export default function App() {
                 </button>
               </form>
 
-              <div className="mt-8 pt-6 border-t border-white/10 text-center">
-                <p className="text-white/40 text-xs mb-4 uppercase tracking-widest font-bold">Don't have an account?</p>
-                <a 
-                  href={`https://wa.me/${currentWhatsappNumber}`} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-3 bg-green-500/10 hover:bg-green-500/20 text-green-400 px-6 py-3 rounded-xl font-bold transition-all border border-green-500/20 w-full justify-center"
-                >
-                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                  Register New Account
-                </a>
-                <p className="mt-4 text-[10px] text-white/20 uppercase tracking-tighter">Contact us on WhatsApp to get your premium credentials</p>
-              </div>
+              {currentWhatsappNumber && (
+                <div className="mt-8 pt-6 border-t border-white/10 text-center">
+                  <p className="text-white/40 text-xs mb-4 uppercase tracking-widest font-bold">Don't have an account?</p>
+                  <a 
+                    href={`https://wa.me/${currentWhatsappNumber}`} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-3 bg-green-500/10 hover:bg-green-500/20 text-green-400 px-6 py-3 rounded-xl font-bold transition-all border border-green-500/20 w-full justify-center"
+                  >
+                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                    Register New Account
+                  </a>
+                  <p className="mt-4 text-[10px] text-white/20 uppercase tracking-tighter">Contact us on WhatsApp to get your premium credentials</p>
+                </div>
+              )}
             </motion.div>
           </div>
         )}
@@ -5750,16 +5763,18 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="pt-2 flex flex-col gap-3">
-                    <a 
-                      href={`https://wa.me/${currentWhatsappNumber}`} 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
-                      className="w-full h-11 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98] shadow-lg shadow-emerald-500/10"
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full bg-black animate-ping" />
-                      Renew / Upgrade Subscription
-                    </a>
+                   <div className="pt-2 flex flex-col gap-3">
+                    {currentWhatsappNumber && (
+                      <a 
+                        href={`https://wa.me/${currentWhatsappNumber}`} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="w-full h-11 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98] shadow-lg shadow-emerald-500/10"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-black animate-ping" />
+                        Renew / Upgrade Subscription
+                      </a>
+                    )}
 
                     <button 
                       onClick={() => {
@@ -6214,14 +6229,16 @@ export default function App() {
                       <Play size={16} /> Play in VLC
                     </a>
 
-                    <a 
-                      href={currentWhatsappGroupLink} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-4 py-3 rounded-xl font-bold text-xs transition-all shadow-lg shadow-green-500/10"
-                    >
-                      <MessageCircle size={16} /> Join WhatsApp Group
-                    </a>
+                    {currentWhatsappGroupLink && (
+                      <a 
+                        href={currentWhatsappGroupLink} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-4 py-3 rounded-xl font-bold text-xs transition-all shadow-lg shadow-green-500/10"
+                      >
+                        <MessageCircle size={16} /> Join WhatsApp Group
+                      </a>
+                    )}
                   </div>
                 </div>
 
@@ -6394,15 +6411,17 @@ export default function App() {
                   <p className="text-[10px] text-white/40 uppercase tracking-widest">High Quality HLS Stream Enabled</p>
                 </div>
                 
-                <a 
-                  href={currentWhatsappGroupLink} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest"
-                >
-                  <MessageCircle size={20} fill="white" />
-                  Join WhatsApp Group
-                </a>
+                {currentWhatsappGroupLink && (
+                  <a 
+                    href={currentWhatsappGroupLink} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest"
+                  >
+                    <MessageCircle size={20} fill="white" />
+                    Join WhatsApp Group
+                  </a>
+                )}
               </div>
             </motion.div>
           </div>
@@ -6474,15 +6493,17 @@ export default function App() {
                   <p className="text-[10px] text-white/40 uppercase tracking-widest">High Quality HLS Stream Enabled</p>
                 </div>
 
-                <a 
-                  href={currentWhatsappGroupLink} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest"
-                >
-                  <MessageCircle size={20} fill="white" />
-                  Join WhatsApp Group
-                </a>
+                {currentWhatsappGroupLink && (
+                  <a 
+                    href={currentWhatsappGroupLink} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest"
+                  >
+                    <MessageCircle size={20} fill="white" />
+                    Join WhatsApp Group
+                  </a>
+                )}
               </div>
             </motion.div>
           </div>
@@ -6609,15 +6630,17 @@ export default function App() {
                   </p>
                 </div>
                 
-                <a 
-                  href={currentWhatsappGroupLink} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest cursor-pointer"
-                >
-                  <MessageCircle size={20} fill="white" />
-                  Join WhatsApp Group
-                </a>
+                {currentWhatsappGroupLink && (
+                  <a 
+                    href={currentWhatsappGroupLink} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest cursor-pointer"
+                  >
+                    <MessageCircle size={20} fill="white" />
+                    Join WhatsApp Group
+                  </a>
+                )}
               </div>
             </motion.div>
           </div>
@@ -6708,20 +6731,22 @@ export default function App() {
               </div>
 
               {/* Get Password Contact & WhatsApp info */}
-              <div className="w-full flex flex-col items-center gap-3">
-                <p className="text-[10px] text-white/50 font-bold uppercase tracking-wider">
-                  Don't have the password? Contact us below:
-                </p>
-                <a 
-                  href={`https://wa.me/${currentWhatsappNumber}?text=Hello!%20I%20need%20the%20password%20for%20"${encodeURIComponent(passwordProtectedItem.item.name)}"`} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-6 py-2.5 rounded-xl font-black text-[11px] transition-all transform hover:scale-105 shadow-[0_0_15px_rgba(37,211,102,0.3)] uppercase tracking-wider cursor-pointer"
-                >
-                  <MessageCircle size={15} fill="white" />
-                  Get password contact
-                </a>
-              </div>
+              {currentWhatsappNumber && (
+                <div className="w-full flex flex-col items-center gap-3">
+                  <p className="text-[10px] text-white/50 font-bold uppercase tracking-wider">
+                    Don't have the password? Contact us below:
+                  </p>
+                  <a 
+                    href={`https://wa.me/${currentWhatsappNumber}?text=Hello!%20I%20need%20the%20password%20for%20"${encodeURIComponent(passwordProtectedItem.item.name)}"`} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-6 py-2.5 rounded-xl font-black text-[11px] transition-all transform hover:scale-105 shadow-[0_0_15px_rgba(37,211,102,0.3)] uppercase tracking-wider cursor-pointer"
+                  >
+                    <MessageCircle size={15} fill="white" />
+                    Get password contact
+                  </a>
+                </div>
+              )}
             </motion.div>
           </div>
         )}
@@ -6923,14 +6948,16 @@ export default function App() {
                           ? (Object.values(freeSeriesEpisodesMap) as any[]).reduce((acc: number, curr: any) => acc + (Array.isArray(curr) ? curr.length : 0), 0)
                           : undefined
                       )}
-                      <a 
-                        href={currentWhatsappGroupLink} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-3 py-1.5 rounded-full font-bold text-[10px] md:text-xs transition-all shadow-lg shadow-green-500/10 active:scale-95 cursor-pointer whitespace-nowrap"
-                      >
-                        <MessageCircle size={14} /> Join WhatsApp Group
-                      </a>
+                      {currentWhatsappGroupLink && (
+                        <a 
+                          href={currentWhatsappGroupLink} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-3 py-1.5 rounded-full font-bold text-[10px] md:text-xs transition-all shadow-lg shadow-green-500/10 active:scale-95 cursor-pointer whitespace-nowrap"
+                        >
+                          <MessageCircle size={14} /> Join WhatsApp Group
+                        </a>
+                      )}
                       {tmdbDetails?.trailer_url && (
                         <button 
                           onClick={() => setPlayingTrailerUrl(tmdbDetails.trailer_url || null)}
@@ -9088,15 +9115,17 @@ export default function App() {
                   </p>
                 </div>
                 
-                <a 
-                  href={currentWhatsappGroupLink} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-5 py-2.5 rounded-xl font-bold text-[10px] transition-all shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest cursor-pointer"
-                >
-                  <MessageCircle size={16} fill="white" />
-                  JOIN FOOTBALL WHATSAPP
-                </a>
+                {currentWhatsappGroupLink && (
+                  <a 
+                    href={currentWhatsappGroupLink} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-5 py-2.5 rounded-xl font-bold text-[10px] transition-all shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest cursor-pointer"
+                  >
+                    <MessageCircle size={16} fill="white" />
+                    JOIN FOOTBALL WHATSAPP
+                  </a>
+                )}
               </div>
             </motion.div>
           </div>
