@@ -79,7 +79,7 @@ const parseDRMUrl = (url: string) => {
 };
 
 const setupShakaLiveDvr = (video: HTMLVideoElement, shakaPlayer: any, art: any) => {
-  if (!shakaPlayer) {
+  if (!shakaPlayer || art.option.isLive) {
     return;
   }
 
@@ -439,7 +439,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             (originalUrl.toLowerCase().includes('.mp4') ? 'mp4' : 
             (originalUrl.toLowerCase().includes('.webm') ? 'webm' : 
             (isMkv ? 'mkv' : (isTs ? 'ts' : undefined))))),
-      isLive: isMpd ? false : isLive,
+      isLive: isLive,
       poster: options.poster || '',
       autoplay: true,
       autoSize: false,
