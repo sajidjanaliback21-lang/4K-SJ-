@@ -5,7 +5,8 @@ import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
 import * as dashjs from 'dashjs';
 // @ts-ignore
-import shaka from 'shaka-player';
+import * as shakaModule from 'shaka-player';
+const shaka = (shakaModule as any).default || shakaModule;
 import { motion, AnimatePresence } from 'motion/react';
 import { ShieldCheck, Shield, Cpu, Globe, Sliders, X, SkipForward, List, Tv, Download, Gauge, RotateCcw, Pencil, Check, Zap, Play, Pause, Volume2, VolumeX, Maximize, Minimize, Settings, Loader2 } from 'lucide-react';
 
