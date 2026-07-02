@@ -7,7 +7,7 @@ import * as dashjs from 'dashjs';
 // @ts-ignore
 import shaka from 'shaka-player';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldCheck, Shield, Cpu, Globe, Sliders, X, SkipForward, List, Tv, Download, Gauge, RotateCcw, Pencil, Check, Zap } from 'lucide-react';
+import { ShieldCheck, Shield, Cpu, Globe, Sliders, X, SkipForward, List, Tv, Download, Gauge, RotateCcw, Pencil, Check, Zap, Play, Pause, Volume2, VolumeX, Maximize, Minimize, Settings, Loader2 } from 'lucide-react';
 
 interface VideoPlayerProps {
   options: {
@@ -161,6 +161,528 @@ const setupShakaLiveDvr = (video: HTMLVideoElement, shakaPlayer: any, art: any) 
   };
 };
 
+interface MpdPlayerProps {
+  url: string;
+  options: any;
+  onClose?: () => void;
+}
+
+const MpdPlayer: React.FC<MpdPlayerProps> = ({ url, options, onClose }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const shakaPlayerRef = useRef<any>(null);
+
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingText, setLoadingText] = useState('LOADING SECURED FEED...');
+  const [showControls, setShowControls] = useState(true);
+  const [tracks, setTracks] = useState<any[]>([]);
+  const [activeTrack, setActiveTrack] = useState<number>(-1); // -1 is Auto
+  const [isQualityMenuOpen, setIsQualityMenuOpen] = useState(false);
+
+  const controlsTimeoutRef = useRef<any>(null);
+
+  const resetControlsTimer = () => {
+    setShowControls(true);
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (isPlaying) {
+        setShowControls(false);
+        setIsQualityMenuOpen(false);
+      }
+    }, 3500);
+  };
+
+  useEffect(() => {
+    resetControlsTimer();
+    return () => {
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+    };
+  }, [isPlaying]);
+
+  // Handle Fullscreen
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().then(() => {
+        setIsFullscreen(true);
+      }).catch((err) => {
+        console.error('Failed to enter fullscreen:', err);
+      });
+    } else {
+      document.exitFullscreen().then(() => {
+        setIsFullscreen(false);
+      });
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  // Format Time Helper
+  const formatTime = (secs: number) => {
+    if (isNaN(secs) || !isFinite(secs)) return '00:00';
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = Math.floor(secs % 60);
+    
+    const mStr = m.toString().padStart(2, '0');
+    const sStr = s.toString().padStart(2, '0');
+    
+    if (h > 0) {
+      return `${h}:${mStr}:${sStr}`;
+    }
+    return `${mStr}:${sStr}`;
+  };
+
+  // Initialize Shaka
+  useEffect(() => {
+    if (!videoRef.current) return;
+
+    // Install polyfills
+    shaka.polyfill.installAll();
+    if (!shaka.Player.isBrowserSupported()) {
+      console.error('Shaka Player is not supported in this browser.');
+      setLoadingText('BROWSER NOT SUPPORTED');
+      return;
+    }
+
+    const { cleanUrl, clearKeys } = parseDRMUrl(url);
+    const shakaPlayer = new shaka.Player();
+    shakaPlayerRef.current = shakaPlayer;
+
+    const shakaConfig: any = {
+      manifest: {
+        dash: {
+          ignoreMinBufferTime: true,
+          autoCorrectDrift: true,
+          initialSegmentLimit: 2
+        }
+      },
+      streaming: {
+        rebufferingGoal: 1.0,
+        bufferingGoal: 2.5,
+        lowLatencyMode: true,
+        safeSeekOffset: 5,
+        stallEnabled: true,
+        stallThreshold: 1.0,
+        stallSkip: 0.1,
+        ignoreTextStreamFailures: true,
+        inaccurateManifestTolerance: 2
+      },
+      abr: {
+        enabled: true,
+        defaultBandwidthEstimate: 1000000
+      }
+    };
+
+    if (Object.keys(clearKeys).length > 0) {
+      shakaConfig.drm = {
+        clearKeys: clearKeys,
+        delayLicenseRequestUntilPlayed: false
+      };
+    }
+
+    shakaPlayer.configure(shakaConfig);
+
+    // Filter to add timestamp / prevent manifest caching on MPD
+    shakaPlayer.getNetworkingEngine().registerRequestFilter((type: any, request: any) => {
+      let isManifest = false;
+      try {
+        if (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType) {
+          isManifest = type === shaka.net.NetworkingEngine.RequestType.MANIFEST;
+        } else {
+          isManifest = type === 0;
+        }
+      } catch (_) {
+        isManifest = type === 0;
+      }
+
+      if (isManifest && request && request.uris) {
+        request.uris = request.uris.map((uri: string) => {
+          if (!uri) return uri;
+          const lower = uri.toLowerCase();
+          const isSigned = lower.includes('token=') || 
+                           lower.includes('sign=') || 
+                           lower.includes('hash=') || 
+                           lower.includes('auth=') || 
+                           lower.includes('expires=') || 
+                           lower.includes('hdnts=') ||
+                           lower.includes('security=');
+          if (isSigned) {
+            return uri;
+          }
+          const separator = uri.indexOf('?') === -1 ? '?' : '&';
+          return uri + separator + '_ts=' + Date.now();
+        });
+      }
+    });
+
+    const init = async () => {
+      try {
+        await shakaPlayer.attach(videoRef.current);
+        await shakaPlayer.load(cleanUrl);
+
+        setIsLoading(false);
+
+        if (options.autoplay !== false) {
+          videoRef.current?.play().catch((e) => {
+            console.warn('Autoplay failed, waiting for user interaction:', e);
+          });
+        }
+
+        // Setup tracks
+        updateTracks();
+      } catch (err: any) {
+        console.error('Shaka Player init failed:', err);
+        setLoadingText(`STREAM LOAD FAILED (${err ? err.code : 'unknown'})`);
+        setIsLoading(false);
+      }
+    };
+
+    init();
+
+    // Event listeners
+    const onPlaying = () => {
+      setIsPlaying(true);
+      setIsLoading(false);
+    };
+    const onPause = () => {
+      setIsPlaying(false);
+    };
+    const onWaiting = () => {
+      setIsLoading(true);
+    };
+    const onTimeUpdate = () => {
+      if (videoRef.current) {
+        setCurrentTime(videoRef.current.currentTime);
+        setDuration(videoRef.current.duration || 0);
+      }
+    };
+
+    const video = videoRef.current;
+    video.addEventListener('playing', onPlaying);
+    video.addEventListener('pause', onPause);
+    video.addEventListener('waiting', onWaiting);
+    video.addEventListener('timeupdate', onTimeUpdate);
+
+    return () => {
+      video.removeEventListener('playing', onPlaying);
+      video.removeEventListener('pause', onPause);
+      video.removeEventListener('waiting', onWaiting);
+      video.removeEventListener('timeupdate', onTimeUpdate);
+      
+      shakaPlayer.destroy();
+    };
+  }, [url]);
+
+  // Track & quality functions
+  const updateTracks = () => {
+    if (!shakaPlayerRef.current) return;
+    const allTracks = shakaPlayerRef.current.getVariantTracks();
+    const uniqueTracks: Record<number, any> = {};
+    allTracks.forEach((track: any) => {
+      if (track.height) {
+        const existing = uniqueTracks[track.height];
+        if (!existing || track.bandwidth > existing.bandwidth) {
+          uniqueTracks[track.height] = track;
+        }
+      }
+    });
+
+    const sortedTracks = Object.values(uniqueTracks).sort((a: any, b: any) => b.height - a.height);
+    setTracks(sortedTracks);
+  };
+
+  const selectTrack = (trackHeight: number) => {
+    if (!shakaPlayerRef.current) return;
+    if (trackHeight === -1) {
+      shakaPlayerRef.current.configure({ abr: { enabled: true } });
+      setActiveTrack(-1);
+    } else {
+      shakaPlayerRef.current.configure({ abr: { enabled: false } });
+      const target = shakaPlayerRef.current.getVariantTracks().find((t: any) => t.height === trackHeight);
+      if (target) {
+        shakaPlayerRef.current.selectVariantTrack(target, true);
+        setActiveTrack(trackHeight);
+      }
+    }
+    setIsQualityMenuOpen(false);
+  };
+
+  // Playback handlers
+  const handlePlayPause = () => {
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.pause();
+    } else {
+      videoRef.current.play().catch(err => console.warn(err));
+    }
+    resetControlsTimer();
+  };
+
+  const handleVolumeChange = (newVolume: number) => {
+    setVolume(newVolume);
+    if (videoRef.current) {
+      videoRef.current.volume = newVolume;
+      videoRef.current.muted = newVolume === 0 || isMuted;
+    }
+  };
+
+  const toggleMute = () => {
+    if (videoRef.current) {
+      const nextMuted = !isMuted;
+      setIsMuted(nextMuted);
+      videoRef.current.muted = nextMuted;
+    }
+  };
+
+  return (
+    <div 
+      ref={containerRef}
+      onMouseMove={resetControlsTimer}
+      onClick={resetControlsTimer}
+      className="relative w-full h-full bg-black group/player select-none overflow-hidden flex flex-col justify-between rounded-xl"
+    >
+      {/* Video Element */}
+      <video 
+        ref={videoRef}
+        playsInline
+        onClick={handlePlayPause}
+        className="w-full h-full object-contain cursor-pointer"
+      />
+
+      {/* Loading Overlay */}
+      {isLoading && (
+        <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-4 z-50">
+          <Loader2 className="w-10 h-10 text-cyan-400 animate-spin" />
+          <div className="text-center">
+            <p className="text-cyan-400 font-sans font-black text-xs tracking-widest uppercase animate-pulse">
+              {loadingText}
+            </p>
+            <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest mt-1">
+              Optimizing DASH decryption stream buffers
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Header Overlay (Close & Title) */}
+      <div 
+        className={`absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent flex items-center justify-between transition-opacity duration-300 z-30 ${
+          showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          {onClose && (
+            <button 
+              onClick={onClose}
+              className="p-1.5 hover:bg-white/10 rounded-full text-white/80 hover:text-white transition-all cursor-pointer mr-2"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
+          <div>
+            <h4 className="text-white font-sans font-extrabold text-sm tracking-tight italic">
+              {options.title || 'Live Stream Player'}
+            </h4>
+            <p className="text-[8px] text-cyan-400 font-bold uppercase tracking-widest font-mono">
+              DIRECT SHAKA ENGINE • HIGH DEF PRO CODES
+            </p>
+          </div>
+        </div>
+        
+        {/* Safe Badge */}
+        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-400/10 border border-cyan-400/20 text-[8px] font-black uppercase text-[#00D1FF] tracking-wider">
+          <ShieldCheck className="w-3 h-3 text-[#00D1FF]" />
+          <span>Decrypted</span>
+        </div>
+      </div>
+
+      {/* Center Big Play Button */}
+      {!isPlaying && !isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+          <button 
+            onClick={handlePlayPause}
+            className="w-16 h-16 rounded-full bg-cyan-400/10 border-2 border-cyan-400 text-cyan-400 flex items-center justify-center pointer-events-auto hover:scale-110 active:scale-95 transition-all duration-300 cursor-pointer shadow-[0_0_20px_rgba(0,209,255,0.4)]"
+          >
+            <Play className="w-7 h-7 fill-cyan-400 ml-1" />
+          </button>
+        </div>
+      )}
+
+      {/* Bottom Controls Panel */}
+      <div 
+        className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent px-4 pb-4 pt-10 flex flex-col gap-3 transition-opacity duration-300 z-30 ${
+          showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Progress Bar (if not Live) */}
+        {!options.isLive && duration > 0 && (
+          <div className="flex items-center gap-3 w-full group/seek">
+            <span className="text-[10px] text-white/60 font-mono select-none">
+              {formatTime(currentTime)}
+            </span>
+            <div className="relative flex-1 flex items-center h-4 cursor-pointer">
+              <input 
+                type="range"
+                min={0}
+                max={duration}
+                value={currentTime}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  if (videoRef.current) {
+                    videoRef.current.currentTime = val;
+                  }
+                }}
+                className="w-full h-1 bg-white/20 appearance-none rounded-full outline-none cursor-pointer accent-[#00D1FF]"
+              />
+            </div>
+            <span className="text-[10px] text-white/60 font-mono select-none">
+              {formatTime(duration)}
+            </span>
+          </div>
+        )}
+
+        {/* Buttons Row */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            {/* Play/Pause */}
+            <button 
+              onClick={handlePlayPause}
+              className="p-1.5 hover:bg-white/10 rounded-full text-white hover:text-cyan-400 transition-all cursor-pointer"
+            >
+              {isPlaying ? (
+                <Pause className="w-5 h-5 fill-white hover:fill-cyan-400" />
+              ) : (
+                <Play className="w-5 h-5 fill-white hover:fill-cyan-400" />
+              )}
+            </button>
+
+            {/* Live Indicator */}
+            {options.isLive && (
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-600/10 border border-red-500/20 text-[9px] font-black uppercase text-red-400 tracking-wider">
+                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-ping" />
+                <span>Live Feed</span>
+              </div>
+            )}
+
+            {/* Volume Control */}
+            <div className="flex items-center gap-2 group/volume">
+              <button 
+                onClick={toggleMute}
+                className="p-1.5 hover:bg-white/10 rounded-full text-white hover:text-cyan-400 transition-all cursor-pointer"
+              >
+                {isMuted || volume === 0 ? (
+                  <VolumeX className="w-5 h-5" />
+                ) : (
+                  <Volume2 className="w-5 h-5" />
+                )}
+              </button>
+              <input 
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={isMuted ? 0 : volume}
+                onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                className="w-16 h-1 bg-white/20 appearance-none rounded-full outline-none cursor-pointer accent-[#00D1FF] transition-all group-hover/volume:w-20"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            {/* Quality Selector */}
+            {tracks.length > 0 && (
+              <div className="relative">
+                <button 
+                  onClick={() => setIsQualityMenuOpen(!isQualityMenuOpen)}
+                  className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider bg-white/5 border border-white/10 rounded-lg text-white/80 hover:text-white hover:border-cyan-400/40 transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>
+                    {activeTrack === -1 ? 'Auto' : `${activeTrack}p`}
+                  </span>
+                </button>
+
+                {/* Quality Dropdown Menu */}
+                <AnimatePresence>
+                  {isQualityMenuOpen && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      className="absolute bottom-full right-0 mb-2 w-28 bg-[#0c0c0e]/95 border border-white/10 rounded-xl p-1.5 shadow-2xl backdrop-blur-xl z-50 flex flex-col gap-0.5"
+                    >
+                      <span className="text-[7.5px] text-white/30 uppercase tracking-widest font-black px-2 py-1 select-none">
+                        Quality
+                      </span>
+                      <button 
+                        onClick={() => selectTrack(-1)}
+                        className={`w-full text-left px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all flex items-center justify-between cursor-pointer ${
+                          activeTrack === -1 
+                            ? 'text-[#00D1FF] bg-[#00D1FF]/10' 
+                            : 'text-white/70 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        <span>Auto</span>
+                        {activeTrack === -1 && <Check className="w-3 h-3" />}
+                      </button>
+                      {tracks.map((t) => (
+                        <button 
+                          key={`track-select-${t.height}`}
+                          onClick={() => selectTrack(t.height)}
+                          className={`w-full text-left px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all flex items-center justify-between cursor-pointer ${
+                            activeTrack === t.height 
+                              ? 'text-[#00D1FF] bg-[#00D1FF]/10' 
+                              : 'text-white/70 hover:text-white hover:bg-white/5'
+                          }`}
+                        >
+                          <span>{t.height}p</span>
+                          {activeTrack === t.height && <Check className="w-3 h-3" />}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
+            {/* Fullscreen */}
+            <button 
+              onClick={toggleFullscreen}
+              className="p-1.5 hover:bg-white/10 rounded-full text-white hover:text-cyan-400 transition-all cursor-pointer"
+            >
+              {isFullscreen ? (
+                <Minimize className="w-5 h-5" />
+              ) : (
+                <Maximize className="w-5 h-5" />
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ 
   options, 
   onReady, 
@@ -172,6 +694,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onSelectEpisode,
   onDownloadEpisode
 }) => {
+  const topUrl = options.sources[0]?.src || '';
+  const topSource = options.sources[0];
+  const isMpd = topUrl.toLowerCase().includes('.mpd') || topSource?.type === 'application/dash+xml' || topSource?.type === 'dash';
+
+  if (isMpd) {
+    return <MpdPlayer url={topUrl} options={options} onClose={onClose} />;
+  }
+
   const artRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<Artplayer | null>(null);
   const hlsRef = useRef<Hls | null>(null);
