@@ -381,7 +381,16 @@ const MpdPlayer: React.FC<MpdPlayerProps> = ({ url, options, onClose }) => {
       try {
         await shakaPlayer.attach(videoRef.current);
         if (isDestroyed) return;
-        await shakaPlayer.load(getProxiedUrl(cleanUrl));
+
+        let mimeType: string | undefined = undefined;
+        const lowerClean = cleanUrl.toLowerCase();
+        if (lowerClean.includes('.mpd') || lowerClean.includes('dash')) {
+          mimeType = 'application/dash+xml';
+        } else if (lowerClean.includes('.m3u8') || lowerClean.includes('hls')) {
+          mimeType = 'application/x-mpegurl';
+        }
+
+        await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
         if (isDestroyed) return;
 
         setIsLoading(false);
@@ -1309,7 +1318,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 return;
               }
 
-              await shakaPlayer.load(getProxiedUrl(cleanUrl));
+              let mimeType: string | undefined = undefined;
+              const lowerClean = cleanUrl.toLowerCase();
+              if (lowerClean.includes('.mpd') || lowerClean.includes('dash')) {
+                mimeType = 'application/dash+xml';
+              } else if (lowerClean.includes('.m3u8') || lowerClean.includes('hls')) {
+                mimeType = 'application/x-mpegurl';
+              }
+
+              await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
               if (latestUrlRef.current !== url) {
                 shakaPlayer.destroy();
                 return;
