@@ -79,6 +79,23 @@ const parseDRMUrl = (url: string) => {
   return { cleanUrl, clearKeys, isDrm };
 };
 
+const getProxiedUrl = (url: string) => {
+  if (!url) return url;
+  
+  const isAlreadyProxied = url.includes('/api/stream') || url.includes('/api/proxy');
+  const isAbsolute = url.startsWith('http://') || url.startsWith('https://');
+  const isLocal = url.startsWith(window.location.origin) || url.includes('localhost') || url.includes('127.0.0.1');
+
+  if (isAbsolute && !isAlreadyProxied && !isLocal) {
+    if (url.startsWith('https://')) {
+      return `${window.location.origin}/api/stream/https/${url.substring(8)}`;
+    } else if (url.startsWith('http://')) {
+      return `${window.location.origin}/api/stream/http/${url.substring(7)}`;
+    }
+  }
+  return url;
+};
+
 const setupShakaLiveDvr = (video: HTMLVideoElement, shakaPlayer: any, art: any) => {
   if (!shakaPlayer || art.option.isLive) {
     return;
@@ -265,6 +282,11 @@ const MpdPlayer: React.FC<MpdPlayerProps> = ({ url, options, onClose }) => {
     }
 
     const { cleanUrl, clearKeys } = parseDRMUrl(url);
+    let originalOrigin = '';
+    try {
+      originalOrigin = new URL(cleanUrl).origin;
+    } catch (_) {}
+
     const shakaPlayer = new shaka.Player();
     shakaPlayerRef.current = shakaPlayer;
 
@@ -302,43 +324,65 @@ const MpdPlayer: React.FC<MpdPlayerProps> = ({ url, options, onClose }) => {
 
     shakaPlayer.configure(shakaConfig);
 
-    // Filter to add timestamp / prevent manifest caching on MPD
+    // Filter to add timestamp / prevent manifest caching on MPD, and dynamically proxy cross-origin / CDN streams to bypass CORS restrictions
     shakaPlayer.getNetworkingEngine().registerRequestFilter((type: any, request: any) => {
-      let isManifest = false;
-      try {
-        if (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType) {
-          isManifest = type === shaka.net.NetworkingEngine.RequestType.MANIFEST;
-        } else {
-          isManifest = type === 0;
-        }
-      } catch (_) {
-        isManifest = type === 0;
-      }
-
-      if (isManifest && request && request.uris) {
+      if (request && request.uris) {
         request.uris = request.uris.map((uri: string) => {
           if (!uri) return uri;
-          const lower = uri.toLowerCase();
-          const isSigned = lower.includes('token=') || 
-                           lower.includes('sign=') || 
-                           lower.includes('hash=') || 
-                           lower.includes('auth=') || 
-                           lower.includes('expires=') || 
-                           lower.includes('hdnts=') ||
-                           lower.includes('security=');
-          if (isSigned) {
-            return uri;
+          
+          let processedUri = uri;
+          
+          // Restore path-absolute URLs resolving to local origin back to original stream origin
+          if (originalOrigin && processedUri.startsWith(window.location.origin) && !processedUri.includes('/api/stream')) {
+            processedUri = processedUri.replace(window.location.origin, originalOrigin);
           }
-          const separator = uri.indexOf('?') === -1 ? '?' : '&';
-          return uri + separator + '_ts=' + Date.now();
+
+          const lower = processedUri.toLowerCase();
+          
+          // 1. Prevent manifest caching safely on MPD if not signed
+          let isManifest = false;
+          try {
+            if (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType) {
+              isManifest = type === shaka.net.NetworkingEngine.RequestType.MANIFEST;
+            } else {
+              isManifest = type === 0;
+            }
+          } catch (_) {
+            isManifest = type === 0;
+          }
+
+          if (isManifest) {
+            const isSigned = lower.includes('token=') || 
+                             lower.includes('sign=') || 
+                             lower.includes('hash=') || 
+                             lower.includes('auth=') || 
+                             lower.includes('expires=') || 
+                             lower.includes('hdnts=') ||
+                             lower.includes('security=');
+            if (!isSigned) {
+              if (lower.includes('_ts=')) {
+                processedUri = processedUri.replace(/_ts=\d+/, '_ts=' + Date.now());
+              } else {
+                const separator = processedUri.indexOf('?') === -1 ? '?' : '&';
+                processedUri = processedUri + separator + '_ts=' + Date.now();
+              }
+            }
+          }
+
+          // 2. Bypass CORS and Referrer issues (like akamaized, otte) on custom domains by proxying through our Express server backend using path-based getProxiedUrl!
+          return getProxiedUrl(processedUri);
         });
       }
     });
 
+    let isDestroyed = false;
+
     const init = async () => {
       try {
         await shakaPlayer.attach(videoRef.current);
-        await shakaPlayer.load(cleanUrl);
+        if (isDestroyed) return;
+        await shakaPlayer.load(getProxiedUrl(cleanUrl));
+        if (isDestroyed) return;
 
         setIsLoading(false);
 
@@ -351,7 +395,12 @@ const MpdPlayer: React.FC<MpdPlayerProps> = ({ url, options, onClose }) => {
         // Setup tracks
         updateTracks();
       } catch (err: any) {
-        console.error('Shaka Player init failed:', err);
+        if (isDestroyed || (err && err.code === 7000)) {
+          // Ignore load interruption / unmount errors
+          return;
+        }
+        const errMsg = err ? `Message: ${err.message || err.toString()}, Code: ${err.code}, Category: ${err.category}, Severity: ${err.severity}` : 'unknown';
+        console.error('Shaka Player init failed: ' + errMsg);
         setLoadingText(`STREAM LOAD FAILED (${err ? err.code : 'unknown'})`);
         setIsLoading(false);
       }
@@ -361,16 +410,20 @@ const MpdPlayer: React.FC<MpdPlayerProps> = ({ url, options, onClose }) => {
 
     // Event listeners
     const onPlaying = () => {
+      if (isDestroyed) return;
       setIsPlaying(true);
       setIsLoading(false);
     };
     const onPause = () => {
+      if (isDestroyed) return;
       setIsPlaying(false);
     };
     const onWaiting = () => {
+      if (isDestroyed) return;
       setIsLoading(true);
     };
     const onTimeUpdate = () => {
+      if (isDestroyed) return;
       if (videoRef.current) {
         setCurrentTime(videoRef.current.currentTime);
         setDuration(videoRef.current.duration || 0);
@@ -384,6 +437,7 @@ const MpdPlayer: React.FC<MpdPlayerProps> = ({ url, options, onClose }) => {
     video.addEventListener('timeupdate', onTimeUpdate);
 
     return () => {
+      isDestroyed = true;
       video.removeEventListener('playing', onPlaying);
       video.removeEventListener('pause', onPause);
       video.removeEventListener('waiting', onWaiting);
@@ -1096,6 +1150,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (latestUrlRef.current !== url) return;
 
         const { cleanUrl, clearKeys } = parseDRMUrl(url);
+        let originalOrigin = '';
+        try {
+          originalOrigin = new URL(cleanUrl).origin;
+        } catch (_) {}
 
         shaka.polyfill.installAll();
         if (shaka.Player.isBrowserSupported()) {
@@ -1137,35 +1195,53 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
           shakaPlayer.configure(shakaConfig);
 
-          // Prevent manifest caching safely on MPD without breaking signed URLs or throwing import exceptions
+          // Prevent manifest caching safely on MPD without breaking signed URLs or throwing import exceptions, and dynamically proxy cross-origin / CDN streams to bypass CORS restrictions
           shakaPlayer.getNetworkingEngine().registerRequestFilter((type: any, request: any) => {
-            let isManifest = false;
-            try {
-              if (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType) {
-                isManifest = type === shaka.net.NetworkingEngine.RequestType.MANIFEST;
-              } else {
-                isManifest = type === 0;
-              }
-            } catch (_) {
-              isManifest = type === 0;
-            }
-
-            if (isManifest && request && request.uris) {
+            if (request && request.uris) {
               request.uris = request.uris.map((uri: string) => {
                 if (!uri) return uri;
-                const lower = uri.toLowerCase();
-                const isSigned = lower.includes('token=') || 
-                                 lower.includes('sign=') || 
-                                 lower.includes('hash=') || 
-                                 lower.includes('auth=') || 
-                                 lower.includes('expires=') || 
-                                 lower.includes('hdnts=') ||
-                                 lower.includes('security=');
-                if (isSigned) {
-                  return uri;
+                
+                let processedUri = uri;
+                
+                // Restore path-absolute URLs resolving to local origin back to original stream origin
+                if (originalOrigin && processedUri.startsWith(window.location.origin) && !processedUri.includes('/api/stream')) {
+                  processedUri = processedUri.replace(window.location.origin, originalOrigin);
                 }
-                const separator = uri.indexOf('?') === -1 ? '?' : '&';
-                return uri + separator + '_ts=' + Date.now();
+
+                const lower = processedUri.toLowerCase();
+                
+                // 1. Prevent manifest caching safely on MPD if not signed
+                let isManifest = false;
+                try {
+                  if (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType) {
+                    isManifest = type === shaka.net.NetworkingEngine.RequestType.MANIFEST;
+                  } else {
+                    isManifest = type === 0;
+                  }
+                } catch (_) {
+                  isManifest = type === 0;
+                }
+
+                if (isManifest) {
+                  const isSigned = lower.includes('token=') || 
+                                   lower.includes('sign=') || 
+                                   lower.includes('hash=') || 
+                                   lower.includes('auth=') || 
+                                   lower.includes('expires=') || 
+                                   lower.includes('hdnts=') ||
+                                   lower.includes('security=');
+                  if (!isSigned) {
+                    if (lower.includes('_ts=')) {
+                      processedUri = processedUri.replace(/_ts=\d+/, '_ts=' + Date.now());
+                    } else {
+                      const separator = processedUri.indexOf('?') === -1 ? '?' : '&';
+                      processedUri = processedUri + separator + '_ts=' + Date.now();
+                    }
+                  }
+                }
+
+                // 2. Bypass CORS and Referrer issues (like akamaized, otte) on custom domains by proxying through our Express server backend using path-based getProxiedUrl!
+                return getProxiedUrl(processedUri);
               });
             }
           });
@@ -1233,7 +1309,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 return;
               }
 
-              await shakaPlayer.load(cleanUrl);
+              await shakaPlayer.load(getProxiedUrl(cleanUrl));
               if (latestUrlRef.current !== url) {
                 shakaPlayer.destroy();
                 return;
@@ -1358,7 +1434,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }
           });
 
-          player.initialize(video, cleanUrl, options.autoplay || false);
+          const processedDashUrl = getProxiedUrl(cleanUrl);
+          if (processedDashUrl !== cleanUrl) {
+            console.log(`[DashJS Request Proxy] Redirecting stream: ${cleanUrl} -> ${processedDashUrl}`);
+          }
+
+          player.initialize(video, processedDashUrl, options.autoplay || false);
         }
       };
 
@@ -1520,10 +1601,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
               const isLive = options.isLive !== undefined ? options.isLive : (originalUrl.toLowerCase().includes('.m3u8') || originalUrl.toLowerCase().includes('.ts') || originalUrl.toLowerCase().includes('.mpd'));
 
+              const processedTsUrl = getProxiedUrl(url);
+              if (processedTsUrl !== url) {
+                console.log(`[MpegTS Request Proxy] Redirecting stream: ${url} -> ${processedTsUrl}`);
+              }
+
               const player = mpegts.createPlayer({
                 type: 'mse',
                 isLive: isLive,
-                url: url,
+                url: processedTsUrl,
               }, {
                 enableWorker: true,
                 stashInitialSize: isLive ? 128 : 512, // 512KB for non-live files to buffer robustly
@@ -1640,7 +1726,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
               const hls = new Hls(hlsConfig);
               hlsRef.current = hls;
-              hls.loadSource(url);
+
+              const processedUrl = getProxiedUrl(url);
+              if (processedUrl !== url) {
+                console.log(`[HLS Request Proxy] Redirecting master playlist: ${url} -> ${processedUrl}`);
+              }
+
+              hls.loadSource(processedUrl);
               hls.attachMedia(video);
 
               // Handle fatal loading/media errors by automatically recovering/retrying

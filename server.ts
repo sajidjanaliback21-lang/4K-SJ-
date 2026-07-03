@@ -341,12 +341,51 @@ async function startServer() {
     }
   });
 
-  // Video Streaming Proxy with Range support
-  app.get("/api/stream", async (req, res) => {
-    const { url } = req.query;
-    if (!url) return res.status(400).send("URL is required");
+  // Video Streaming Proxy with Range support (Supports both legacy query parameter and robust path-based relative URL resolution)
+  app.get(["/api/stream", "/api/stream/*"], async (req, res) => {
+    let targetUrl = "";
+    let isPathBased = false;
 
-    const targetUrl = url as string;
+    const prefix = "/api/stream/";
+    if (req.path.startsWith(prefix)) {
+      const remaining = req.path.substring(prefix.length);
+      if (remaining.startsWith("https/")) {
+        targetUrl = "https://" + remaining.substring(6);
+        isPathBased = true;
+      } else if (remaining.startsWith("http/")) {
+        targetUrl = "http://" + remaining.substring(5);
+        isPathBased = true;
+      }
+    }
+
+    if (!targetUrl && req.query.url) {
+      targetUrl = req.query.url as string;
+    }
+
+    if (!targetUrl) {
+      return res.status(400).send("URL is required");
+    }
+
+    // Reconstruct query parameters (unconditionally excluding the proxy-specific 'url' parameter)
+    const queryParams = { ...req.query };
+    delete queryParams.url;
+
+    const queryKeys = Object.keys(queryParams);
+    if (queryKeys.length > 0) {
+      const separator = targetUrl.includes("?") ? "&" : "?";
+      const queryString = queryKeys
+        .map(key => {
+          let val = queryParams[key];
+          if (Array.isArray(val)) {
+            // Uniquely take the last elements/timestamps if they are parsed as an array (e.g. from multiple appends)
+            val = val[val.length - 1];
+          }
+          return `${key}=${encodeURIComponent(val as string)}`;
+        })
+        .join("&");
+      targetUrl = targetUrl + separator + queryString;
+    }
+
     const range = req.headers.range;
 
     try {
@@ -366,14 +405,19 @@ async function startServer() {
         timeout: 0, // No timeout for streaming
       });
 
-      // Forward headers from target server
-      const responseHeaders = {
+      // Forward headers from target server dynamically to prevent setting undefined or invalid header values
+      const responseHeaders: any = {
         'Content-Type': response.headers['content-type'] || 'video/x-matroska',
-        'Content-Length': response.headers['content-length'],
-        'Content-Range': response.headers['content-range'],
         'Accept-Ranges': 'bytes',
         'Access-Control-Allow-Origin': '*',
       };
+
+      if (response.headers['content-length'] !== undefined && response.headers['content-length'] !== null) {
+        responseHeaders['Content-Length'] = response.headers['content-length'];
+      }
+      if (response.headers['content-range'] !== undefined && response.headers['content-range'] !== null) {
+        responseHeaders['Content-Range'] = response.headers['content-range'];
+      }
 
       res.writeHead(response.status, responseHeaders);
       response.data.pipe(res);
