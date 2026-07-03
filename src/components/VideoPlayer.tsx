@@ -96,6 +96,62 @@ const getProxiedUrl = (url: string) => {
   return url;
 };
 
+const regexStripContentProtection = (xmlString: string): string => {
+  try {
+    let result = xmlString.replace(/<(?:[a-zA-Z0-9_-]+:)?ContentProtection[^>]*?\/>/gi, '');
+    result = result.replace(/<(?:[a-zA-Z0-9_-]+:)?ContentProtection(?:\s[^>]*?)?>([\s\S]*?)<\/(?:[a-zA-Z0-9_-]+:)?ContentProtection>/gi, (match, innerContent) => {
+      if (innerContent.includes('ContentProtection') || innerContent.includes('<')) {
+        return '';
+      }
+      return '';
+    });
+    return result;
+  } catch (e) {
+    return xmlString;
+  }
+};
+
+const stripContentProtectionXml = (xmlString: string): string => {
+  try {
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xmlString, "application/xml");
+    
+    let hasParserError = false;
+    const allElements = xmlDoc.getElementsByTagName("*");
+    for (let i = 0; i < allElements.length; i++) {
+      if (allElements[i].nodeName.toLowerCase().includes("parsererror")) {
+        hasParserError = true;
+        break;
+      }
+    }
+    if (hasParserError) {
+      console.warn("[DOMParser] parsererror found, falling back to regex strip");
+      return regexStripContentProtection(xmlString);
+    }
+
+    const elements = xmlDoc.getElementsByTagName("*");
+    const toRemove: Element[] = [];
+    for (let i = 0; i < elements.length; i++) {
+      const nodeName = elements[i].nodeName.toLowerCase();
+      if (nodeName === "contentprotection" || nodeName.endsWith(":contentprotection")) {
+        toRemove.push(elements[i]);
+      }
+    }
+
+    toRemove.forEach(el => {
+      if (el.parentNode) {
+        el.parentNode.removeChild(el);
+      }
+    });
+
+    const serializer = new XMLSerializer();
+    return serializer.serializeToString(xmlDoc);
+  } catch (err) {
+    console.error("[DOMParser] Error stripping ContentProtection, using regex fallback:", err);
+    return regexStripContentProtection(xmlString);
+  }
+};
+
 const setupShakaLiveDvr = (video: HTMLVideoElement, shakaPlayer: any, art: any) => {
   if (!shakaPlayer || art.option.isLive) {
     return;
@@ -318,8 +374,10 @@ const MpdPlayer: React.FC<MpdPlayerProps> = ({ url, options, onClose }) => {
     if (Object.keys(clearKeys).length > 0) {
       shakaConfig.drm = {
         clearKeys: clearKeys,
-        delayLicenseRequestUntilPlayed: false
+        delayLicenseRequestUntilPlayed: true
       };
+    } else {
+      shakaConfig.manifest.ignoreDrmInfo = true;
     }
 
     shakaPlayer.configure(shakaConfig);
@@ -375,6 +433,46 @@ const MpdPlayer: React.FC<MpdPlayerProps> = ({ url, options, onClose }) => {
       }
     });
 
+    shakaPlayer.getNetworkingEngine().registerResponseFilter((type: any, response: any) => {
+      if (response && response.headers) {
+        const uriLower = (response.uri || '').toLowerCase();
+        if (uriLower.includes('.mpd') || uriLower.includes('dash')) {
+          response.headers['content-type'] = 'application/dash+xml';
+        } else if (uriLower.includes('.m3u8') || uriLower.includes('hls')) {
+          response.headers['content-type'] = 'application/x-mpegurl';
+        }
+      }
+
+      if ((shakaPlayer as any)._stripContentProtection && response && response.data) {
+        try {
+          const isMpdManifest = (
+            type === 0 || 
+            (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType && type === shaka.net.NetworkingEngine.RequestType.MANIFEST)
+          ) && (
+            (response.uri || '').split('?')[0].toLowerCase().endsWith('.mpd') ||
+            (response.headers && (response.headers['content-type'] || '').toLowerCase().includes('dash')) ||
+            (response.headers && (response.headers['content-type'] || '').toLowerCase().includes('xml'))
+          );
+
+          if (isMpdManifest) {
+            const textDecoder = new TextDecoder('utf-8');
+            const textEncoder = new TextEncoder();
+            let manifestXml = textDecoder.decode(response.data);
+
+            const originalLength = manifestXml.length;
+            manifestXml = stripContentProtectionXml(manifestXml);
+            
+            if (manifestXml.length !== originalLength) {
+              console.log(`[Shaka Response Filter 1] Stripped ContentProtection DRM tags from manifest, length reduced from ${originalLength} to ${manifestXml.length}`);
+              response.data = textEncoder.encode(manifestXml).buffer;
+            }
+          }
+        } catch (decodeErr) {
+          console.warn('[Shaka Response Filter 1] Failed to strip ContentProtection:', decodeErr);
+        }
+      }
+    });
+
     let isDestroyed = false;
 
     const init = async () => {
@@ -390,7 +488,50 @@ const MpdPlayer: React.FC<MpdPlayerProps> = ({ url, options, onClose }) => {
           mimeType = 'application/x-mpegurl';
         }
 
-        await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
+        try {
+          await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
+        } catch (loadErr: any) {
+          const isDrmOrRestrictionError = 
+            loadErr.code === 4003 || 
+            loadErr.category === 4 || 
+            loadErr.category === 6 ||
+            (loadErr.message && (loadErr.message.includes('4003') || loadErr.message.includes('RESTRICTIONS_CANNOT_BE_MET')));
+
+          if (isDrmOrRestrictionError) {
+            console.warn('DRM / Restriction load failed in first Shaka Player, attempting unencrypted/clear fallback:', loadErr);
+            
+            // Fallback 1: Clear DRM configurations, key configurations and set ignoreDrmInfo to true
+            try {
+              await shakaPlayer.unload();
+              const blankDrmConfig: any = { 
+                drm: { clearKeys: {}, servers: {}, advanced: {} },
+                manifest: { ignoreDrmInfo: true }
+              };
+              shakaPlayer.configure(blankDrmConfig);
+              await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
+            } catch (fallbackErr1: any) {
+              console.warn('First clear-fallback in first Shaka Player failed, attempting XML content protection stripping fallback:', fallbackErr1);
+              
+              // Fallback 2: XML content protection stripping fallback + ignoreDrmInfo
+              if (isDestroyed) return;
+              try {
+                await shakaPlayer.unload();
+                (shakaPlayer as any)._stripContentProtection = true;
+                const blankDrmConfig: any = { 
+                  drm: { clearKeys: {}, servers: {}, advanced: {} },
+                  manifest: { ignoreDrmInfo: true }
+                };
+                shakaPlayer.configure(blankDrmConfig);
+                await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
+              } catch (fallbackErr2: any) {
+                console.error('All Shaka Player 1 fallbacks failed, throwing final error:', fallbackErr2);
+                throw fallbackErr2;
+              }
+            }
+          } else {
+            throw loadErr;
+          }
+        }
         if (isDestroyed) return;
 
         setIsLoading(false);
@@ -1198,8 +1339,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           if (Object.keys(clearKeys).length > 0) {
             shakaConfig.drm = {
               clearKeys: clearKeys,
-              delayLicenseRequestUntilPlayed: false
+              delayLicenseRequestUntilPlayed: true
             };
+          } else {
+            shakaConfig.manifest.ignoreDrmInfo = true;
           }
 
           shakaPlayer.configure(shakaConfig);
@@ -1252,6 +1395,46 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 // 2. Bypass CORS and Referrer issues (like akamaized, otte) on custom domains by proxying through our Express server backend using path-based getProxiedUrl!
                 return getProxiedUrl(processedUri);
               });
+            }
+          });
+
+          shakaPlayer.getNetworkingEngine().registerResponseFilter((type: any, response: any) => {
+            if (response && response.headers) {
+              const uriLower = (response.uri || '').toLowerCase();
+              if (uriLower.includes('.mpd') || uriLower.includes('dash')) {
+                response.headers['content-type'] = 'application/dash+xml';
+              } else if (uriLower.includes('.m3u8') || uriLower.includes('hls')) {
+                response.headers['content-type'] = 'application/x-mpegurl';
+              }
+            }
+
+            if ((shakaPlayer as any)._stripContentProtection && response && response.data) {
+              try {
+                const isMpdManifest = (
+                  type === 0 || 
+                  (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType && type === shaka.net.NetworkingEngine.RequestType.MANIFEST)
+                ) && (
+                  (response.uri || '').split('?')[0].toLowerCase().endsWith('.mpd') ||
+                  (response.headers && (response.headers['content-type'] || '').toLowerCase().includes('dash')) ||
+                  (response.headers && (response.headers['content-type'] || '').toLowerCase().includes('xml'))
+                );
+
+                if (isMpdManifest) {
+                  const textDecoder = new TextDecoder('utf-8');
+                  const textEncoder = new TextEncoder();
+                  let manifestXml = textDecoder.decode(response.data);
+
+                  const originalLength = manifestXml.length;
+                  manifestXml = stripContentProtectionXml(manifestXml);
+                  
+                  if (manifestXml.length !== originalLength) {
+                    console.log(`[Shaka Response Filter 2] Stripped ContentProtection DRM tags from manifest, length reduced from ${originalLength} to ${manifestXml.length}`);
+                    response.data = textEncoder.encode(manifestXml).buffer;
+                  }
+                }
+              } catch (decodeErr) {
+                console.warn('[Shaka Response Filter 2] Failed to strip ContentProtection:', decodeErr);
+              }
             }
           });
 
@@ -1326,7 +1509,53 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 mimeType = 'application/x-mpegurl';
               }
 
-              await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
+              try {
+                await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
+              } catch (loadErr: any) {
+                const isDrmOrRestrictionError = 
+                  loadErr.code === 4003 || 
+                  loadErr.category === 4 || 
+                  loadErr.category === 6 ||
+                  (loadErr.message && (loadErr.message.includes('4003') || loadErr.message.includes('RESTRICTIONS_CANNOT_BE_MET')));
+
+                if (isDrmOrRestrictionError) {
+                  console.warn('DRM / Restriction load failed in second Shaka Player, attempting unencrypted/clear fallback:', loadErr);
+                  
+                  // Fallback 1: Clear DRM configurations, key configurations and set ignoreDrmInfo to true
+                  try {
+                    await shakaPlayer.unload();
+                    const blankDrmConfig: any = { 
+                      drm: { clearKeys: {}, servers: {}, advanced: {} },
+                      manifest: { ignoreDrmInfo: true }
+                    };
+                    shakaPlayer.configure(blankDrmConfig);
+                    await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
+                  } catch (fallbackErr1: any) {
+                    console.warn('First clear-fallback in second Shaka Player failed, attempting XML content protection stripping fallback:', fallbackErr1);
+                    
+                    // Fallback 2: XML content protection stripping fallback + ignoreDrmInfo
+                    if (latestUrlRef.current !== url) {
+                      shakaPlayer.destroy();
+                      return;
+                    }
+                    try {
+                      await shakaPlayer.unload();
+                      (shakaPlayer as any)._stripContentProtection = true;
+                      const blankDrmConfig: any = { 
+                        drm: { clearKeys: {}, servers: {}, advanced: {} },
+                        manifest: { ignoreDrmInfo: true }
+                      };
+                      shakaPlayer.configure(blankDrmConfig);
+                      await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
+                    } catch (fallbackErr2: any) {
+                      console.error('All Shaka Player 2 fallbacks failed, throwing final error:', fallbackErr2);
+                      throw fallbackErr2;
+                    }
+                  }
+                } else {
+                  throw loadErr;
+                }
+              }
               if (latestUrlRef.current !== url) {
                 shakaPlayer.destroy();
                 return;
