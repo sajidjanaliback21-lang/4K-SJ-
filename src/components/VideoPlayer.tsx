@@ -5,10 +5,9 @@ import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
 import * as dashjs from 'dashjs';
 // @ts-ignore
-import * as shakaModule from 'shaka-player';
-const shaka = (shakaModule as any).default || shakaModule;
+import shaka from 'shaka-player';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldCheck, Shield, Cpu, Globe, Sliders, X, SkipForward, List, Tv, Download, Gauge, RotateCcw, Pencil, Check, Zap, Play, Pause, Volume2, VolumeX, Maximize, Minimize, Settings, Loader2 } from 'lucide-react';
+import { ShieldCheck, Shield, Cpu, Globe, Sliders, X, SkipForward, List, Tv, Download, Gauge, RotateCcw, Pencil, Check, Zap } from 'lucide-react';
 
 interface VideoPlayerProps {
   options: {
@@ -77,79 +76,6 @@ const parseDRMUrl = (url: string) => {
     }
   }
   return { cleanUrl, clearKeys, isDrm };
-};
-
-const getProxiedUrl = (url: string) => {
-  if (!url) return url;
-  
-  const isAlreadyProxied = url.includes('/api/stream') || url.includes('/api/proxy');
-  const isAbsolute = url.startsWith('http://') || url.startsWith('https://');
-  const isLocal = url.startsWith(window.location.origin) || url.includes('localhost') || url.includes('127.0.0.1');
-
-  if (isAbsolute && !isAlreadyProxied && !isLocal) {
-    if (url.startsWith('https://')) {
-      return `${window.location.origin}/api/stream/https/${url.substring(8)}`;
-    } else if (url.startsWith('http://')) {
-      return `${window.location.origin}/api/stream/http/${url.substring(7)}`;
-    }
-  }
-  return url;
-};
-
-const regexStripContentProtection = (xmlString: string): string => {
-  try {
-    let result = xmlString.replace(/<(?:[a-zA-Z0-9_-]+:)?ContentProtection[^>]*?\/>/gi, '');
-    result = result.replace(/<(?:[a-zA-Z0-9_-]+:)?ContentProtection(?:\s[^>]*?)?>([\s\S]*?)<\/(?:[a-zA-Z0-9_-]+:)?ContentProtection>/gi, (match, innerContent) => {
-      if (innerContent.includes('ContentProtection') || innerContent.includes('<')) {
-        return '';
-      }
-      return '';
-    });
-    return result;
-  } catch (e) {
-    return xmlString;
-  }
-};
-
-const stripContentProtectionXml = (xmlString: string): string => {
-  try {
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(xmlString, "application/xml");
-    
-    let hasParserError = false;
-    const allElements = xmlDoc.getElementsByTagName("*");
-    for (let i = 0; i < allElements.length; i++) {
-      if (allElements[i].nodeName.toLowerCase().includes("parsererror")) {
-        hasParserError = true;
-        break;
-      }
-    }
-    if (hasParserError) {
-      console.warn("[DOMParser] parsererror found, falling back to regex strip");
-      return regexStripContentProtection(xmlString);
-    }
-
-    const elements = xmlDoc.getElementsByTagName("*");
-    const toRemove: Element[] = [];
-    for (let i = 0; i < elements.length; i++) {
-      const nodeName = elements[i].nodeName.toLowerCase();
-      if (nodeName === "contentprotection" || nodeName.endsWith(":contentprotection")) {
-        toRemove.push(elements[i]);
-      }
-    }
-
-    toRemove.forEach(el => {
-      if (el.parentNode) {
-        el.parentNode.removeChild(el);
-      }
-    });
-
-    const serializer = new XMLSerializer();
-    return serializer.serializeToString(xmlDoc);
-  } catch (err) {
-    console.error("[DOMParser] Error stripping ContentProtection, using regex fallback:", err);
-    return regexStripContentProtection(xmlString);
-  }
 };
 
 const setupShakaLiveDvr = (video: HTMLVideoElement, shakaPlayer: any, art: any) => {
@@ -235,659 +161,6 @@ const setupShakaLiveDvr = (video: HTMLVideoElement, shakaPlayer: any, art: any) 
   };
 };
 
-interface MpdPlayerProps {
-  url: string;
-  options: any;
-  onClose?: () => void;
-}
-
-const MpdPlayer: React.FC<MpdPlayerProps> = ({ url, options, onClose }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const shakaPlayerRef = useRef<any>(null);
-
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadingText, setLoadingText] = useState('LOADING SECURED FEED...');
-  const [showControls, setShowControls] = useState(true);
-  const [tracks, setTracks] = useState<any[]>([]);
-  const [activeTrack, setActiveTrack] = useState<number>(-1); // -1 is Auto
-  const [isQualityMenuOpen, setIsQualityMenuOpen] = useState(false);
-
-  const controlsTimeoutRef = useRef<any>(null);
-
-  const resetControlsTimer = () => {
-    setShowControls(true);
-    if (controlsTimeoutRef.current) {
-      clearTimeout(controlsTimeoutRef.current);
-    }
-    controlsTimeoutRef.current = setTimeout(() => {
-      if (isPlaying) {
-        setShowControls(false);
-        setIsQualityMenuOpen(false);
-      }
-    }, 3500);
-  };
-
-  useEffect(() => {
-    resetControlsTimer();
-    return () => {
-      if (controlsTimeoutRef.current) {
-        clearTimeout(controlsTimeoutRef.current);
-      }
-    };
-  }, [isPlaying]);
-
-  // Handle Fullscreen
-  const toggleFullscreen = () => {
-    if (!containerRef.current) return;
-    if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen().then(() => {
-        setIsFullscreen(true);
-      }).catch((err) => {
-        console.error('Failed to enter fullscreen:', err);
-      });
-    } else {
-      document.exitFullscreen().then(() => {
-        setIsFullscreen(false);
-      });
-    }
-  };
-
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    };
-  }, []);
-
-  // Format Time Helper
-  const formatTime = (secs: number) => {
-    if (isNaN(secs) || !isFinite(secs)) return '00:00';
-    const h = Math.floor(secs / 3600);
-    const m = Math.floor((secs % 3600) / 60);
-    const s = Math.floor(secs % 60);
-    
-    const mStr = m.toString().padStart(2, '0');
-    const sStr = s.toString().padStart(2, '0');
-    
-    if (h > 0) {
-      return `${h}:${mStr}:${sStr}`;
-    }
-    return `${mStr}:${sStr}`;
-  };
-
-  // Initialize Shaka
-  useEffect(() => {
-    if (!videoRef.current) return;
-
-    // Install polyfills
-    shaka.polyfill.installAll();
-    if (!shaka.Player.isBrowserSupported()) {
-      console.error('Shaka Player is not supported in this browser.');
-      setLoadingText('BROWSER NOT SUPPORTED');
-      return;
-    }
-
-    const { cleanUrl, clearKeys } = parseDRMUrl(url);
-    let originalOrigin = '';
-    try {
-      originalOrigin = new URL(cleanUrl).origin;
-    } catch (_) {}
-
-    const shakaPlayer = new shaka.Player();
-    shakaPlayerRef.current = shakaPlayer;
-
-    const shakaConfig: any = {
-      manifest: {
-        dash: {
-          ignoreMinBufferTime: true,
-          autoCorrectDrift: true,
-          initialSegmentLimit: 2
-        }
-      },
-      streaming: {
-        rebufferingGoal: 1.0,
-        bufferingGoal: 2.5,
-        lowLatencyMode: true,
-        safeSeekOffset: 5,
-        stallEnabled: true,
-        stallThreshold: 1.0,
-        stallSkip: 0.1,
-        ignoreTextStreamFailures: true,
-        inaccurateManifestTolerance: 2
-      },
-      abr: {
-        enabled: true,
-        defaultBandwidthEstimate: 1000000
-      }
-    };
-
-    if (Object.keys(clearKeys).length > 0) {
-      shakaConfig.drm = {
-        clearKeys: clearKeys,
-        delayLicenseRequestUntilPlayed: true
-      };
-    } else {
-      shakaConfig.manifest.ignoreDrmInfo = true;
-    }
-
-    shakaPlayer.configure(shakaConfig);
-
-    // Filter to add timestamp / prevent manifest caching on MPD, and dynamically proxy cross-origin / CDN streams to bypass CORS restrictions
-    shakaPlayer.getNetworkingEngine().registerRequestFilter((type: any, request: any) => {
-      if (request && request.uris) {
-        request.uris = request.uris.map((uri: string) => {
-          if (!uri) return uri;
-          
-          let processedUri = uri;
-          
-          // Restore path-absolute URLs resolving to local origin back to original stream origin
-          if (originalOrigin && processedUri.startsWith(window.location.origin) && !processedUri.includes('/api/stream')) {
-            processedUri = processedUri.replace(window.location.origin, originalOrigin);
-          }
-
-          const lower = processedUri.toLowerCase();
-          
-          // 1. Prevent manifest caching safely on MPD if not signed
-          let isManifest = false;
-          try {
-            if (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType) {
-              isManifest = type === shaka.net.NetworkingEngine.RequestType.MANIFEST;
-            } else {
-              isManifest = type === 0;
-            }
-          } catch (_) {
-            isManifest = type === 0;
-          }
-
-          if (isManifest) {
-            const isSigned = lower.includes('token=') || 
-                             lower.includes('sign=') || 
-                             lower.includes('hash=') || 
-                             lower.includes('auth=') || 
-                             lower.includes('expires=') || 
-                             lower.includes('hdnts=') ||
-                             lower.includes('security=');
-            if (!isSigned) {
-              if (lower.includes('_ts=')) {
-                processedUri = processedUri.replace(/_ts=\d+/, '_ts=' + Date.now());
-              } else {
-                const separator = processedUri.indexOf('?') === -1 ? '?' : '&';
-                processedUri = processedUri + separator + '_ts=' + Date.now();
-              }
-            }
-          }
-
-          // 2. Bypass CORS and Referrer issues (like akamaized, otte) on custom domains by proxying through our Express server backend using path-based getProxiedUrl!
-          return getProxiedUrl(processedUri);
-        });
-      }
-    });
-
-    shakaPlayer.getNetworkingEngine().registerResponseFilter((type: any, response: any) => {
-      if (response && response.headers) {
-        const uriLower = (response.uri || '').toLowerCase();
-        if (uriLower.includes('.mpd') || uriLower.includes('dash')) {
-          response.headers['content-type'] = 'application/dash+xml';
-        } else if (uriLower.includes('.m3u8') || uriLower.includes('hls')) {
-          response.headers['content-type'] = 'application/x-mpegurl';
-        }
-      }
-
-      if ((shakaPlayer as any)._stripContentProtection && response && response.data) {
-        try {
-          const isMpdManifest = (
-            type === 0 || 
-            (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType && type === shaka.net.NetworkingEngine.RequestType.MANIFEST)
-          ) && (
-            (response.uri || '').split('?')[0].toLowerCase().endsWith('.mpd') ||
-            (response.headers && (response.headers['content-type'] || '').toLowerCase().includes('dash')) ||
-            (response.headers && (response.headers['content-type'] || '').toLowerCase().includes('xml'))
-          );
-
-          if (isMpdManifest) {
-            const textDecoder = new TextDecoder('utf-8');
-            const textEncoder = new TextEncoder();
-            let manifestXml = textDecoder.decode(response.data);
-
-            const originalLength = manifestXml.length;
-            manifestXml = stripContentProtectionXml(manifestXml);
-            
-            if (manifestXml.length !== originalLength) {
-              console.log(`[Shaka Response Filter 1] Stripped ContentProtection DRM tags from manifest, length reduced from ${originalLength} to ${manifestXml.length}`);
-              response.data = textEncoder.encode(manifestXml).buffer;
-            }
-          }
-        } catch (decodeErr) {
-          console.warn('[Shaka Response Filter 1] Failed to strip ContentProtection:', decodeErr);
-        }
-      }
-    });
-
-    let isDestroyed = false;
-
-    const init = async () => {
-      try {
-        await shakaPlayer.attach(videoRef.current);
-        if (isDestroyed) return;
-
-        let mimeType: string | undefined = undefined;
-        const lowerClean = cleanUrl.toLowerCase();
-        if (lowerClean.includes('.mpd') || lowerClean.includes('dash')) {
-          mimeType = 'application/dash+xml';
-        } else if (lowerClean.includes('.m3u8') || lowerClean.includes('hls')) {
-          mimeType = 'application/x-mpegurl';
-        }
-
-        try {
-          await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
-        } catch (loadErr: any) {
-          const isDrmOrRestrictionError = 
-            loadErr.code === 4003 || 
-            loadErr.category === 4 || 
-            loadErr.category === 6 ||
-            (loadErr.message && (loadErr.message.includes('4003') || loadErr.message.includes('RESTRICTIONS_CANNOT_BE_MET')));
-
-          if (isDrmOrRestrictionError) {
-            console.warn('DRM / Restriction load failed in first Shaka Player, attempting unencrypted/clear fallback:', loadErr);
-            
-            // Fallback 1: Clear DRM configurations, key configurations and set ignoreDrmInfo to true
-            try {
-              await shakaPlayer.unload();
-              const blankDrmConfig: any = { 
-                drm: { clearKeys: {}, servers: {}, advanced: {} },
-                manifest: { ignoreDrmInfo: true }
-              };
-              shakaPlayer.configure(blankDrmConfig);
-              await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
-            } catch (fallbackErr1: any) {
-              console.warn('First clear-fallback in first Shaka Player failed, attempting XML content protection stripping fallback:', fallbackErr1);
-              
-              // Fallback 2: XML content protection stripping fallback + ignoreDrmInfo
-              if (isDestroyed) return;
-              try {
-                await shakaPlayer.unload();
-                (shakaPlayer as any)._stripContentProtection = true;
-                const blankDrmConfig: any = { 
-                  drm: { clearKeys: {}, servers: {}, advanced: {} },
-                  manifest: { ignoreDrmInfo: true }
-                };
-                shakaPlayer.configure(blankDrmConfig);
-                await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
-              } catch (fallbackErr2: any) {
-                console.error('All Shaka Player 1 fallbacks failed, throwing final error:', fallbackErr2);
-                throw fallbackErr2;
-              }
-            }
-          } else {
-            throw loadErr;
-          }
-        }
-        if (isDestroyed) return;
-
-        setIsLoading(false);
-
-        if (options.autoplay !== false) {
-          videoRef.current?.play().catch((e) => {
-            console.warn('Autoplay failed, waiting for user interaction:', e);
-          });
-        }
-
-        // Setup tracks
-        updateTracks();
-      } catch (err: any) {
-        if (isDestroyed || (err && err.code === 7000)) {
-          // Ignore load interruption / unmount errors
-          return;
-        }
-        const errMsg = err ? `Message: ${err.message || err.toString()}, Code: ${err.code}, Category: ${err.category}, Severity: ${err.severity}` : 'unknown';
-        console.error('Shaka Player init failed: ' + errMsg);
-        setLoadingText(`STREAM LOAD FAILED (${err ? err.code : 'unknown'})`);
-        setIsLoading(false);
-      }
-    };
-
-    init();
-
-    // Event listeners
-    const onPlaying = () => {
-      if (isDestroyed) return;
-      setIsPlaying(true);
-      setIsLoading(false);
-    };
-    const onPause = () => {
-      if (isDestroyed) return;
-      setIsPlaying(false);
-    };
-    const onWaiting = () => {
-      if (isDestroyed) return;
-      setIsLoading(true);
-    };
-    const onTimeUpdate = () => {
-      if (isDestroyed) return;
-      if (videoRef.current) {
-        setCurrentTime(videoRef.current.currentTime);
-        setDuration(videoRef.current.duration || 0);
-      }
-    };
-
-    const video = videoRef.current;
-    video.addEventListener('playing', onPlaying);
-    video.addEventListener('pause', onPause);
-    video.addEventListener('waiting', onWaiting);
-    video.addEventListener('timeupdate', onTimeUpdate);
-
-    return () => {
-      isDestroyed = true;
-      video.removeEventListener('playing', onPlaying);
-      video.removeEventListener('pause', onPause);
-      video.removeEventListener('waiting', onWaiting);
-      video.removeEventListener('timeupdate', onTimeUpdate);
-      
-      shakaPlayer.destroy();
-    };
-  }, [url]);
-
-  // Track & quality functions
-  const updateTracks = () => {
-    if (!shakaPlayerRef.current) return;
-    const allTracks = shakaPlayerRef.current.getVariantTracks();
-    const uniqueTracks: Record<number, any> = {};
-    allTracks.forEach((track: any) => {
-      if (track.height) {
-        const existing = uniqueTracks[track.height];
-        if (!existing || track.bandwidth > existing.bandwidth) {
-          uniqueTracks[track.height] = track;
-        }
-      }
-    });
-
-    const sortedTracks = Object.values(uniqueTracks).sort((a: any, b: any) => b.height - a.height);
-    setTracks(sortedTracks);
-  };
-
-  const selectTrack = (trackHeight: number) => {
-    if (!shakaPlayerRef.current) return;
-    if (trackHeight === -1) {
-      shakaPlayerRef.current.configure({ abr: { enabled: true } });
-      setActiveTrack(-1);
-    } else {
-      shakaPlayerRef.current.configure({ abr: { enabled: false } });
-      const target = shakaPlayerRef.current.getVariantTracks().find((t: any) => t.height === trackHeight);
-      if (target) {
-        shakaPlayerRef.current.selectVariantTrack(target, true);
-        setActiveTrack(trackHeight);
-      }
-    }
-    setIsQualityMenuOpen(false);
-  };
-
-  // Playback handlers
-  const handlePlayPause = () => {
-    if (!videoRef.current) return;
-    if (isPlaying) {
-      videoRef.current.pause();
-    } else {
-      videoRef.current.play().catch(err => console.warn(err));
-    }
-    resetControlsTimer();
-  };
-
-  const handleVolumeChange = (newVolume: number) => {
-    setVolume(newVolume);
-    if (videoRef.current) {
-      videoRef.current.volume = newVolume;
-      videoRef.current.muted = newVolume === 0 || isMuted;
-    }
-  };
-
-  const toggleMute = () => {
-    if (videoRef.current) {
-      const nextMuted = !isMuted;
-      setIsMuted(nextMuted);
-      videoRef.current.muted = nextMuted;
-    }
-  };
-
-  return (
-    <div 
-      ref={containerRef}
-      onMouseMove={resetControlsTimer}
-      onClick={resetControlsTimer}
-      className="relative w-full h-full bg-black group/player select-none overflow-hidden flex flex-col justify-between rounded-xl"
-    >
-      {/* Video Element */}
-      <video 
-        ref={videoRef}
-        playsInline
-        onClick={handlePlayPause}
-        className="w-full h-full object-contain cursor-pointer"
-      />
-
-      {/* Loading Overlay */}
-      {isLoading && (
-        <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-4 z-50">
-          <Loader2 className="w-10 h-10 text-cyan-400 animate-spin" />
-          <div className="text-center">
-            <p className="text-cyan-400 font-sans font-black text-xs tracking-widest uppercase animate-pulse">
-              {loadingText}
-            </p>
-            <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest mt-1">
-              Optimizing DASH decryption stream buffers
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Header Overlay (Close & Title) */}
-      <div 
-        className={`absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 to-transparent flex items-center justify-between transition-opacity duration-300 z-30 ${
-          showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
-        }`}
-      >
-        <div className="flex items-center gap-2">
-          {onClose && (
-            <button 
-              onClick={onClose}
-              className="p-1.5 hover:bg-white/10 rounded-full text-white/80 hover:text-white transition-all cursor-pointer mr-2"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          )}
-          <div>
-            <h4 className="text-white font-sans font-extrabold text-sm tracking-tight italic">
-              {options.title || 'Live Stream Player'}
-            </h4>
-            <p className="text-[8px] text-cyan-400 font-bold uppercase tracking-widest font-mono">
-              DIRECT SHAKA ENGINE • HIGH DEF PRO CODES
-            </p>
-          </div>
-        </div>
-        
-        {/* Safe Badge */}
-        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-400/10 border border-cyan-400/20 text-[8px] font-black uppercase text-[#00D1FF] tracking-wider">
-          <ShieldCheck className="w-3 h-3 text-[#00D1FF]" />
-          <span>Decrypted</span>
-        </div>
-      </div>
-
-      {/* Center Big Play Button */}
-      {!isPlaying && !isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-          <button 
-            onClick={handlePlayPause}
-            className="w-16 h-16 rounded-full bg-cyan-400/10 border-2 border-cyan-400 text-cyan-400 flex items-center justify-center pointer-events-auto hover:scale-110 active:scale-95 transition-all duration-300 cursor-pointer shadow-[0_0_20px_rgba(0,209,255,0.4)]"
-          >
-            <Play className="w-7 h-7 fill-cyan-400 ml-1" />
-          </button>
-        </div>
-      )}
-
-      {/* Bottom Controls Panel */}
-      <div 
-        className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent px-4 pb-4 pt-10 flex flex-col gap-3 transition-opacity duration-300 z-30 ${
-          showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
-        }`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Progress Bar (if not Live) */}
-        {!options.isLive && duration > 0 && (
-          <div className="flex items-center gap-3 w-full group/seek">
-            <span className="text-[10px] text-white/60 font-mono select-none">
-              {formatTime(currentTime)}
-            </span>
-            <div className="relative flex-1 flex items-center h-4 cursor-pointer">
-              <input 
-                type="range"
-                min={0}
-                max={duration}
-                value={currentTime}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  if (videoRef.current) {
-                    videoRef.current.currentTime = val;
-                  }
-                }}
-                className="w-full h-1 bg-white/20 appearance-none rounded-full outline-none cursor-pointer accent-[#00D1FF]"
-              />
-            </div>
-            <span className="text-[10px] text-white/60 font-mono select-none">
-              {formatTime(duration)}
-            </span>
-          </div>
-        )}
-
-        {/* Buttons Row */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            {/* Play/Pause */}
-            <button 
-              onClick={handlePlayPause}
-              className="p-1.5 hover:bg-white/10 rounded-full text-white hover:text-cyan-400 transition-all cursor-pointer"
-            >
-              {isPlaying ? (
-                <Pause className="w-5 h-5 fill-white hover:fill-cyan-400" />
-              ) : (
-                <Play className="w-5 h-5 fill-white hover:fill-cyan-400" />
-              )}
-            </button>
-
-            {/* Live Indicator */}
-            {options.isLive && (
-              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-600/10 border border-red-500/20 text-[9px] font-black uppercase text-red-400 tracking-wider">
-                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-ping" />
-                <span>Live Feed</span>
-              </div>
-            )}
-
-            {/* Volume Control */}
-            <div className="flex items-center gap-2 group/volume">
-              <button 
-                onClick={toggleMute}
-                className="p-1.5 hover:bg-white/10 rounded-full text-white hover:text-cyan-400 transition-all cursor-pointer"
-              >
-                {isMuted || volume === 0 ? (
-                  <VolumeX className="w-5 h-5" />
-                ) : (
-                  <Volume2 className="w-5 h-5" />
-                )}
-              </button>
-              <input 
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={isMuted ? 0 : volume}
-                onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                className="w-16 h-1 bg-white/20 appearance-none rounded-full outline-none cursor-pointer accent-[#00D1FF] transition-all group-hover/volume:w-20"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            {/* Quality Selector */}
-            {tracks.length > 0 && (
-              <div className="relative">
-                <button 
-                  onClick={() => setIsQualityMenuOpen(!isQualityMenuOpen)}
-                  className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider bg-white/5 border border-white/10 rounded-lg text-white/80 hover:text-white hover:border-cyan-400/40 transition-all flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                  <span>
-                    {activeTrack === -1 ? 'Auto' : `${activeTrack}p`}
-                  </span>
-                </button>
-
-                {/* Quality Dropdown Menu */}
-                <AnimatePresence>
-                  {isQualityMenuOpen && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 10 }}
-                      className="absolute bottom-full right-0 mb-2 w-28 bg-[#0c0c0e]/95 border border-white/10 rounded-xl p-1.5 shadow-2xl backdrop-blur-xl z-50 flex flex-col gap-0.5"
-                    >
-                      <span className="text-[7.5px] text-white/30 uppercase tracking-widest font-black px-2 py-1 select-none">
-                        Quality
-                      </span>
-                      <button 
-                        onClick={() => selectTrack(-1)}
-                        className={`w-full text-left px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all flex items-center justify-between cursor-pointer ${
-                          activeTrack === -1 
-                            ? 'text-[#00D1FF] bg-[#00D1FF]/10' 
-                            : 'text-white/70 hover:text-white hover:bg-white/5'
-                        }`}
-                      >
-                        <span>Auto</span>
-                        {activeTrack === -1 && <Check className="w-3 h-3" />}
-                      </button>
-                      {tracks.map((t) => (
-                        <button 
-                          key={`track-select-${t.height}`}
-                          onClick={() => selectTrack(t.height)}
-                          className={`w-full text-left px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide transition-all flex items-center justify-between cursor-pointer ${
-                            activeTrack === t.height 
-                              ? 'text-[#00D1FF] bg-[#00D1FF]/10' 
-                              : 'text-white/70 hover:text-white hover:bg-white/5'
-                          }`}
-                        >
-                          <span>{t.height}p</span>
-                          {activeTrack === t.height && <Check className="w-3 h-3" />}
-                        </button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            )}
-
-            {/* Fullscreen */}
-            <button 
-              onClick={toggleFullscreen}
-              className="p-1.5 hover:bg-white/10 rounded-full text-white hover:text-cyan-400 transition-all cursor-pointer"
-            >
-              {isFullscreen ? (
-                <Minimize className="w-5 h-5" />
-              ) : (
-                <Maximize className="w-5 h-5" />
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ 
   options, 
   onReady, 
@@ -899,14 +172,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onSelectEpisode,
   onDownloadEpisode
 }) => {
-  const topUrl = options.sources[0]?.src || '';
-  const topSource = options.sources[0];
-  const isMpd = topUrl.toLowerCase().includes('.mpd') || topSource?.type === 'application/dash+xml' || topSource?.type === 'dash';
-
-  if (isMpd) {
-    return <MpdPlayer url={topUrl} options={options} onClose={onClose} />;
-  }
-
   const artRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<Artplayer | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -1300,10 +565,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (latestUrlRef.current !== url) return;
 
         const { cleanUrl, clearKeys } = parseDRMUrl(url);
-        let originalOrigin = '';
-        try {
-          originalOrigin = new URL(cleanUrl).origin;
-        } catch (_) {}
 
         shaka.polyfill.installAll();
         if (shaka.Player.isBrowserSupported()) {
@@ -1339,102 +600,42 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           if (Object.keys(clearKeys).length > 0) {
             shakaConfig.drm = {
               clearKeys: clearKeys,
-              delayLicenseRequestUntilPlayed: true
+              delayLicenseRequestUntilPlayed: false
             };
-          } else {
-            shakaConfig.manifest.ignoreDrmInfo = true;
           }
 
           shakaPlayer.configure(shakaConfig);
 
-          // Prevent manifest caching safely on MPD without breaking signed URLs or throwing import exceptions, and dynamically proxy cross-origin / CDN streams to bypass CORS restrictions
+          // Prevent manifest caching safely on MPD without breaking signed URLs or throwing import exceptions
           shakaPlayer.getNetworkingEngine().registerRequestFilter((type: any, request: any) => {
-            if (request && request.uris) {
+            let isManifest = false;
+            try {
+              if (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType) {
+                isManifest = type === shaka.net.NetworkingEngine.RequestType.MANIFEST;
+              } else {
+                isManifest = type === 0;
+              }
+            } catch (_) {
+              isManifest = type === 0;
+            }
+
+            if (isManifest && request && request.uris) {
               request.uris = request.uris.map((uri: string) => {
                 if (!uri) return uri;
-                
-                let processedUri = uri;
-                
-                // Restore path-absolute URLs resolving to local origin back to original stream origin
-                if (originalOrigin && processedUri.startsWith(window.location.origin) && !processedUri.includes('/api/stream')) {
-                  processedUri = processedUri.replace(window.location.origin, originalOrigin);
+                const lower = uri.toLowerCase();
+                const isSigned = lower.includes('token=') || 
+                                 lower.includes('sign=') || 
+                                 lower.includes('hash=') || 
+                                 lower.includes('auth=') || 
+                                 lower.includes('expires=') || 
+                                 lower.includes('hdnts=') ||
+                                 lower.includes('security=');
+                if (isSigned) {
+                  return uri;
                 }
-
-                const lower = processedUri.toLowerCase();
-                
-                // 1. Prevent manifest caching safely on MPD if not signed
-                let isManifest = false;
-                try {
-                  if (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType) {
-                    isManifest = type === shaka.net.NetworkingEngine.RequestType.MANIFEST;
-                  } else {
-                    isManifest = type === 0;
-                  }
-                } catch (_) {
-                  isManifest = type === 0;
-                }
-
-                if (isManifest) {
-                  const isSigned = lower.includes('token=') || 
-                                   lower.includes('sign=') || 
-                                   lower.includes('hash=') || 
-                                   lower.includes('auth=') || 
-                                   lower.includes('expires=') || 
-                                   lower.includes('hdnts=') ||
-                                   lower.includes('security=');
-                  if (!isSigned) {
-                    if (lower.includes('_ts=')) {
-                      processedUri = processedUri.replace(/_ts=\d+/, '_ts=' + Date.now());
-                    } else {
-                      const separator = processedUri.indexOf('?') === -1 ? '?' : '&';
-                      processedUri = processedUri + separator + '_ts=' + Date.now();
-                    }
-                  }
-                }
-
-                // 2. Bypass CORS and Referrer issues (like akamaized, otte) on custom domains by proxying through our Express server backend using path-based getProxiedUrl!
-                return getProxiedUrl(processedUri);
+                const separator = uri.indexOf('?') === -1 ? '?' : '&';
+                return uri + separator + '_ts=' + Date.now();
               });
-            }
-          });
-
-          shakaPlayer.getNetworkingEngine().registerResponseFilter((type: any, response: any) => {
-            if (response && response.headers) {
-              const uriLower = (response.uri || '').toLowerCase();
-              if (uriLower.includes('.mpd') || uriLower.includes('dash')) {
-                response.headers['content-type'] = 'application/dash+xml';
-              } else if (uriLower.includes('.m3u8') || uriLower.includes('hls')) {
-                response.headers['content-type'] = 'application/x-mpegurl';
-              }
-            }
-
-            if ((shakaPlayer as any)._stripContentProtection && response && response.data) {
-              try {
-                const isMpdManifest = (
-                  type === 0 || 
-                  (shaka && shaka.net && shaka.net.NetworkingEngine && shaka.net.NetworkingEngine.RequestType && type === shaka.net.NetworkingEngine.RequestType.MANIFEST)
-                ) && (
-                  (response.uri || '').split('?')[0].toLowerCase().endsWith('.mpd') ||
-                  (response.headers && (response.headers['content-type'] || '').toLowerCase().includes('dash')) ||
-                  (response.headers && (response.headers['content-type'] || '').toLowerCase().includes('xml'))
-                );
-
-                if (isMpdManifest) {
-                  const textDecoder = new TextDecoder('utf-8');
-                  const textEncoder = new TextEncoder();
-                  let manifestXml = textDecoder.decode(response.data);
-
-                  const originalLength = manifestXml.length;
-                  manifestXml = stripContentProtectionXml(manifestXml);
-                  
-                  if (manifestXml.length !== originalLength) {
-                    console.log(`[Shaka Response Filter 2] Stripped ContentProtection DRM tags from manifest, length reduced from ${originalLength} to ${manifestXml.length}`);
-                    response.data = textEncoder.encode(manifestXml).buffer;
-                  }
-                }
-              } catch (decodeErr) {
-                console.warn('[Shaka Response Filter 2] Failed to strip ContentProtection:', decodeErr);
-              }
             }
           });
 
@@ -1501,61 +702,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 return;
               }
 
-              let mimeType: string | undefined = undefined;
-              const lowerClean = cleanUrl.toLowerCase();
-              if (lowerClean.includes('.mpd') || lowerClean.includes('dash')) {
-                mimeType = 'application/dash+xml';
-              } else if (lowerClean.includes('.m3u8') || lowerClean.includes('hls')) {
-                mimeType = 'application/x-mpegurl';
-              }
-
-              try {
-                await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
-              } catch (loadErr: any) {
-                const isDrmOrRestrictionError = 
-                  loadErr.code === 4003 || 
-                  loadErr.category === 4 || 
-                  loadErr.category === 6 ||
-                  (loadErr.message && (loadErr.message.includes('4003') || loadErr.message.includes('RESTRICTIONS_CANNOT_BE_MET')));
-
-                if (isDrmOrRestrictionError) {
-                  console.warn('DRM / Restriction load failed in second Shaka Player, attempting unencrypted/clear fallback:', loadErr);
-                  
-                  // Fallback 1: Clear DRM configurations, key configurations and set ignoreDrmInfo to true
-                  try {
-                    await shakaPlayer.unload();
-                    const blankDrmConfig: any = { 
-                      drm: { clearKeys: {}, servers: {}, advanced: {} },
-                      manifest: { ignoreDrmInfo: true }
-                    };
-                    shakaPlayer.configure(blankDrmConfig);
-                    await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
-                  } catch (fallbackErr1: any) {
-                    console.warn('First clear-fallback in second Shaka Player failed, attempting XML content protection stripping fallback:', fallbackErr1);
-                    
-                    // Fallback 2: XML content protection stripping fallback + ignoreDrmInfo
-                    if (latestUrlRef.current !== url) {
-                      shakaPlayer.destroy();
-                      return;
-                    }
-                    try {
-                      await shakaPlayer.unload();
-                      (shakaPlayer as any)._stripContentProtection = true;
-                      const blankDrmConfig: any = { 
-                        drm: { clearKeys: {}, servers: {}, advanced: {} },
-                        manifest: { ignoreDrmInfo: true }
-                      };
-                      shakaPlayer.configure(blankDrmConfig);
-                      await shakaPlayer.load(getProxiedUrl(cleanUrl), null, mimeType);
-                    } catch (fallbackErr2: any) {
-                      console.error('All Shaka Player 2 fallbacks failed, throwing final error:', fallbackErr2);
-                      throw fallbackErr2;
-                    }
-                  }
-                } else {
-                  throw loadErr;
-                }
-              }
+              await shakaPlayer.load(cleanUrl);
               if (latestUrlRef.current !== url) {
                 shakaPlayer.destroy();
                 return;
@@ -1680,12 +827,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }
           });
 
-          const processedDashUrl = getProxiedUrl(cleanUrl);
-          if (processedDashUrl !== cleanUrl) {
-            console.log(`[DashJS Request Proxy] Redirecting stream: ${cleanUrl} -> ${processedDashUrl}`);
-          }
-
-          player.initialize(video, processedDashUrl, options.autoplay || false);
+          player.initialize(video, cleanUrl, options.autoplay || false);
         }
       };
 
@@ -1847,15 +989,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
               const isLive = options.isLive !== undefined ? options.isLive : (originalUrl.toLowerCase().includes('.m3u8') || originalUrl.toLowerCase().includes('.ts') || originalUrl.toLowerCase().includes('.mpd'));
 
-              const processedTsUrl = getProxiedUrl(url);
-              if (processedTsUrl !== url) {
-                console.log(`[MpegTS Request Proxy] Redirecting stream: ${url} -> ${processedTsUrl}`);
-              }
-
               const player = mpegts.createPlayer({
                 type: 'mse',
                 isLive: isLive,
-                url: processedTsUrl,
+                url: url,
               }, {
                 enableWorker: true,
                 stashInitialSize: isLive ? 128 : 512, // 512KB for non-live files to buffer robustly
@@ -1972,13 +1109,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
               const hls = new Hls(hlsConfig);
               hlsRef.current = hls;
-
-              const processedUrl = getProxiedUrl(url);
-              if (processedUrl !== url) {
-                console.log(`[HLS Request Proxy] Redirecting master playlist: ${url} -> ${processedUrl}`);
-              }
-
-              hls.loadSource(processedUrl);
+              hls.loadSource(url);
               hls.attachMedia(video);
 
               // Handle fatal loading/media errors by automatically recovering/retrying
