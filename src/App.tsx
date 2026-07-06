@@ -462,7 +462,10 @@ const getResellerKey = () => {
   // 1. Try standard URL query params
   let urlParams = new URLSearchParams(window.location.search);
   let ref = urlParams.get('ref') || urlParams.get('reseller');
-  if (ref) return ref.toLowerCase();
+  if (ref) {
+    const key = ref.toLowerCase();
+    if (key !== 'sj' && key !== 'www') return key;
+  }
 
   // 2. Try hash query params
   const hash = window.location.hash;
@@ -470,7 +473,10 @@ const getResellerKey = () => {
     const hashSearch = hash.split('?')[1];
     urlParams = new URLSearchParams(hashSearch);
     ref = urlParams.get('ref') || urlParams.get('reseller');
-    if (ref) return ref.toLowerCase();
+    if (ref) {
+      const key = ref.toLowerCase();
+      if (key !== 'sj' && key !== 'www') return key;
+    }
   }
 
   // 3. Try document.referrer (crucial for iframes e.g. Hugging Face spaces embeds)
@@ -478,7 +484,10 @@ const getResellerKey = () => {
     if (document.referrer) {
       const refUrl = new URL(document.referrer);
       const refFromReferrer = refUrl.searchParams.get('ref') || refUrl.searchParams.get('reseller');
-      if (refFromReferrer) return refFromReferrer.toLowerCase();
+      if (refFromReferrer) {
+        const key = refFromReferrer.toLowerCase();
+        if (key !== 'sj' && key !== 'www') return key;
+      }
     }
   } catch (e) {
     // Ignore URL parse errors
@@ -500,7 +509,10 @@ const getResellerKey = () => {
   }
 
   if (parts.length > 2) {
-    return parts[0].toLowerCase();
+    const key = parts[0].toLowerCase();
+    if (key !== 'sj' && key !== 'www') {
+      return key;
+    }
   }
   return '';
 };
