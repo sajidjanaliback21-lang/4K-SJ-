@@ -5,10 +5,56 @@ import { Loader2 } from 'lucide-react';
 interface IntroLoadingProps {
   progress: number;
   onComplete: () => void;
+  brandName?: string;
 }
 
-const IntroLoading: React.FC<IntroLoadingProps> = ({ progress, onComplete }) => {
+const IntroLoading: React.FC<IntroLoadingProps> = ({ progress, onComplete, brandName = "4K•SJ" }) => {
   const [displayProgress, setDisplayProgress] = useState(0);
+
+  const renderBrandName = (name: string) => {
+    const separators = ['•', '·', '•', '*', '-'];
+    let sepFound = '';
+    for (const s of separators) {
+      if (name.includes(s)) {
+        sepFound = s;
+        break;
+      }
+    }
+
+    if (sepFound) {
+      const parts = name.split(sepFound);
+      return (
+        <>
+          <span className="text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]">{parts[0]}</span>
+          <span className="text-white/40 font-normal mx-1 italic">{sepFound}</span>
+          <span className="text-white">{parts.slice(1).join(sepFound)}</span>
+        </>
+      );
+    }
+
+    if (name.includes(' ')) {
+      const parts = name.split(' ');
+      return (
+        <>
+          <span className="text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]">{parts[0]}</span>
+          <span className="text-white/40 font-normal mx-2 italic"> </span>
+          <span className="text-white">{parts.slice(1).join(' ')}</span>
+        </>
+      );
+    }
+
+    if (name.length > 3) {
+      const splitIndex = Math.min(2, Math.floor(name.length / 2));
+      return (
+        <>
+          <span className="text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]">{name.substring(0, splitIndex)}</span>
+          <span className="text-white">{name.substring(splitIndex)}</span>
+        </>
+      );
+    }
+
+    return <span className="text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]">{name}</span>;
+  };
 
   useEffect(() => {
     // Smoothly animate the progress number
@@ -49,9 +95,8 @@ const IntroLoading: React.FC<IntroLoadingProps> = ({ progress, onComplete }) => 
           transition={{ duration: 1, ease: "easeOut" }}
           className="flex flex-col items-center -space-y-2"
         >
-          <h1 className="text-6xl md:text-8xl font-display font-black tracking-tighter italic text-white flex items-center">
-            <span className="text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]">4K</span>
-            <span className="text-white">·SJ</span>
+          <h1 className="text-6xl md:text-8xl font-display font-black tracking-tighter italic text-white flex items-center justify-center">
+            {renderBrandName(brandName)}
           </h1>
           <motion.span 
             initial={{ opacity: 0, y: 10 }}

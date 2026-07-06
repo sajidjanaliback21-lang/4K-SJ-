@@ -411,6 +411,51 @@ const buildUrlWithKeys = (base: string, keys: string) => {
   return `${cleanBase}|drmScheme=clearkey&drmLicense=${trimmedKeys}`;
 };
 
+const renderBrandName = (name: string) => {
+  const separators = ['•', '·', '•', '*', '-'];
+  let sepFound = '';
+  for (const s of separators) {
+    if (name.includes(s)) {
+      sepFound = s;
+      break;
+    }
+  }
+
+  if (sepFound) {
+    const parts = name.split(sepFound);
+    return (
+      <>
+        <span className="text-cyan-400">{parts[0]}</span>
+        <span className="text-white/40 font-normal mx-0.5">{sepFound}</span>
+        <span className="text-white">{parts.slice(1).join(sepFound)}</span>
+      </>
+    );
+  }
+
+  if (name.includes(' ')) {
+    const parts = name.split(' ');
+    return (
+      <>
+        <span className="text-cyan-400">{parts[0]}</span>
+        <span className="text-white font-normal mx-1"> </span>
+        <span className="text-white">{parts.slice(1).join(' ')}</span>
+      </>
+    );
+  }
+
+  if (name.length > 3) {
+    const splitIndex = Math.min(2, Math.floor(name.length / 2));
+    return (
+      <>
+        <span className="text-cyan-400">{name.substring(0, splitIndex)}</span>
+        <span className="text-white">{name.substring(splitIndex)}</span>
+      </>
+    );
+  }
+
+  return <span className="text-cyan-400">{name}</span>;
+};
+
 const getResellerKey = () => {
   if (typeof window === 'undefined') return '';
   
@@ -3131,6 +3176,7 @@ export default function App() {
         {showIntro && (
           <IntroLoading 
             progress={introProgress} 
+            brandName={currentBrandName}
             onComplete={() => {
               setShowIntro(false);
               localStorage.setItem('has_seen_intro', 'true');
@@ -3144,7 +3190,7 @@ export default function App() {
         <div className="flex items-center gap-4 md:gap-8">
           <div className="flex flex-col -space-y-1">
             <h1 className="text-xl md:text-2xl font-display font-bold text-gradient tracking-tighter flex items-center italic">
-              <span className="text-cyan-400">4K</span><span className="text-white">·SJ</span>
+              {renderBrandName(currentBrandName)}
             </h1>
             <span className="text-[8px] md:text-[10px] text-cyan-400/60 font-bold uppercase tracking-[0.2em] pl-1 italic">Premium Experience</span>
           </div>
