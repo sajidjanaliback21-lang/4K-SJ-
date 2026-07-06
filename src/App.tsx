@@ -549,9 +549,21 @@ export default function App() {
     whatsapp_number: '',
     whatsapp_group_link: '',
     logo_url: '',
-    server_url: ''
+    server_url: '',
+    password: '',
+    license_type: '1 Year'
   });
   const [editingResellerId, setEditingResellerId] = useState<string | null>(null);
+
+  const [loggedInReseller, setLoggedInReseller] = useState<any | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const saved = localStorage.getItem('logged_in_reseller');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
 
   const [creds, setCreds] = useState<XtreamCredentials>(() => {
     const saved = localStorage.getItem('iptv_creds');
@@ -1357,10 +1369,26 @@ export default function App() {
     e.preventDefault();
     if (adminPassword === 'sajid122') {
       setIsAdminLoggedIn(true);
+      setLoggedInReseller(null);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('logged_in_reseller');
+      }
       setShowAdminLogin(false);
       setAdminPassword('');
     } else {
-      alert('Invalid password');
+      // Find matching reseller by password
+      const matchedReseller = resellers.find(r => r.password && r.password.trim() !== '' && r.password === adminPassword);
+      if (matchedReseller) {
+        setLoggedInReseller(matchedReseller);
+        setIsAdminLoggedIn(false);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('logged_in_reseller', JSON.stringify(matchedReseller));
+        }
+        setShowAdminLogin(false);
+        setAdminPassword('');
+      } else {
+        alert('Invalid password');
+      }
     }
   };
 
@@ -2348,7 +2376,9 @@ export default function App() {
         whatsapp_number: '',
         whatsapp_group_link: '',
         logo_url: '',
-        server_url: ''
+        server_url: '',
+        password: '',
+        license_type: '1 Year'
       });
     } catch (error) {
       console.error("Error saving reseller:", error);
@@ -6886,10 +6916,13 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.9 }}
               className="w-full max-w-xs glass p-6 rounded-2xl border border-white/10"
             >
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold text-white">Admin Login</h3>
-                <button onClick={() => setShowAdminLogin(false)} className="text-white/40 hover:text-white">
-                  <X size={20} />
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-black text-white tracking-tight">Login Portal</h3>
+                  <p className="text-[9px] text-white/50">Enter admin or reseller license password</p>
+                </div>
+                <button onClick={() => setShowAdminLogin(false)} className="text-white/40 hover:text-white p-1">
+                  <X size={18} />
                 </button>
               </div>
               <form onSubmit={handleAdminLogin} className="space-y-4">
@@ -7470,6 +7503,135 @@ export default function App() {
                     </div>
                   )
                 )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Standalone Reseller Panel Modal */}
+      <AnimatePresence>
+        {loggedInReseller && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 gpu">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setLoggedInReseller(null)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-xl gpu"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 30 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-xl bg-[#0a0a0b] rounded-[3rem] overflow-hidden shadow-[0_0_80px_rgba(168,85,247,0.2)] border border-white/10 flex flex-col gpu text-white"
+            >
+              {/* Header */}
+              <div className="p-6 flex items-center justify-between border-b border-white/5 bg-white/5">
+                <div className="flex flex-col">
+                  <h3 className="text-xl font-black italic tracking-tighter uppercase text-purple-400">Reseller License Panel</h3>
+                  <span className="text-[10px] text-white/50 font-bold uppercase tracking-widest">Logged in as: {loggedInReseller.brand_name}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={() => {
+                      setLoggedInReseller(null);
+                      if (typeof window !== 'undefined') {
+                        localStorage.removeItem('logged_in_reseller');
+                      }
+                    }}
+                    className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-rose-500/20"
+                  >
+                    Log Out
+                  </button>
+                  <button 
+                    onClick={() => setLoggedInReseller(null)}
+                    className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors border border-white/5 cursor-pointer text-white"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 space-y-6 overflow-y-auto max-h-[70vh] desktop-scrollbar">
+                
+                {/* License Status Card */}
+                <div className="relative overflow-hidden rounded-3xl border border-purple-500/20 bg-gradient-to-br from-purple-500/10 to-indigo-500/10 p-6">
+                  {/* Background Glow */}
+                  <div className="absolute -right-10 -bottom-10 w-36 h-36 bg-purple-500/20 rounded-full blur-2xl pointer-events-none" />
+                  
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                      ACTIVE RESELLER LICENSE
+                    </span>
+                    <span className="text-[10px] font-mono text-purple-400 font-bold">
+                      ID: {loggedInReseller.id?.slice(0, 8)}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1 mb-6">
+                    <h4 className="text-2xl font-black tracking-tight">{loggedInReseller.brand_name}</h4>
+                    <p className="text-xs text-white/60">Subdomain Keyword: <span className="font-mono text-cyan-400 font-bold">{loggedInReseller.subdomain}</span></p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 bg-black/40 p-4 rounded-2xl border border-white/5">
+                    <div>
+                      <p className="text-[9px] text-white/40 uppercase font-black tracking-widest">License Type</p>
+                      <p className="text-lg font-black text-purple-300">{loggedInReseller.license_type || '1 Year'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-white/40 uppercase font-black tracking-widest">Status</p>
+                      <p className="text-lg font-black text-emerald-400 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        Authorized
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Extend License Trigger Button with Sajid's WhatsApp contact */}
+                  <div className="mt-6">
+                    <a 
+                      href={`https://wa.me/923161611304?text=Hello%20Sajid!%20I%20want%20to%20extend%20my%20reseller%20license%20for%20my%20brand%20"${encodeURIComponent(loggedInReseller.brand_name || '')}"`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full flex items-center justify-center gap-2.5 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white font-black uppercase tracking-widest text-xs py-3.5 px-6 rounded-2xl shadow-lg transition-all active:scale-[0.98] cursor-pointer"
+                    >
+                      <MessageCircle size={16} fill="white" />
+                      Extend Your License
+                    </a>
+                  </div>
+                </div>
+
+                {/* Configuration Details Box */}
+                <div className="space-y-3">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-white/40 px-1">Your Branded App Settings</h4>
+                  
+                  <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3 text-xs">
+                    <div className="flex justify-between py-1.5 border-b border-white/5">
+                      <span className="text-white/50">Tagline / Slogan:</span>
+                      <span className="text-white font-bold">{loggedInReseller.tagline || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-white/5">
+                      <span className="text-white/50">WhatsApp Contact:</span>
+                      <span className="text-white font-bold">{loggedInReseller.whatsapp_number || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-white/5">
+                      <span className="text-white/50">Group Link:</span>
+                      <span className="text-white font-bold truncate max-w-[200px] text-cyan-400">{loggedInReseller.whatsapp_group_link || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5 border-b border-white/5">
+                      <span className="text-white/50">Custom IPTV Server URL:</span>
+                      <span className="text-white font-bold truncate max-w-[200px] text-purple-400">{loggedInReseller.server_url || 'Default System'}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5">
+                      <span className="text-white/50">Custom Logo:</span>
+                      <span className="text-white font-bold truncate max-w-[200px]">{loggedInReseller.logo_url ? 'Configured' : 'Default Logo'}</span>
+                    </div>
+                  </div>
+                </div>
+
               </div>
             </motion.div>
           </div>
@@ -8905,7 +9067,9 @@ export default function App() {
                                   whatsapp_number: '',
                                   whatsapp_group_link: '',
                                   logo_url: '',
-                                  server_url: ''
+                                  server_url: '',
+                                  password: '',
+                                  license_type: '1 Year'
                                 });
                               }}
                               className="text-xs text-rose-400 hover:underline font-bold"
@@ -8993,6 +9157,31 @@ export default function App() {
                             />
                             <p className="text-[9px] text-white/40 mt-1">If specified, all IPTV requests for this reseller's domain will bypass the default server and route through their custom IPTV server URL.</p>
                           </div>
+
+                          <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-white/5">
+                            <div>
+                              <label className="text-[10px] text-cyan-400 font-black uppercase tracking-widest block mb-1">Reseller Login Password <span className="text-rose-400">*</span></label>
+                              <input
+                                type="text"
+                                placeholder="e.g. resellerpass123"
+                                value={newReseller.password || ''}
+                                onChange={(e) => setNewReseller({ ...newReseller, password: e.target.value })}
+                                className="w-full bg-black/40 border border-cyan-500/20 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] text-cyan-400 font-black uppercase tracking-widest block mb-1">License Duration <span className="text-rose-400">*</span></label>
+                              <select
+                                value={newReseller.license_type || '1 Year'}
+                                onChange={(e) => setNewReseller({ ...newReseller, license_type: e.target.value })}
+                                className="w-full bg-black/40 border border-cyan-500/20 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                              >
+                                <option value="1 Year" className="bg-neutral-900 text-white font-bold">1 Year</option>
+                                <option value="Lifetime" className="bg-neutral-900 text-white font-bold">Lifetime</option>
+                              </select>
+                            </div>
+                          </div>
                         </div>
 
                         <button
@@ -9030,7 +9219,9 @@ export default function App() {
                                             whatsapp_number: item.whatsapp_number || '',
                                             whatsapp_group_link: item.whatsapp_group_link || '',
                                             logo_url: item.logo_url || '',
-                                            server_url: item.server_url || ''
+                                            server_url: item.server_url || '',
+                                            password: item.password || '',
+                                            license_type: item.license_type || '1 Year'
                                           });
                                         }}
                                         className="p-1.5 rounded-lg bg-white/5 hover:bg-cyan-500/20 text-white hover:text-cyan-400 transition-all cursor-pointer"
@@ -9055,6 +9246,10 @@ export default function App() {
                                   <div>📱 WA No: <span className="font-mono text-white">{item.whatsapp_number || 'N/A'}</span></div>
                                   <div className="truncate">🔗 Group: <a href={item.whatsapp_group_link} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline font-bold">{item.whatsapp_group_link || 'N/A'}</a></div>
                                   <div className="truncate">🖥️ Server: <span className="font-mono text-white">{item.server_url || 'Default'}</span></div>
+                                  <div className="flex items-center gap-4 mt-1 pt-1 border-t border-white/5">
+                                    <div>🔑 Pass: <span className="font-mono text-cyan-400 font-bold">{item.password || 'None'}</span></div>
+                                    <div>📜 License: <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20">{item.license_type || '1 Year'}</span></div>
+                                  </div>
                                 </div>
                               </div>
                             ))}
