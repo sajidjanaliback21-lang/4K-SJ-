@@ -774,6 +774,22 @@ export default function App() {
     ? (activeReseller.whatsapp_group_link && activeReseller.whatsapp_group_link !== 'N/A' ? activeReseller.whatsapp_group_link : '')
     : "https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE";
 
+  const getResellerAdjustedUrl = (url: string, action: string = 'play') => {
+    if (!url) return '';
+    // If the action is explicitly download, the user requested to keep the default/original URL
+    if (action === 'download') {
+      return url;
+    }
+    // If there is an active reseller with a custom server URL, replace the default host
+    if (activeReseller?.server_url) {
+      const resellerHost = activeReseller.server_url.replace(/\/$/, ''); // strip trailing slash
+      return url
+        .replace(/https:\/\/sjstorehot-lbskip\.hf\.space/g, resellerHost)
+        .replace(/http:\/\/sjstorehot-lbskip\.hf\.space/g, resellerHost);
+    }
+    return url;
+  };
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       (window as any).activeResellerBrandName = activeReseller?.brand_name || '';
@@ -2548,9 +2564,9 @@ export default function App() {
     if (!chan) return '';
     if (chan.feed_type === 'iptv' || chan.is_iptv || chan.stream_id) {
       if (creds && creds.username && creds.password) {
-        return `https://sjstorehot-lbskip.hf.space/live/${creds.username}/${creds.password}/${chan.stream_id}.m3u8`;
+        return `${currentServerHost}/live/${creds.username}/${creds.password}/${chan.stream_id}.m3u8`;
       }
-      return `https://sjstorehot-lbskip.hf.space/live/demo/demo/${chan.stream_id}.m3u8`;
+      return `${currentServerHost}/live/demo/demo/${chan.stream_id}.m3u8`;
     }
     return chan.play_url || '';
   };
@@ -2653,7 +2669,7 @@ export default function App() {
         continue;
       } else {
         // It's a streaming link
-        const playUrl = line;
+        const playUrl = getResellerAdjustedUrl(line);
         if (playUrl.startsWith('http')) {
           let seasonNum = currentGroup;
           
@@ -2750,7 +2766,7 @@ export default function App() {
       setPlayingFreeEpisode(null);
       setFreeSeriesActiveUrl('');
       try {
-        const response = await axios.get(`/api/proxy?url=${encodeURIComponent(series.playlist_url)}`);
+        const response = await axios.get(`/api/proxy?url=${encodeURIComponent(getResellerAdjustedUrl(series.playlist_url))}`);
         let m3uText = '';
         if (typeof response.data === 'string') {
           m3uText = response.data;
@@ -2921,7 +2937,7 @@ export default function App() {
     setFreeDownloadModalEpisodes([]);
 
     try {
-      const response = await axios.get(`/api/proxy?url=${encodeURIComponent(series.playlist_url)}`);
+      const response = await axios.get(`/api/proxy?url=${encodeURIComponent(getResellerAdjustedUrl(series.playlist_url))}`);
       let m3uText = '';
       if (typeof response.data === 'string') {
         m3uText = response.data;
@@ -3090,8 +3106,10 @@ export default function App() {
       alert("Please enter a valid username and password in settings.");
       return;
     }
-    // Set the New Base URL
-    const host = 'https://sjstorehot-lbskip.hf.space';
+    // Set the New Base URL - If action is 'download', strictly keep default/original host
+    const host = (action === 'download')
+      ? 'https://sjstorehot-lbskip.hf.space'
+      : currentServerHost;
 
     const isLive = !!(item as any).stream_type && (item as any).stream_type === 'live';
     const isSeries = !!(episodeId || (item as any).series_id);
@@ -3689,7 +3707,7 @@ export default function App() {
                           is_embed: false,
                           isLive: true,
                           sources: [{
-                            src: `https://sjstorehot-lbskip.hf.space/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`,
+                            src: `${currentServerHost}/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`,
                             type: 'application/x-mpegURL'
                           }]
                         }} 
@@ -3751,7 +3769,7 @@ export default function App() {
                         {copiedId === playingLiveStream.stream_id ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
                       </button>
                       <button 
-                        onClick={() => window.location.href = formatVlcUrl(`https://sjstorehot-lbskip.hf.space/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`)}
+                        onClick={() => window.location.href = formatVlcUrl(`${currentServerHost}/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`)}
                         className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg font-black text-[9px] transition-all shadow-lg shadow-orange-500/20 uppercase tracking-widest italic"
                       >
                         <Play size={12} fill="white" /> VLC
@@ -6376,7 +6394,7 @@ export default function App() {
                     )}
 
                     <a 
-                      href={formatVlcUrl(selectedFreeMovie.download_url || selectedFreeMovie.play_url)}
+                      href={formatVlcUrl(getResellerAdjustedUrl(selectedFreeMovie.download_url || selectedFreeMovie.play_url))}
                       onClick={() => trackMediaPlayback(selectedFreeMovie, 'movie', 'Play in VLC Clicked')}
                       className="flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-3 rounded-xl font-bold text-xs transition-all shadow-lg shadow-orange-500/10"
                     >
@@ -6453,7 +6471,7 @@ export default function App() {
                 </div>
                 <div className="relative z-10 w-full h-full">
                   <VideoPlayer 
-                    key={playingFreeMovie.play_url}
+                    key={getResellerAdjustedUrl(playingFreeMovie.play_url)}
                     options={{
                       autoplay: true,
                       controls: true,
@@ -6464,10 +6482,10 @@ export default function App() {
                       skipProxy: true,
                       isLive: false,
                       sources: [{
-                        src: playingFreeMovie.play_url,
-                        type: playingFreeMovie.play_url.includes('.m3u8') ? 'application/x-mpegURL' : 
-                              playingFreeMovie.play_url.toLowerCase().includes('.mp4') ? 'video/mp4' :
-                              playingFreeMovie.play_url.toLowerCase().includes('.webm') ? 'video/webm' :
+                        src: getResellerAdjustedUrl(playingFreeMovie.play_url),
+                        type: getResellerAdjustedUrl(playingFreeMovie.play_url).includes('.m3u8') ? 'application/x-mpegURL' : 
+                              getResellerAdjustedUrl(playingFreeMovie.play_url).toLowerCase().includes('.mp4') ? 'video/mp4' :
+                              getResellerAdjustedUrl(playingFreeMovie.play_url).toLowerCase().includes('.webm') ? 'video/webm' :
                               'video/mp4' // Fallback
                       }]
                     }} 
@@ -7164,7 +7182,7 @@ export default function App() {
                       )}
 
                       <a 
-                        href={formatVlcUrl(selectedFreeSeries.download_url || selectedFreeSeries.play_url)}
+                        href={formatVlcUrl(getResellerAdjustedUrl(selectedFreeSeries.download_url || selectedFreeSeries.play_url))}
                         className="flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-3 rounded-xl font-bold text-xs transition-all shadow-lg shadow-orange-500/10"
                       >
                         <Play size={16} /> Play in VLC
@@ -7232,7 +7250,7 @@ export default function App() {
                                 {/* Share/URL button */}
                                 <button 
                                   onClick={() => {
-                                    window.location.href = formatVlcUrl(episode.play_url);
+                                    window.location.href = formatVlcUrl(getResellerAdjustedUrl(episode.play_url));
                                     if (selectedFreeSeries) {
                                       const seasonStr = selectedFreeSeason ? `S${selectedFreeSeason}` : '';
                                       const epStr = episode.episode_num ? `E${episode.episode_num}` : '';
@@ -7249,7 +7267,7 @@ export default function App() {
                                 {/* Copy link */}
                                 <button 
                                   onClick={() => {
-                                    navigator.clipboard.writeText(episode.play_url);
+                                    navigator.clipboard.writeText(getResellerAdjustedUrl(episode.play_url));
                                     setFreeCopiedId(episode.id);
                                     setTimeout(() => setFreeCopiedId(null), 2000);
                                   }}
@@ -7485,8 +7503,8 @@ export default function App() {
                         is_embed: playingFreeSeries.is_embed,
                         skipProxy: true,
                         sources: [{
-                          src: freeSeriesActiveUrl || playingFreeSeries.play_url,
-                          type: (freeSeriesActiveUrl || playingFreeSeries.play_url).includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'
+                          src: getResellerAdjustedUrl(freeSeriesActiveUrl || playingFreeSeries.play_url),
+                          type: getResellerAdjustedUrl(freeSeriesActiveUrl || playingFreeSeries.play_url).includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'
                         }]
                       }} 
                       playingEpisode={playingFreeEpisode}
