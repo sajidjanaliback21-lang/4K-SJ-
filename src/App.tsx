@@ -3262,6 +3262,7 @@ export default function App() {
           <IntroLoading 
             progress={introProgress} 
             brandName={currentBrandName}
+            isResellersLoading={isResellersLoading}
             onComplete={() => {
               setShowIntro(false);
               localStorage.setItem('has_seen_intro', 'true');
