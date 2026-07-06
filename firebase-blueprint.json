@@ -170,6 +170,7 @@
         "whatsapp_number": { "type": "string" },
         "whatsapp_group_link": { "type": "string" },
         "logo_url": { "type": "string" },
+        "server_url": { "type": "string", "description": "The custom IPTV server URL or host for this reseller" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },

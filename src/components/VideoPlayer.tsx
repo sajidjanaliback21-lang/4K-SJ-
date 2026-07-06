@@ -1798,7 +1798,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 <div className="flex items-center gap-3 text-[#00D1FF] mb-1">
                   <ShieldCheck className="w-5 h-5 md:w-6 md:h-6 drop-shadow-[0_0_15px_rgba(0,209,255,0.5)]" />
                   <span className="text-2xl md:text-3xl font-black tracking-[0.3em] font-sans uppercase italic">
-                    4K•SJ
+                    {(typeof window !== 'undefined' && (window as any).activeResellerBrandName) || '4K•SJ'}
                   </span>
                 </div>
                 

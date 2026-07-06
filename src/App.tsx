@@ -472,7 +472,8 @@ export default function App() {
     tagline: '',
     whatsapp_number: '',
     whatsapp_group_link: '',
-    logo_url: ''
+    logo_url: '',
+    server_url: ''
   });
   const [editingResellerId, setEditingResellerId] = useState<string | null>(null);
 
@@ -672,6 +673,7 @@ export default function App() {
   // Reactive reseller helper values
   const currentBrandName = activeReseller?.brand_name || "4K•SJ";
   const currentTagline = activeReseller?.tagline || "Premium Experience";
+  const currentServerHost = activeReseller?.server_url || "https://sjstorehot-lbskip.hf.space";
   
   // If an active reseller is matched, we MUST NOT fall back to the main admin's details.
   // We keep it empty if the reseller hasn't specified their whatsapp_number or set it to 'N/A'.
@@ -683,6 +685,13 @@ export default function App() {
   const currentWhatsappGroupLink = activeReseller
     ? (activeReseller.whatsapp_group_link && activeReseller.whatsapp_group_link !== 'N/A' ? activeReseller.whatsapp_group_link : '')
     : "https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE";
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).activeResellerBrandName = activeReseller?.brand_name || '';
+      (window as any).activeResellerServerUrl = activeReseller?.server_url || '';
+    }
+  }, [activeReseller]);
 
   // Real-time Firestore Sync for Resellers
   useEffect(() => {
@@ -706,8 +715,16 @@ export default function App() {
       
       if (matched) {
         setActiveReseller(matched);
+        if (typeof window !== 'undefined') {
+          (window as any).activeResellerServerUrl = matched.server_url || '';
+          (window as any).activeResellerBrandName = matched.brand_name || '';
+        }
       } else {
         setActiveReseller(null);
+        if (typeof window !== 'undefined') {
+          (window as any).activeResellerServerUrl = '';
+          (window as any).activeResellerBrandName = '';
+        }
       }
     }, (error) => {
       console.error("Firestore Error (Resellers):", error);
@@ -2248,7 +2265,8 @@ export default function App() {
         tagline: '',
         whatsapp_number: '',
         whatsapp_group_link: '',
-        logo_url: ''
+        logo_url: '',
+        server_url: ''
       });
     } catch (error) {
       console.error("Error saving reseller:", error);
@@ -3815,7 +3833,7 @@ export default function App() {
                           <Settings size={28} className="text-white/40 group-hover:text-cyan-400" />
                         </motion.button>
                       </div>
-                      <p className="text-white/40 font-medium tracking-[0.2em] uppercase text-xs italic">Experience 4K•SJ Luxury Without Login</p>
+                      <p className="text-white/40 font-medium tracking-[0.2em] uppercase text-xs italic">Experience {currentBrandName} Luxury Without Login</p>
                     </div>
                   </div>
                 </div>
@@ -3953,7 +3971,7 @@ export default function App() {
                 <div className="flex justify-center pt-8">
                   <div className="px-8 py-4 glass rounded-3xl border border-white/10 text-center max-w-sm mx-auto">
                     <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.2em] italic">
-                      Proprietary Delivery • Ultra-Stream Engine • 4K•SJ Luxury Access
+                      Proprietary Delivery • Ultra-Stream Engine • {currentBrandName} Luxury Access
                     </p>
                   </div>
                 </div>
@@ -5429,7 +5447,7 @@ export default function App() {
               </button>
 
               <div className="text-center mb-8">
-                <h2 className="text-2xl font-display font-bold mb-2 text-gradient">4K•SJ Login</h2>
+                <h2 className="text-2xl font-display font-bold mb-2 text-gradient">{currentBrandName} Login</h2>
                 <p className="text-white/40 text-sm">Login is required to play or download premium content. You can browse all titles for free.</p>
               </div>
 
@@ -6210,7 +6228,7 @@ export default function App() {
                 </div>
 
                 <p className="text-white/60 text-[10px] md:text-sm leading-relaxed line-clamp-2 md:line-clamp-4">
-                  {tmdbDetails?.plot || "Enjoy high-quality streaming of this title. Experience the best in entertainment with 4K•SJ free service."}
+                  {tmdbDetails?.plot || `Enjoy high-quality streaming of this title. Experience the best in entertainment with ${currentBrandName} free service.`}
                 </p>
 
                 {/* Free Action Buttons */}
@@ -6995,7 +7013,7 @@ export default function App() {
                 </div>
 
                 <p className="text-white/60 text-[10px] md:text-sm leading-relaxed line-clamp-2 md:line-clamp-4">
-                  {tmdbDetails?.plot || "Enjoy high-quality streaming of this title. Experience the best in entertainment with 4K•SJ free service."}
+                  {tmdbDetails?.plot || `Enjoy high-quality streaming of this title. Experience the best in entertainment with ${currentBrandName} free service.`}
                 </p>
 
                 {/* Free Series Actions & Playlist Selector */}
@@ -8803,7 +8821,8 @@ export default function App() {
                                   tagline: '',
                                   whatsapp_number: '',
                                   whatsapp_group_link: '',
-                                  logo_url: ''
+                                  logo_url: '',
+                                  server_url: ''
                                 });
                               }}
                               className="text-xs text-rose-400 hover:underline font-bold"
@@ -8879,6 +8898,18 @@ export default function App() {
                               className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
                             />
                           </div>
+
+                          <div className="sm:col-span-2">
+                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom IPTV Server URL / Host (Optional)</label>
+                            <input
+                              type="url"
+                              placeholder="e.g. http://your-server-dns.com or https://sjstorehot-lbskip.hf.space"
+                              value={newReseller.server_url || ''}
+                              onChange={(e) => setNewReseller({ ...newReseller, server_url: e.target.value })}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                            />
+                            <p className="text-[9px] text-white/40 mt-1">If specified, all IPTV requests for this reseller's domain will bypass the default server and route through their custom IPTV server URL.</p>
+                          </div>
                         </div>
 
                         <button
@@ -8915,7 +8946,8 @@ export default function App() {
                                             tagline: item.tagline || '',
                                             whatsapp_number: item.whatsapp_number || '',
                                             whatsapp_group_link: item.whatsapp_group_link || '',
-                                            logo_url: item.logo_url || ''
+                                            logo_url: item.logo_url || '',
+                                            server_url: item.server_url || ''
                                           });
                                         }}
                                         className="p-1.5 rounded-lg bg-white/5 hover:bg-cyan-500/20 text-white hover:text-cyan-400 transition-all cursor-pointer"
@@ -8939,6 +8971,7 @@ export default function App() {
                                 <div className="pt-2 border-t border-white/5 space-y-1 text-[10px] text-white/60">
                                   <div>📱 WA No: <span className="font-mono text-white">{item.whatsapp_number || 'N/A'}</span></div>
                                   <div className="truncate">🔗 Group: <a href={item.whatsapp_group_link} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline font-bold">{item.whatsapp_group_link || 'N/A'}</a></div>
+                                  <div className="truncate">🖥️ Server: <span className="font-mono text-white">{item.server_url || 'Default'}</span></div>
                                 </div>
                               </div>
                             ))}
@@ -9086,7 +9119,7 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-sm font-display font-black text-white italic tracking-tight">{playingFifaChannel.name}</h3>
-                    <p className="text-[9px] text-emerald-400 font-bold uppercase tracking-widest leading-none mt-0.5">FIFA Arena • 4K•SJ Premium Feed</p>
+                    <p className="text-[9px] text-emerald-400 font-bold uppercase tracking-widest leading-none mt-0.5">FIFA Arena • {currentBrandName} Premium Feed</p>
                   </div>
                 </div>
                 <button 
@@ -9158,11 +9191,11 @@ export default function App() {
       {/* Footer */}
       <footer className="p-8 pb-24 md:pb-8 text-center border-t border-white/5 bg-black/20">
         <div className="mb-4">
-          <h2 className="text-xl font-display font-black tracking-tighter italic">4K•SJ</h2>
+          <h2 className="text-xl font-display font-black tracking-tighter italic">{currentBrandName}</h2>
           <p className="text-[10px] text-cyan-500 font-bold uppercase tracking-[0.3em] mt-1">Premium Experience</p>
         </div>
         <p className="text-white/20 text-[10px] font-medium uppercase tracking-[0.2em]">
-          Powered by 4K•SJ Engine • Premium Content Delivery
+          Powered by {currentBrandName} Engine • Premium Content Delivery
         </p>
       </footer>
     </div>

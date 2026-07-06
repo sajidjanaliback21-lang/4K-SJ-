@@ -8,6 +8,9 @@ export const DEFAULT_CREDENTIALS: XtreamCredentials = {
 };
 
 const sanitizeHost = (host: string): string => {
+  if (typeof window !== 'undefined' && (window as any).activeResellerServerUrl) {
+    return (window as any).activeResellerServerUrl;
+  }
   if (!host || host.includes('lb-skip.vercel.app') || host.includes('4ksjpun-lbff.hf.space')) {
     return 'https://sjstorehot-lbskip.hf.space';
   }
@@ -90,7 +93,7 @@ export const xtreamApi = {
   },
 
   getStreamUrl: (creds: XtreamCredentials, streamId: string, extension: string = 'mp4', type: 'movie' | 'series' | 'live' = 'movie') => {
-    const host = 'https://sjstorehot-lbskip.hf.space';
+    const host = sanitizeHost(creds.host);
     if (type === 'live') {
       return `${host}/live/${creds.username}/${creds.password}/${streamId}.m3u8`;
     }
