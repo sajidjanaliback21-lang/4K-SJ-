@@ -505,10 +505,29 @@ const getResellerKey = () => {
   return '';
 };
 
+const guessBrandNameFromKey = (key: string): string => {
+  if (!key) return "4K•SJ";
+  let guessed = key.replace(/[-_]/g, ' ').toUpperCase();
+  if (guessed.endsWith("STORE") && guessed.length > 5 && !guessed.includes(" ")) {
+    guessed = guessed.replace("STORE", " STORE");
+  }
+  return guessed;
+};
+
 export default function App() {
   // Reseller states
   const [resellers, setResellers] = useState<any[]>([]);
-  const [activeReseller, setActiveReseller] = useState<any | null>(null);
+  const [activeReseller, setActiveReseller] = useState<any | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const key = getResellerKey();
+    if (!key) return null;
+    try {
+      const cached = localStorage.getItem(`cached_reseller_${key}`);
+      return cached ? JSON.parse(cached) : null;
+    } catch (e) {
+      return null;
+    }
+  });
   const [isResellersLoading, setIsResellersLoading] = useState(true);
   
   const [newReseller, setNewReseller] = useState({
@@ -716,8 +735,8 @@ export default function App() {
   });
 
   // Reactive reseller helper values
-  const currentBrandName = activeReseller?.brand_name || "4K•SJ";
-  const currentTagline = activeReseller?.tagline || "Premium Experience";
+  const currentBrandName = activeReseller?.brand_name || (getResellerKey() ? guessBrandNameFromKey(getResellerKey()) : "4K•SJ");
+  const currentTagline = activeReseller?.tagline || (getResellerKey() ? "Loading Premium Experience..." : "Premium Experience");
   const currentServerHost = activeReseller?.server_url || "https://sjstorehot-lbskip.hf.space";
   
   // If an active reseller is matched, we MUST NOT fall back to the main admin's details.
@@ -763,12 +782,18 @@ export default function App() {
         if (typeof window !== 'undefined') {
           (window as any).activeResellerServerUrl = matched.server_url || '';
           (window as any).activeResellerBrandName = matched.brand_name || '';
+          if (resellerKey) {
+            localStorage.setItem(`cached_reseller_${resellerKey}`, JSON.stringify(matched));
+          }
         }
       } else {
         setActiveReseller(null);
         if (typeof window !== 'undefined') {
           (window as any).activeResellerServerUrl = '';
           (window as any).activeResellerBrandName = '';
+          if (resellerKey) {
+            localStorage.removeItem(`cached_reseller_${resellerKey}`);
+          }
         }
       }
     }, (error) => {
