@@ -550,6 +550,7 @@ export default function App() {
     whatsapp_group_link: '',
     logo_url: '',
     server_url: '',
+    app_link: '',
     password: '',
     license_type: '1 Year'
   });
@@ -2393,6 +2394,7 @@ export default function App() {
         whatsapp_group_link: '',
         logo_url: '',
         server_url: '',
+        app_link: '',
         password: '',
         license_type: '1 Year'
       });
@@ -3429,6 +3431,21 @@ export default function App() {
                       <span className="w-1.5 h-6 bg-cyan-500 rounded-full" />
                       Trending Movies
                     </h3>
+                    {activeReseller?.app_link && (
+                      <motion.a
+                        href={activeReseller.app_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black uppercase tracking-widest text-[9px] sm:text-[11px] rounded-full shadow-[0_0_20px_rgba(16,185,129,0.35)] border border-emerald-400/20 transition-all cursor-pointer select-none"
+                      >
+                        <Download size={12} className="animate-bounce" />
+                        Download Application
+                      </motion.a>
+                    )}
                   </div>
                   
                   {loadingTrending ? (
@@ -7644,6 +7661,10 @@ export default function App() {
                       <span className="text-white/50">Custom IPTV Server URL:</span>
                       <span className="text-white font-bold truncate max-w-[200px] text-purple-400">{loggedInReseller.server_url || 'Default System'}</span>
                     </div>
+                    <div className="flex justify-between py-1.5 border-b border-white/5">
+                      <span className="text-white/50">App Download Link:</span>
+                      <span className="text-white font-bold truncate max-w-[200px] text-emerald-400">{loggedInReseller.app_link || 'N/A'}</span>
+                    </div>
                     <div className="flex justify-between py-1.5">
                       <span className="text-white/50">Custom Logo:</span>
                       <span className="text-white font-bold truncate max-w-[200px]">{loggedInReseller.logo_url ? 'Configured' : 'Default Logo'}</span>
@@ -9177,6 +9198,18 @@ export default function App() {
                             <p className="text-[9px] text-white/40 mt-1">If specified, all IPTV requests for this reseller's domain will bypass the default server and route through their custom IPTV server URL.</p>
                           </div>
 
+                          <div className="sm:col-span-2">
+                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom Application Download Link (Optional)</label>
+                            <input
+                              type="url"
+                              placeholder="https://example.com/download-app.apk"
+                              value={newReseller.app_link || ''}
+                              onChange={(e) => setNewReseller({ ...newReseller, app_link: e.target.value })}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                            />
+                            <p className="text-[9px] text-white/40 mt-1">Provide an APK or application download URL. If present, a beautiful download button will appear for your users on the home screen next to Trending Movies.</p>
+                          </div>
+
                           <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-white/5">
                             <div>
                               <label className="text-[10px] text-cyan-400 font-black uppercase tracking-widest block mb-1">Reseller Login Password <span className="text-rose-400">*</span></label>
@@ -9239,6 +9272,7 @@ export default function App() {
                                             whatsapp_group_link: item.whatsapp_group_link || '',
                                             logo_url: item.logo_url || '',
                                             server_url: item.server_url || '',
+                                            app_link: item.app_link || '',
                                             password: item.password || '',
                                             license_type: item.license_type || '1 Year'
                                           });
@@ -9265,6 +9299,7 @@ export default function App() {
                                   <div>📱 WA No: <span className="font-mono text-white">{item.whatsapp_number || 'N/A'}</span></div>
                                   <div className="truncate">🔗 Group: <a href={item.whatsapp_group_link} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline font-bold">{item.whatsapp_group_link || 'N/A'}</a></div>
                                   <div className="truncate">🖥️ Server: <span className="font-mono text-white">{item.server_url || 'Default'}</span></div>
+                                  <div className="truncate">📥 App Link: <span className="font-mono text-emerald-400 font-bold truncate max-w-[200px]" title={item.app_link || 'N/A'}>{item.app_link || 'N/A'}</span></div>
                                   <div className="flex items-center gap-4 mt-1 pt-1 border-t border-white/5">
                                     <div>🔑 Pass: <span className="font-mono text-cyan-400 font-bold">{item.password || 'None'}</span></div>
                                     <div>📜 License: <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20">{item.license_type || '1 Year'}</span></div>
