@@ -6,6 +6,22 @@
   --font-display: "Space Grotesk", sans-serif;
 }
 
+@keyframes premium-shine {
+  0% {
+    transform: translateX(-150%) skewX(-15deg);
+  }
+  50% {
+    transform: translateX(150%) skewX(-15deg);
+  }
+  100% {
+    transform: translateX(150%) skewX(-15deg);
+  }
+}
+
+.animate-premium-shine {
+  animation: premium-shine 4s infinite ease-in-out;
+}
+
 @layer base {
   body {
     @apply bg-[#020617] text-white antialiased;

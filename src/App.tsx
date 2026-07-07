@@ -3436,14 +3436,26 @@ export default function App() {
                         href={activeReseller.app_link}
                         target="_blank"
                         rel="noopener noreferrer"
-                        initial={{ opacity: 0, scale: 0.9 }}
+                        initial={{ opacity: 0, scale: 0.92 }}
                         animate={{ opacity: 1, scale: 1 }}
                         whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.98 }}
-                        className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-black uppercase tracking-widest text-[9px] sm:text-[11px] rounded-full shadow-[0_0_20px_rgba(16,185,129,0.35)] border border-emerald-400/20 transition-all cursor-pointer select-none"
+                        whileTap={{ scale: 0.97 }}
+                        className="relative overflow-hidden flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-emerald-500 via-teal-600 to-cyan-600 text-white font-black uppercase tracking-wider text-[10px] sm:text-xs rounded-full shadow-[0_0_20px_rgba(16,185,129,0.45)] hover:shadow-[0_0_30px_rgba(52,211,153,0.7)] border border-white/20 transition-all duration-300 cursor-pointer select-none group"
                       >
-                        <Download size={12} className="animate-bounce" />
-                        Download Application
+                        {/* Premium continuous shine sweeping effect */}
+                        <div className="absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full animate-premium-shine" />
+
+                        {/* Beautiful live pulsing indicator point */}
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-200"></span>
+                        </span>
+
+                        <Download size={14} className="text-white group-hover:translate-y-0.5 transition-transform duration-300" />
+                        
+                        <span className="relative z-10 text-white font-display font-black tracking-widest text-[9px] sm:text-[11px] drop-shadow-md">
+                          Download App
+                        </span>
                       </motion.a>
                     )}
                   </div>
