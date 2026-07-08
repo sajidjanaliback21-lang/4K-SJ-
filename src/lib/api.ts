@@ -8,10 +8,15 @@ export const DEFAULT_CREDENTIALS: XtreamCredentials = {
 };
 
 const sanitizeHost = (host: string): string => {
-  if (typeof window !== 'undefined' && (window as any).activeResellerServerUrl) {
-    return (window as any).activeResellerServerUrl;
+  let resellerUrl = typeof window !== 'undefined' ? (window as any).activeResellerServerUrl : '';
+  if (resellerUrl) {
+    resellerUrl = resellerUrl.trim();
   }
-  if (!host || host.includes('lb-skip.vercel.app') || host.includes('4ksjpun-lbff.hf.space')) {
+  const isValidUrl = resellerUrl && (resellerUrl.startsWith('http://') || resellerUrl.startsWith('https://'));
+  if (isValidUrl) {
+    return resellerUrl;
+  }
+  if (!host || host.includes('lb-skip.vercel.app') || host.includes('4ksjpun-lbff.hf.space') || host === 'Default' || host === 'Default System') {
     return 'https://sjstorehot-lbskip.hf.space';
   }
   return host;

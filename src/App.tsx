@@ -762,7 +762,16 @@ export default function App() {
   // Reactive reseller helper values
   const currentBrandName = activeReseller?.brand_name || (getResellerKey() ? guessBrandNameFromKey(getResellerKey()) : "4K•SJ");
   const currentTagline = activeReseller?.tagline || (getResellerKey() ? "Loading Premium Experience..." : "Premium Experience");
-  const currentServerHost = activeReseller?.server_url || "https://sjstorehot-lbskip.hf.space";
+  
+  // Robust server host check: if the reseller's custom server_url is present and starts with http:// or https://, use it. Otherwise, use default.
+  const getCleanResellerServerHost = () => {
+    const sUrl = activeReseller?.server_url?.trim();
+    if (sUrl && (sUrl.startsWith('http://') || sUrl.startsWith('https://'))) {
+      return sUrl.replace(/\/$/, ''); // strip trailing slash
+    }
+    return "https://sjstorehot-lbskip.hf.space";
+  };
+  const currentServerHost = getCleanResellerServerHost();
   
   // If an active reseller is matched, we MUST NOT fall back to the main admin's details.
   // We keep it empty if the reseller hasn't specified their whatsapp_number or set it to 'N/A'.
@@ -782,8 +791,10 @@ export default function App() {
       return url;
     }
     // If there is an active reseller with a custom server URL, replace the default host
-    if (activeReseller?.server_url) {
-      const resellerHost = activeReseller.server_url.replace(/\/$/, ''); // strip trailing slash
+    const resellerUrl = activeReseller?.server_url?.trim();
+    const isValidResellerServer = resellerUrl && (resellerUrl.startsWith('http://') || resellerUrl.startsWith('https://'));
+    if (isValidResellerServer) {
+      const resellerHost = resellerUrl.replace(/\/$/, ''); // strip trailing slash
       return url
         .replace(/https:\/\/sjstorehot-lbskip\.hf\.space/g, resellerHost)
         .replace(/http:\/\/sjstorehot-lbskip\.hf\.space/g, resellerHost);
@@ -794,7 +805,9 @@ export default function App() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       (window as any).activeResellerBrandName = activeReseller?.brand_name || '';
-      (window as any).activeResellerServerUrl = activeReseller?.server_url || '';
+      const resellerUrl = activeReseller?.server_url?.trim();
+      const isValidResellerServer = resellerUrl && (resellerUrl.startsWith('http://') || resellerUrl.startsWith('https://'));
+      (window as any).activeResellerServerUrl = isValidResellerServer ? resellerUrl : "https://sjstorehot-lbskip.hf.space";
     }
   }, [activeReseller]);
 
@@ -821,7 +834,9 @@ export default function App() {
       if (matched) {
         setActiveReseller(matched);
         if (typeof window !== 'undefined') {
-          (window as any).activeResellerServerUrl = matched.server_url || '';
+          const resellerUrl = matched.server_url?.trim();
+          const isValidResellerServer = resellerUrl && (resellerUrl.startsWith('http://') || resellerUrl.startsWith('https://'));
+          (window as any).activeResellerServerUrl = isValidResellerServer ? resellerUrl : "https://sjstorehot-lbskip.hf.space";
           (window as any).activeResellerBrandName = matched.brand_name || '';
           if (resellerKey) {
             localStorage.setItem(`cached_reseller_${resellerKey}`, JSON.stringify(matched));
