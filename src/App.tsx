@@ -3091,11 +3091,8 @@ export default function App() {
   };
 
   const triggerDownload = (url: string, filename: string) => {
-    const safeFilename = filename.replace(/[^a-z0-9.-]/gi, '_');
-    const proxyUrl = `https://sjstore-sjstore-download-proxy.hf.space/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(safeFilename)}`;
-    
-    // Using window.location.assign for direct trigger to the download proxy
-    window.location.assign(proxyUrl);
+    // Direct download without proxy as requested
+    window.location.assign(url);
   };
 
   const handleAction = async (action: 'play' | 'download' | 'web_play' | 'copy', item: any, episodeId?: string, episodeExt?: string, isConfirmed = false) => {
