@@ -7,7 +7,7 @@ import * as dashjs from 'dashjs';
 // @ts-ignore
 import shaka from 'shaka-player';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldCheck, Shield, Cpu, Globe, Sliders, X, SkipForward, List, Tv, Download, Gauge, RotateCcw, Pencil, Check, Zap } from 'lucide-react';
+import { ShieldCheck, Shield, Cpu, Globe, Sliders, X, SkipForward, List, Tv, Download, Gauge, RotateCcw, Pencil, Check, Zap, ExternalLink } from 'lucide-react';
 
 interface VideoPlayerProps {
   options: {
@@ -16,9 +16,11 @@ interface VideoPlayerProps {
     controls?: boolean;
     poster?: string;
     is_embed?: boolean;
+    is_webpage?: boolean;
     skipProxy?: boolean;
     isLive?: boolean;
     drm_license_url?: string;
+    sandbox_disabled?: boolean;
   };
   onReady?: (player: Artplayer) => void;
   onClose?: () => void;
@@ -408,6 +410,48 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return url;
   };
 
+  const getAutoplayUrl = (url: string) => {
+    if (!url) return '';
+    try {
+      let fullUrl = url;
+      if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('//')) {
+        fullUrl = 'https://' + url;
+      }
+      const parsedUrl = new URL(fullUrl);
+      
+      if (parsedUrl.hostname.includes('youtube.com') || parsedUrl.hostname.includes('youtu.be')) {
+        parsedUrl.searchParams.set('autoplay', '1');
+        parsedUrl.searchParams.set('mute', '0');
+        parsedUrl.searchParams.set('playsinline', '1');
+      } else if (parsedUrl.hostname.includes('vimeo.com')) {
+        parsedUrl.searchParams.set('autoplay', '1');
+        parsedUrl.searchParams.set('muted', '0');
+        parsedUrl.searchParams.set('playsinline', '1');
+      } else if (parsedUrl.hostname.includes('blogger.com')) {
+        parsedUrl.searchParams.set('autoplay', 'true');
+        parsedUrl.searchParams.set('muted', 'false');
+      } else {
+        parsedUrl.searchParams.set('autoplay', '1');
+        parsedUrl.searchParams.set('autoPlay', 'true');
+        parsedUrl.searchParams.set('autoplay_on_load', '1');
+        parsedUrl.searchParams.set('autostart', 'true');
+        parsedUrl.searchParams.set('mute', '0');
+        parsedUrl.searchParams.set('muted', 'false');
+        parsedUrl.searchParams.set('muted_state', '0');
+        parsedUrl.searchParams.set('play', '1');
+        parsedUrl.searchParams.set('volume', '100');
+        parsedUrl.searchParams.set('playsinline', '1');
+        parsedUrl.searchParams.set('sound', '1');
+        parsedUrl.searchParams.set('unmute', 'true');
+        parsedUrl.searchParams.set('audio', 'true');
+      }
+      return parsedUrl.toString();
+    } catch (e) {
+      const separator = url.includes('?') ? '&' : '?';
+      return `${url}${separator}autoplay=1&autoPlay=true&autoplay_on_load=1&autostart=true&mute=0&muted=false&muted_state=0&play=1&volume=100&playsinline=1&sound=1&unmute=true&audio=true`;
+    }
+  };
+
   const source = options.sources[0];
   const originalUrl = source?.src || '';
   const sourceUrl = getProxiedUrl(originalUrl);
@@ -542,7 +586,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   });
 
   useEffect(() => {
-    if (!artRef.current || !sourceUrl || isEmbeddable(originalUrl)) return;
+    if (!artRef.current || !sourceUrl || isEmbeddable(originalUrl) || options.is_webpage) return;
 
     latestUrlRef.current = sourceUrl;
     hasCompletedInitialLoad.current = false;
@@ -1737,7 +1781,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       isFirstMount.current = false;
       return;
     }
-    if (playerRef.current && sourceUrl && !isEmbeddable(originalUrl)) {
+    if (playerRef.current && sourceUrl && !isEmbeddable(originalUrl) && !options.is_webpage) {
       hasCompletedInitialLoad.current = false;
       setIsLoading(true);
       setLoadingText('LOADING VIDEO...');
@@ -1776,7 +1820,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <div className="w-full h-full relative bg-black overflow-hidden" style={{ minHeight: '100%' }}>
       <AnimatePresence>
-        {isLoading && !isEmbeddable(originalUrl) && (
+        {isLoading && !isEmbeddable(originalUrl) && !options.is_webpage && (
           <motion.div 
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -1859,31 +1903,33 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         )}
       </AnimatePresence>
 
-      {isEmbeddable(originalUrl) ? (
+      {(isEmbeddable(originalUrl) || options.is_webpage) ? (
         <div className="absolute inset-0 w-full h-full bg-black">
           <iframe
-            src={originalUrl}
+            src={getAutoplayUrl(originalUrl)}
             className="w-full h-full border-0 m-0 p-0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
             allowFullScreen
             referrerPolicy="no-referrer"
-            sandbox={isAntiPopupActive ? "allow-scripts allow-same-origin allow-presentation allow-forms allow-pointer-lock" : undefined}
+            sandbox={options.sandbox_disabled ? undefined : (options.is_webpage ? "allow-scripts allow-same-origin allow-presentation allow-forms allow-pointer-lock" : (isAntiPopupActive ? "allow-scripts allow-same-origin allow-presentation allow-forms allow-pointer-lock" : undefined))}
           />
           {/* Floating Ad-Shield / Anti-Popup Controller */}
-          <div className="absolute top-[20px] left-[20px] z-[99] pointer-events-auto flex items-center gap-2">
-            <button
-              type="button"
-              onClick={toggleAntiPopup}
-              className={`w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md border transition-all duration-300 shadow-lg cursor-pointer ${
-                isAntiPopupActive 
-                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 animate-none' 
-                  : 'bg-rose-500/15 border-rose-500/30 text-rose-400 hover:bg-rose-500/25'
-              }`}
-              title={isAntiPopupActive ? "Disable Anti-Popup (If player fails)" : "Enable Anti-Popup AdBlocker"}
-            >
-              <Shield className={`w-4 h-4 ${isAntiPopupActive ? 'text-emerald-400' : 'text-rose-400 animate-pulse'}`} />
-            </button>
-          </div>
+          {!options.is_webpage && (
+            <div className="absolute top-[20px] left-[20px] z-[99] pointer-events-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleAntiPopup}
+                className={`w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md border transition-all duration-300 shadow-lg cursor-pointer ${
+                  isAntiPopupActive 
+                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 animate-none' 
+                    : 'bg-rose-500/15 border-rose-500/30 text-rose-400 hover:bg-rose-500/25'
+                }`}
+                title={isAntiPopupActive ? "Disable Anti-Popup (If player fails)" : "Enable Anti-Popup AdBlocker"}
+              >
+                <Shield className={`w-4 h-4 ${isAntiPopupActive ? 'text-emerald-400' : 'text-rose-400 animate-pulse'}`} />
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div 

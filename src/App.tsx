@@ -674,6 +674,8 @@ export default function App() {
     play_url: '',
     is_mpd: false,
     is_embed: false,
+    is_webpage: false,
+    sandbox_disabled: false,
     status: 'Live',
     order: '',
     stream_id: '',
@@ -695,14 +697,14 @@ export default function App() {
   const [newLiveEvent, setNewLiveEvent] = useState<{
     name: string;
     poster_url: string;
-    channels: Array<{ name: string; play_url: string; is_embed?: boolean; is_mpd?: boolean; drm_license_url?: string }>;
+    channels: Array<{ name: string; play_url: string; is_embed?: boolean; is_mpd?: boolean; is_webpage?: boolean; sandbox_disabled?: boolean; drm_license_url?: string }>;
   }>({
     name: '',
     poster_url: '',
-    channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false }]
+    channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false }]
   });
 
-  const [newFreeMovie, setNewFreeMovie] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, password: '' });
+  const [newFreeMovie, setNewFreeMovie] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, is_webpage: false, password: '' });
   const [newFreeSeries, setNewFreeSeries] = useState({ 
     tmdb_id: '', 
     name: '', 
@@ -711,6 +713,7 @@ export default function App() {
     download_url: '', 
     playlist_url: '', 
     is_embed: false, 
+    is_webpage: false, 
     password: '', 
     episodes: [] as Array<{ id: string, season: string, episode_num: string, title: string, play_url: string, download_url?: string }>
   });
@@ -762,16 +765,7 @@ export default function App() {
   // Reactive reseller helper values
   const currentBrandName = activeReseller?.brand_name || (getResellerKey() ? guessBrandNameFromKey(getResellerKey()) : "4K•SJ");
   const currentTagline = activeReseller?.tagline || (getResellerKey() ? "Loading Premium Experience..." : "Premium Experience");
-  
-  // Robust server host check: if the reseller's custom server_url is present and starts with http:// or https://, use it. Otherwise, use default.
-  const getCleanResellerServerHost = () => {
-    const sUrl = activeReseller?.server_url?.trim();
-    if (sUrl && (sUrl.startsWith('http://') || sUrl.startsWith('https://'))) {
-      return sUrl.replace(/\/$/, ''); // strip trailing slash
-    }
-    return "https://sjstorehot-lbskip.hf.space";
-  };
-  const currentServerHost = getCleanResellerServerHost();
+  const currentServerHost = activeReseller?.server_url || "https://sjstorehot-lbskip.hf.space";
   
   // If an active reseller is matched, we MUST NOT fall back to the main admin's details.
   // We keep it empty if the reseller hasn't specified their whatsapp_number or set it to 'N/A'.
@@ -786,15 +780,9 @@ export default function App() {
 
   const getResellerAdjustedUrl = (url: string, action: string = 'play') => {
     if (!url) return '';
-    // If the action is explicitly download, the user requested to keep the default/original URL
-    if (action === 'download') {
-      return url;
-    }
     // If there is an active reseller with a custom server URL, replace the default host
-    const resellerUrl = activeReseller?.server_url?.trim();
-    const isValidResellerServer = resellerUrl && (resellerUrl.startsWith('http://') || resellerUrl.startsWith('https://'));
-    if (isValidResellerServer) {
-      const resellerHost = resellerUrl.replace(/\/$/, ''); // strip trailing slash
+    if (activeReseller?.server_url) {
+      const resellerHost = activeReseller.server_url.replace(/\/$/, ''); // strip trailing slash
       return url
         .replace(/https:\/\/sjstorehot-lbskip\.hf\.space/g, resellerHost)
         .replace(/http:\/\/sjstorehot-lbskip\.hf\.space/g, resellerHost);
@@ -805,9 +793,7 @@ export default function App() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       (window as any).activeResellerBrandName = activeReseller?.brand_name || '';
-      const resellerUrl = activeReseller?.server_url?.trim();
-      const isValidResellerServer = resellerUrl && (resellerUrl.startsWith('http://') || resellerUrl.startsWith('https://'));
-      (window as any).activeResellerServerUrl = isValidResellerServer ? resellerUrl : "https://sjstorehot-lbskip.hf.space";
+      (window as any).activeResellerServerUrl = activeReseller?.server_url || '';
     }
   }, [activeReseller]);
 
@@ -834,9 +820,7 @@ export default function App() {
       if (matched) {
         setActiveReseller(matched);
         if (typeof window !== 'undefined') {
-          const resellerUrl = matched.server_url?.trim();
-          const isValidResellerServer = resellerUrl && (resellerUrl.startsWith('http://') || resellerUrl.startsWith('https://'));
-          (window as any).activeResellerServerUrl = isValidResellerServer ? resellerUrl : "https://sjstorehot-lbskip.hf.space";
+          (window as any).activeResellerServerUrl = matched.server_url || '';
           (window as any).activeResellerBrandName = matched.brand_name || '';
           if (resellerKey) {
             localStorage.setItem(`cached_reseller_${resellerKey}`, JSON.stringify(matched));
@@ -2489,7 +2473,7 @@ export default function App() {
           createdAt: new Date().toISOString()
         });
       }
-      setNewLiveEvent({ name: '', poster_url: '', channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false }] });
+      setNewLiveEvent({ name: '', poster_url: '', channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false }] });
     } catch (error) {
       console.error("Error saving live event:", error);
       alert("Failed to save live event.");
@@ -2532,6 +2516,8 @@ export default function App() {
       play_url: isIptv ? '' : newFifaChannel.play_url,
       is_mpd: isIptv ? false : !!newFifaChannel.is_mpd,
       is_embed: isIptv ? false : !!newFifaChannel.is_embed,
+      is_webpage: isIptv ? false : !!newFifaChannel.is_webpage,
+      sandbox_disabled: isIptv ? false : !!newFifaChannel.sandbox_disabled,
       status: newFifaChannel.status || 'Live',
       order: orderVal,
       is_premium: isPremiumVal,
@@ -2553,6 +2539,8 @@ export default function App() {
         play_url: '',
         is_mpd: false,
         is_embed: false,
+        is_webpage: false,
+        sandbox_disabled: false,
         status: 'Live',
         order: '',
         stream_id: '',
@@ -3105,9 +3093,52 @@ export default function App() {
     return `vlc:${url}`;
   };
 
+  const getAutoplayUrl = (url: string | undefined | null) => {
+    if (!url) return '';
+    try {
+      let fullUrl = url;
+      if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('//')) {
+        fullUrl = 'https://' + url;
+      }
+      const parsedUrl = new URL(fullUrl);
+      
+      if (parsedUrl.hostname.includes('youtube.com') || parsedUrl.hostname.includes('youtu.be')) {
+        parsedUrl.searchParams.set('autoplay', '1');
+        parsedUrl.searchParams.set('mute', '0');
+        parsedUrl.searchParams.set('playsinline', '1');
+      } else if (parsedUrl.hostname.includes('vimeo.com')) {
+        parsedUrl.searchParams.set('autoplay', '1');
+        parsedUrl.searchParams.set('muted', '0');
+        parsedUrl.searchParams.set('playsinline', '1');
+      } else if (parsedUrl.hostname.includes('blogger.com')) {
+        parsedUrl.searchParams.set('autoplay', 'true');
+        parsedUrl.searchParams.set('muted', 'false');
+      } else {
+        parsedUrl.searchParams.set('autoplay', '1');
+        parsedUrl.searchParams.set('autoPlay', 'true');
+        parsedUrl.searchParams.set('autoplay_on_load', '1');
+        parsedUrl.searchParams.set('autostart', 'true');
+        parsedUrl.searchParams.set('mute', '0');
+        parsedUrl.searchParams.set('muted', 'false');
+        parsedUrl.searchParams.set('muted_state', '0');
+        parsedUrl.searchParams.set('play', '1');
+        parsedUrl.searchParams.set('volume', '100');
+        parsedUrl.searchParams.set('playsinline', '1');
+        parsedUrl.searchParams.set('sound', '1');
+        parsedUrl.searchParams.set('unmute', 'true');
+        parsedUrl.searchParams.set('audio', 'true');
+      }
+      return parsedUrl.toString();
+    } catch (e) {
+      const separator = url.includes('?') ? '&' : '?';
+      return `${url}${separator}autoplay=1&autoPlay=true&autoplay_on_load=1&autostart=true&mute=0&muted=false&muted_state=0&play=1&volume=100&playsinline=1&sound=1&unmute=true&audio=true`;
+    }
+  };
+
   const triggerDownload = (url: string, filename: string) => {
-    // Direct download without proxy as requested
-    window.location.assign(url);
+    // Remove the download proxy and redirect directly to the original/reseller URL
+    const finalUrl = getResellerAdjustedUrl(url, 'download');
+    window.location.assign(finalUrl);
   };
 
   const handleAction = async (action: 'play' | 'download' | 'web_play' | 'copy', item: any, episodeId?: string, episodeExt?: string, isConfirmed = false) => {
@@ -3120,10 +3151,8 @@ export default function App() {
       alert("Please enter a valid username and password in settings.");
       return;
     }
-    // Set the New Base URL - If action is 'download', strictly keep default/original host
-    const host = (action === 'download')
-      ? 'https://sjstorehot-lbskip.hf.space'
-      : currentServerHost;
+    // Set the New Base URL - Use the current server host (main or reseller's server)
+    const host = currentServerHost;
 
     const isLive = !!(item as any).stream_type && (item as any).stream_type === 'live';
     const isSeries = !!(episodeId || (item as any).series_id);
@@ -6781,6 +6810,8 @@ export default function App() {
                           fluid: true,
                           poster: selectedLiveEvent.poster_url,
                           is_embed: !!activeChannel.is_embed,
+                          is_webpage: !!activeChannel.is_webpage,
+                          sandbox_disabled: !!activeChannel.sandbox_disabled,
                           skipProxy: true,
                           isLive: true,
                           sources: [{
@@ -7509,8 +7540,9 @@ export default function App() {
                 {playingFreeSeries.is_embed ? (
                   <div className="absolute inset-0 w-full h-full bg-black">
                     <iframe
-                      src={playingFreeSeries.play_url || undefined}
+                      src={getAutoplayUrl(playingFreeSeries.play_url) || undefined}
                       className="w-full h-full border-0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                       allowFullScreen
                       referrerPolicy="no-referrer"
                       sandbox={isAntiPopupActive ? "allow-scripts allow-same-origin allow-presentation allow-forms allow-pointer-lock" : undefined}
@@ -8446,7 +8478,10 @@ export default function App() {
                                     onChange={(e) => {
                                       const updatedCh = [...newLiveEvent.channels];
                                       updatedCh[cIdx].is_embed = e.target.checked;
-                                      if (e.target.checked) updatedCh[cIdx].is_mpd = false;
+                                      if (e.target.checked) {
+                                        updatedCh[cIdx].is_mpd = false;
+                                        updatedCh[cIdx].is_webpage = false;
+                                      }
                                       setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
                                     }}
                                     className="w-4 h-4 accent-cyan-500"
@@ -8462,13 +8497,52 @@ export default function App() {
                                     onChange={(e) => {
                                       const updatedCh = [...newLiveEvent.channels];
                                       updatedCh[cIdx].is_mpd = e.target.checked;
-                                      if (e.target.checked) updatedCh[cIdx].is_embed = false;
+                                      if (e.target.checked) {
+                                        updatedCh[cIdx].is_embed = false;
+                                        updatedCh[cIdx].is_webpage = false;
+                                      }
                                       setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
                                     }}
                                     className="w-4 h-4 accent-cyan-500"
                                   />
                                   <label htmlFor={`is_mpd-${cIdx}`} className="text-[9px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">MPD</label>
                                 </div>
+
+                                <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-3 py-2 h-[38px]">
+                                  <input 
+                                    type="checkbox" 
+                                    id={`is_webpage-${cIdx}`}
+                                    checked={!!channel.is_webpage}
+                                    onChange={(e) => {
+                                      const updatedCh = [...newLiveEvent.channels];
+                                      updatedCh[cIdx].is_webpage = e.target.checked;
+                                      if (e.target.checked) {
+                                        updatedCh[cIdx].is_embed = false;
+                                        updatedCh[cIdx].is_mpd = false;
+                                      }
+                                      setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                    }}
+                                    className="w-4 h-4 accent-cyan-500"
+                                  />
+                                  <label htmlFor={`is_webpage-${cIdx}`} className="text-[9px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Webpage</label>
+                                </div>
+
+                                {(channel.is_embed || channel.is_webpage) && (
+                                  <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2 h-[38px]">
+                                    <input 
+                                      type="checkbox" 
+                                      id={`sandbox_disabled-${cIdx}`}
+                                      checked={!!channel.sandbox_disabled}
+                                      onChange={(e) => {
+                                        const updatedCh = [...newLiveEvent.channels];
+                                        updatedCh[cIdx].sandbox_disabled = e.target.checked;
+                                        setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                      }}
+                                      className="w-4 h-4 accent-rose-500"
+                                    />
+                                    <label htmlFor={`sandbox_disabled-${cIdx}`} className="text-[9px] text-rose-400 font-black uppercase tracking-widest cursor-pointer select-none">Sandbox Off</label>
+                                  </div>
+                                )}
 
                                 {newLiveEvent.channels.length > 1 && (
                                   <button
@@ -8531,9 +8605,11 @@ export default function App() {
                                               name: ch.name || '',
                                               play_url: ch.play_url || '',
                                               is_embed: !!ch.is_embed,
-                                              is_mpd: !!ch.is_mpd
+                                              is_mpd: !!ch.is_mpd,
+                                              is_webpage: !!ch.is_webpage,
+                                              sandbox_disabled: !!ch.sandbox_disabled
                                             }))
-                                          : [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false }]
+                                          : [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false }]
                                       });
                                     }}
                                     className="w-8 h-8 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 flex items-center justify-center transition-all"
@@ -8772,12 +8848,13 @@ export default function App() {
                                     setNewFifaChannel({
                                       ...newFifaChannel, 
                                       is_mpd: e.target.checked,
-                                      is_embed: e.target.checked ? false : newFifaChannel.is_embed
+                                      is_embed: e.target.checked ? false : newFifaChannel.is_embed,
+                                      is_webpage: e.target.checked ? false : newFifaChannel.is_webpage
                                     });
                                   }}
                                   className="w-4 h-4 accent-cyan-500"
                                 />
-                                <label htmlFor="is_mpd_fifa" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">MPD (DASH) Stream</label>
+                                <label htmlFor="is_mpd_fifa" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">MPD (DASH)</label>
                               </div>
 
                               <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3">
@@ -8789,13 +8866,50 @@ export default function App() {
                                     setNewFifaChannel({
                                       ...newFifaChannel, 
                                       is_embed: e.target.checked,
-                                      is_mpd: e.target.checked ? false : newFifaChannel.is_mpd
+                                      is_mpd: e.target.checked ? false : newFifaChannel.is_mpd,
+                                      is_webpage: e.target.checked ? false : newFifaChannel.is_webpage
                                     });
                                   }}
                                   className="w-4 h-4 accent-cyan-500"
                                 />
                                 <label htmlFor="is_embed_fifa" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Embed Mode</label>
                               </div>
+
+                              <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3">
+                                <input 
+                                  type="checkbox" 
+                                  id="is_webpage_fifa"
+                                  checked={newFifaChannel.is_webpage}
+                                  onChange={(e) => {
+                                    setNewFifaChannel({
+                                      ...newFifaChannel, 
+                                      is_webpage: e.target.checked,
+                                      is_embed: e.target.checked ? false : newFifaChannel.is_embed,
+                                      is_mpd: e.target.checked ? false : newFifaChannel.is_mpd
+                                    });
+                                  }}
+                                  className="w-4 h-4 accent-cyan-500"
+                                />
+                                <label htmlFor="is_webpage_fifa" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Website Page</label>
+                              </div>
+
+                              {(newFifaChannel.is_embed || newFifaChannel.is_webpage) && (
+                                <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 rounded-2xl px-5 py-3">
+                                  <input 
+                                    type="checkbox" 
+                                    id="sandbox_disabled_fifa"
+                                    checked={!!newFifaChannel.sandbox_disabled}
+                                    onChange={(e) => {
+                                      setNewFifaChannel({
+                                        ...newFifaChannel, 
+                                        sandbox_disabled: e.target.checked
+                                      });
+                                    }}
+                                    className="w-4 h-4 accent-rose-500"
+                                  />
+                                  <label htmlFor="sandbox_disabled_fifa" className="text-[10px] text-rose-400 font-black uppercase tracking-widest cursor-pointer select-none">Disable Sandbox (Allow Popups/Redirects)</label>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )}
@@ -8868,6 +8982,8 @@ export default function App() {
                                         play_url: item.play_url || '',
                                         is_mpd: !!item.is_mpd,
                                         is_embed: !!item.is_embed,
+                                        is_webpage: !!item.is_webpage,
+                                        sandbox_disabled: !!item.sandbox_disabled,
                                         status: item.status || 'Live',
                                         order: item.order !== undefined && item.order !== 999999 ? String(item.order) : '',
                                         stream_id: item.stream_id || '',
@@ -9496,6 +9612,8 @@ export default function App() {
                     responsive: true,
                     fluid: true,
                     is_embed: !!playingFifaChannel.is_embed,
+                    is_webpage: !!playingFifaChannel.is_webpage,
+                    sandbox_disabled: !!playingFifaChannel.sandbox_disabled,
                     skipProxy: true,
                     isLive: true,
                     sources: [{
