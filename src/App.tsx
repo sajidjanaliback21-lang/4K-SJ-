@@ -690,7 +690,8 @@ export default function App() {
     order: '',
     stream_id: '',
     feed_type: 'iptv', // 'iptv' or 'custom'
-    is_premium: true
+    is_premium: true,
+    available_for_resellers: true
   });
 
   // FIFA Drag and Drop Reordering States
@@ -703,18 +704,26 @@ export default function App() {
   const [liveEvents, setLiveEvents] = useState<any[]>([]);
   const [isLiveEventsLoading, setIsLiveEventsLoading] = useState(true);
   const [editingLiveEventId, setEditingLiveEventId] = useState<string | null>(null);
+
+  // Computed lists filtered for resellers if accessed via a reseller domain/referrer/parameter
+  const displayedFreeMovies = freeMovies.filter((movie: any) => !getResellerKey() || movie.available_for_resellers !== false);
+  const displayedFreeSeries = freeSeries.filter((series: any) => !getResellerKey() || series.available_for_resellers !== false);
+  const displayedLiveEvents = liveEvents.filter((item: any) => !getResellerKey() || item.available_for_resellers !== false);
+  const displayedFifaChannels = fifaChannels.filter((item: any) => !getResellerKey() || item.available_for_resellers !== false);
   const [activeLiveChannelIndex, setActiveLiveChannelIndex] = useState<number>(0);
   const [newLiveEvent, setNewLiveEvent] = useState<{
     name: string;
     poster_url: string;
     channels: Array<{ name: string; play_url: string; is_embed?: boolean; is_mpd?: boolean; is_webpage?: boolean; sandbox_disabled?: boolean; drm_license_url?: string }>;
+    available_for_resellers?: boolean;
   }>({
     name: '',
     poster_url: '',
-    channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false }]
+    channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false }],
+    available_for_resellers: true
   });
 
-  const [newFreeMovie, setNewFreeMovie] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, is_webpage: false, password: '' });
+  const [newFreeMovie, setNewFreeMovie] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, is_webpage: false, password: '', available_for_resellers: true });
   const [newFreeSeries, setNewFreeSeries] = useState({ 
     tmdb_id: '', 
     name: '', 
@@ -725,6 +734,7 @@ export default function App() {
     is_embed: false, 
     is_webpage: false, 
     password: '', 
+    available_for_resellers: true,
     episodes: [] as Array<{ id: string, season: string, episode_num: string, title: string, play_url: string, download_url?: string }>
   });
   const [manualEpisodeInput, setManualEpisodeInput] = useState({ season: '1', episode_num: '1', title: '', play_url: '', download_url: '' });
@@ -2441,7 +2451,7 @@ export default function App() {
           createdAt: new Date().toISOString()
         });
       }
-      setNewFreeMovie({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, password: '' });
+      setNewFreeMovie({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, is_webpage: false, password: '', available_for_resellers: true });
     } catch (error) {
       console.error("Error saving free movie:", error);
     }
@@ -2472,6 +2482,7 @@ export default function App() {
           name: newLiveEvent.name,
           poster_url: newLiveEvent.poster_url,
           channels: validChannels,
+          available_for_resellers: newLiveEvent.available_for_resellers !== false,
           updatedAt: new Date().toISOString()
         });
         setEditingLiveEventId(null);
@@ -2480,10 +2491,11 @@ export default function App() {
           name: newLiveEvent.name,
           poster_url: newLiveEvent.poster_url,
           channels: validChannels,
+          available_for_resellers: newLiveEvent.available_for_resellers !== false,
           createdAt: new Date().toISOString()
         });
       }
-      setNewLiveEvent({ name: '', poster_url: '', channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false }] });
+      setNewLiveEvent({ name: '', poster_url: '', channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false }], available_for_resellers: true });
     } catch (error) {
       console.error("Error saving live event:", error);
       alert("Failed to save live event.");
@@ -2531,6 +2543,7 @@ export default function App() {
       status: newFifaChannel.status || 'Live',
       order: orderVal,
       is_premium: isPremiumVal,
+      available_for_resellers: newFifaChannel.available_for_resellers !== false,
       updatedAt: new Date().toISOString()
     };
 
@@ -2555,7 +2568,8 @@ export default function App() {
         order: '',
         stream_id: '',
         feed_type: 'iptv',
-        is_premium: true
+        is_premium: true,
+        available_for_resellers: true
       });
     } catch (error) {
       console.error("Error saving FIFA channel:", error);
@@ -3070,7 +3084,9 @@ export default function App() {
         download_url: '', 
         playlist_url: '', 
         is_embed: false, 
+        is_webpage: false,
         password: '', 
+        available_for_resellers: true,
         episodes: [] 
       });
     } catch (error) {
@@ -4230,14 +4246,14 @@ export default function App() {
                         <Loader2 className="animate-spin text-cyan-500" size={48} />
                         <p className="text-white/40 font-bold uppercase tracking-widest text-xs">Loading Premium Movies...</p>
                       </div>
-                    ) : freeMovies.length === 0 ? (
+                    ) : displayedFreeMovies.length === 0 ? (
                       <div className="text-center py-20 glass rounded-[3rem] border border-white/5">
                         <Film size={48} className="text-white/10 mx-auto mb-4" />
                         <p className="text-white/40 font-bold italic">No free movies found at this time.</p>
                       </div>
                     ) : (
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-                        {freeMovies.map((movie: any) => (
+                        {displayedFreeMovies.map((movie: any) => (
                           <motion.div 
                             key={movie.id}
                             initial={{ opacity: 0, y: 20 }}
@@ -4277,14 +4293,14 @@ export default function App() {
                         <Loader2 className="animate-spin text-purple-500" size={48} />
                         <p className="text-white/40 font-bold uppercase tracking-widest text-xs">Loading Premium Series...</p>
                       </div>
-                    ) : freeSeries.length === 0 ? (
+                    ) : displayedFreeSeries.length === 0 ? (
                       <div className="text-center py-20 glass rounded-[3rem] border border-white/5">
                         <Tv size={48} className="text-white/10 mx-auto mb-4" />
                         <p className="text-white/40 font-bold italic">No free series found at this time.</p>
                       </div>
                     ) : (
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-                        {freeSeries.map((series: any) => (
+                        {displayedFreeSeries.map((series: any) => (
                           <motion.div 
                             key={series.id}
                             initial={{ opacity: 0, y: 20 }}
@@ -4324,14 +4340,14 @@ export default function App() {
                         <Loader2 className="animate-spin text-rose-500" size={48} />
                         <p className="text-white/40 font-bold uppercase tracking-widest text-xs">Loading Live Events...</p>
                       </div>
-                    ) : liveEvents.length === 0 ? (
+                    ) : displayedLiveEvents.length === 0 ? (
                       <div className="text-center py-20 glass rounded-[3rem] border border-white/5">
                         <Radio size={48} className="text-white/10 mx-auto mb-4 animate-pulse" />
                         <p className="text-white/40 font-bold italic">No live events scheduled at the moment.</p>
                       </div>
                     ) : (
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-                        {liveEvents.map((item: any) => (
+                        {displayedLiveEvents.map((item: any) => (
                           <motion.div 
                             key={item.id}
                             initial={{ opacity: 0, y: 20 }}
@@ -4429,14 +4445,14 @@ export default function App() {
                       <Loader2 className="animate-spin text-emerald-400" size={18} />
                       <p className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Connecting Live Feeds...</p>
                     </div>
-                  ) : fifaChannels.length === 0 ? (
+                  ) : displayedFifaChannels.length === 0 ? (
                     <div className="text-center py-12 px-4 border border-dashed border-emerald-500/10 rounded-2xl bg-emerald-950/5">
                       <Trophy size={18} className="text-white/20 mx-auto mb-2 animate-bounce" />
                       <p className="text-[10px] font-bold uppercase text-white/40 tracking-wider">No live channels mapped by admin yet</p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {fifaChannels.map((chan, idx) => {
+                      {displayedFifaChannels.map((chan, idx) => {
                         const isPremiumChan = chan.feed_type === 'iptv' || chan.is_iptv || !!chan.stream_id || chan.is_premium === true;
                         
                         return (
@@ -8143,18 +8159,34 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3 w-fit">
-                        <input 
-                          type="checkbox" 
-                          id="is_embed_admin"
-                          checked={activeAdminTab === 'free_movies' ? newFreeMovie.is_embed : newFreeSeries.is_embed}
-                          onChange={(e) => activeAdminTab === 'free_movies' 
-                            ? setNewFreeMovie({...newFreeMovie, is_embed: e.target.checked}) 
-                            : setNewFreeSeries({...newFreeSeries, is_embed: e.target.checked})
-                          }
-                          className="w-4 h-4 accent-cyan-500"
-                        />
-                        <label htmlFor="is_embed_admin" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Embed Mode</label>
+                      <div className="flex flex-wrap items-center gap-4">
+                        <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3 w-fit">
+                          <input 
+                            type="checkbox" 
+                            id="is_embed_admin"
+                            checked={activeAdminTab === 'free_movies' ? newFreeMovie.is_embed : newFreeSeries.is_embed}
+                            onChange={(e) => activeAdminTab === 'free_movies' 
+                              ? setNewFreeMovie({...newFreeMovie, is_embed: e.target.checked}) 
+                              : setNewFreeSeries({...newFreeSeries, is_embed: e.target.checked})
+                            }
+                            className="w-4 h-4 accent-cyan-500"
+                          />
+                          <label htmlFor="is_embed_admin" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Embed Mode</label>
+                        </div>
+
+                        <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3 w-fit">
+                          <input 
+                            type="checkbox" 
+                            id="resellers_access_admin"
+                            checked={activeAdminTab === 'free_movies' ? (newFreeMovie.available_for_resellers !== false) : (newFreeSeries.available_for_resellers !== false)}
+                            onChange={(e) => activeAdminTab === 'free_movies' 
+                              ? setNewFreeMovie({...newFreeMovie, available_for_resellers: e.target.checked}) 
+                              : setNewFreeSeries({...newFreeSeries, available_for_resellers: e.target.checked})
+                            }
+                            className="w-4 h-4 accent-cyan-500"
+                          />
+                          <label htmlFor="resellers_access_admin" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Resellers Access</label>
+                        </div>
                       </div>
 
                       {activeAdminTab === 'free_series' && (
@@ -8317,7 +8349,9 @@ export default function App() {
                                         play_url: item.play_url || '',
                                         download_url: item.download_url || '',
                                         is_embed: !!item.is_embed,
-                                        password: item.password || ''
+                                        is_webpage: !!item.is_webpage,
+                                        password: item.password || '',
+                                        available_for_resellers: item.available_for_resellers !== false
                                       });
                                     } else {
                                       setEditingSeriesId(item.id);
@@ -8329,8 +8363,10 @@ export default function App() {
                                         download_url: item.download_url || '',
                                         playlist_url: item.playlist_url || '',
                                         is_embed: !!item.is_embed,
+                                        is_webpage: !!item.is_webpage,
                                         password: item.password || '',
-                                        episodes: item.episodes || []
+                                        episodes: item.episodes || [],
+                                        available_for_resellers: item.available_for_resellers !== false
                                       });
                                     }
                                   }}
@@ -8598,6 +8634,17 @@ export default function App() {
                         </div>
                       </div>
 
+                      <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3 w-fit">
+                        <input 
+                          type="checkbox" 
+                          id="live_event_resellers_access"
+                          checked={newLiveEvent.available_for_resellers !== false}
+                          onChange={(e) => setNewLiveEvent({...newLiveEvent, available_for_resellers: e.target.checked})}
+                          className="w-4 h-4 accent-cyan-500"
+                        />
+                        <label htmlFor="live_event_resellers_access" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Resellers Access</label>
+                      </div>
+
                       <button 
                         onClick={handleAddLiveEvent}
                         className={`w-full py-4 rounded-2xl text-xs font-black uppercase tracking-[0.2em] transition-all shadow-xl ${
@@ -8645,7 +8692,8 @@ export default function App() {
                                               is_webpage: !!ch.is_webpage,
                                               sandbox_disabled: !!ch.sandbox_disabled
                                             }))
-                                          : [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false }]
+                                          : [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false }],
+                                        available_for_resellers: item.available_for_resellers !== false
                                       });
                                     }}
                                     className="w-8 h-8 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 flex items-center justify-center transition-all"
@@ -8960,6 +9008,22 @@ export default function App() {
                                 <label htmlFor="is_webpage_fifa" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Website Page</label>
                               </div>
 
+                              <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3">
+                                <input 
+                                  type="checkbox" 
+                                  id="available_for_resellers_fifa"
+                                  checked={newFifaChannel.available_for_resellers !== false}
+                                  onChange={(e) => {
+                                    setNewFifaChannel({
+                                      ...newFifaChannel, 
+                                      available_for_resellers: e.target.checked
+                                    });
+                                  }}
+                                  className="w-4 h-4 accent-cyan-500"
+                                />
+                                <label htmlFor="available_for_resellers_fifa" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Resellers Access</label>
+                              </div>
+
                               {(newFifaChannel.is_embed || newFifaChannel.is_webpage) && (
                                 <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 rounded-2xl px-5 py-3">
                                   <input 
@@ -9055,7 +9119,8 @@ export default function App() {
                                         order: item.order !== undefined && item.order !== 999999 ? String(item.order) : '',
                                         stream_id: item.stream_id || '',
                                         feed_type: item.feed_type || (item.stream_id ? 'iptv' : 'custom'),
-                                        is_premium: item.is_premium !== undefined ? !!item.is_premium : (item.feed_type === 'iptv' || !!item.stream_id)
+                                        is_premium: item.is_premium !== undefined ? !!item.is_premium : (item.feed_type === 'iptv' || !!item.stream_id),
+                                        available_for_resellers: item.available_for_resellers !== false
                                       });
                                     }}
                                     className="w-8 h-8 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 flex items-center justify-center transition-all"
