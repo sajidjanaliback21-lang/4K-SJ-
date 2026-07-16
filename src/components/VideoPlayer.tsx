@@ -181,6 +181,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const dashRef = useRef<any>(null);
   const shakaRef = useRef<any>(null);
   const latestUrlRef = useRef<string | null>(null);
+  const keepAliveIntervalRef = useRef<any>(null);
   const lastClickTimeRef = useRef<number>(0);
   const userSelectedSpeedRef = useRef<number>(1.0);
   const hasCompletedInitialLoad = useRef<boolean>(false);
@@ -495,6 +496,12 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const cleanAllActivePlayers = async () => {
+    // Clear Keep-Alive Interval if active
+    if (keepAliveIntervalRef.current) {
+      clearInterval(keepAliveIntervalRef.current);
+      keepAliveIntervalRef.current = null;
+    }
+
     // 1. Destroy HLS
     if (hlsRef.current) {
       try {
@@ -587,6 +594,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   useEffect(() => {
     if (!artRef.current || !sourceUrl || isEmbeddable(originalUrl) || options.is_webpage) return;
+
+    let dropTime = 0;
 
     latestUrlRef.current = sourceUrl;
     hasCompletedInitialLoad.current = false;
@@ -1060,6 +1069,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 if (tsRetryCount < maxTsRetries) {
                   tsRetryCount++;
                   art.notice.show = 'Restoring stream...';
+                  dropTime = art.currentTime;
                   setTimeout(() => {
                     initMpegTs(currentTime);
                   }, 1000);
@@ -1085,6 +1095,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   if (!inBuffer && video.currentTime > 0) {
                     console.warn('Play clicked but buffer is dry for TS. Reconnecting mpegts...');
                     art.notice.show = 'Restoring connection...';
+                    dropTime = art.currentTime;
                     initMpegTs(video.currentTime);
                   }
                 }
@@ -1122,6 +1133,138 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             const maxHlsRetries = 3;
             let onPlayAttemptM3u8: (() => void) | null = null;
 
+            let lastRefreshTime = Date.now();
+            let cachedRefreshedUrl = url;
+
+            const fetchLatestPlayUrlFromFirestore = async (): Promise<string | null> => {
+              try {
+                const { doc, getDoc, collection, getDocs, query } = await import('firebase/firestore');
+                const { db } = await import('../firebase');
+
+                // 1. If options specify a channelId/collectionName, query directly
+                if (options.channelId && options.collectionName) {
+                  const docRef = doc(db, options.collectionName, options.channelId);
+                  const docSnap = await getDoc(docRef);
+                  if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    if (data && data.play_url) return data.play_url;
+                  }
+                }
+
+                // 2. Otherwise, auto-discover by searching collections
+                const collectionsToSearch = ['fifa_channels', 'live_events', 'free_movies', 'free_series'];
+                for (const colName of collectionsToSearch) {
+                  const currentBase = url.split('?')[0];
+
+                  const colRef = collection(db, colName);
+                  const q = query(colRef);
+                  const querySnapshot = await getDocs(q);
+                  
+                  for (const d of querySnapshot.docs) {
+                    const data = d.data();
+                    if (data && data.play_url) {
+                      const playBase = data.play_url.split('?')[0];
+                      if (playBase === currentBase) {
+                        return data.play_url;
+                      }
+                    }
+                  }
+                }
+              } catch (err) {
+                console.warn('Error fetching latest play_url from Firestore:', err);
+              }
+              return null;
+            };
+
+            const mergeTokens = (targetUrlStr: string, sourceUrlStr: string): string => {
+              try {
+                const targetUrl = new URL(targetUrlStr);
+                const sourceUrlObj = new URL(sourceUrlStr);
+
+                // Copy query parameters that are related to tokens/authorization
+                const tokenParams = ['token', 'sign', 'hash', 'auth', 'expires', 'hdnts', 'security', 'exp', 'validuntil', 'time'];
+                tokenParams.forEach(param => {
+                  const val = sourceUrlObj.searchParams.get(param);
+                  if (val !== null) {
+                    targetUrl.searchParams.set(param, val);
+                  }
+                });
+
+                // Path-based Xtream credentials replacement if applicable
+                const targetParts = targetUrl.pathname.split('/');
+                const sourceParts = sourceUrlObj.pathname.split('/');
+                if (targetParts[1] === 'live' && targetParts.length >= 5 && sourceParts[1] === 'live' && sourceParts.length >= 5) {
+                  targetParts[2] = sourceParts[2]; // username
+                  targetParts[3] = sourceParts[3]; // password
+                  targetUrl.pathname = targetParts.join('/');
+                }
+
+                return targetUrl.toString();
+              } catch (_) {
+                return targetUrlStr;
+              }
+            };
+
+            const getRefreshedUrl = async (urlStr: string): Promise<string> => {
+              const lower = urlStr.toLowerCase();
+              const hasToken = lower.includes('token=') || 
+                               lower.includes('sign=') || 
+                               lower.includes('hash=') || 
+                               lower.includes('auth=') || 
+                               lower.includes('expires=') || 
+                               lower.includes('hdnts=') ||
+                               lower.includes('security=') ||
+                               lower.includes('/live/');
+
+              if (!hasToken) {
+                return urlStr;
+              }
+
+              const now = Date.now();
+              const timeSinceLastRefresh = now - lastRefreshTime;
+              
+              // Refresh if more than 4 minutes (240000ms) has passed since last refresh
+              let needsRefresh = timeSinceLastRefresh > 240000;
+
+              // Also check explicit expiration in parameters if present
+              try {
+                const urlObj = new URL(urlStr);
+                const expParam = urlObj.searchParams.get('exp') || 
+                                 urlObj.searchParams.get('expires') || 
+                                 urlObj.searchParams.get('expiration') ||
+                                 urlObj.searchParams.get('validuntil') ||
+                                 urlObj.searchParams.get('time');
+                if (expParam) {
+                  const expTime = parseInt(expParam, 10);
+                  if (!isNaN(expTime)) {
+                    const expMs = expTime < 10000000000 ? expTime * 1000 : expTime;
+                    if (expMs - now < 120000) { // Less than 2 minutes left
+                      needsRefresh = true;
+                    }
+                  }
+                }
+              } catch (_) {}
+
+              if (!needsRefresh) {
+                return mergeTokens(urlStr, cachedRefreshedUrl);
+              }
+
+              console.log('HLS Token/Session close to expiring, fetching fresh URL/token from database...');
+              try {
+                const freshUrl = await fetchLatestPlayUrlFromFirestore();
+                if (freshUrl) {
+                  console.log('Successfully refreshed HLS URL from database:', freshUrl);
+                  cachedRefreshedUrl = freshUrl;
+                  lastRefreshTime = Date.now();
+                  return mergeTokens(urlStr, freshUrl);
+                }
+              } catch (err) {
+                console.warn('Failed to fetch refreshed URL:', err);
+              }
+
+              return urlStr;
+            };
+
             const initHls = async (startTime?: number) => {
               await cleanAllActivePlayers();
 
@@ -1141,6 +1284,36 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 progressive: !isLive,
               };
 
+              // Custom Loader for dynamic token refresh & URL intercept
+              const CustomLoader = function (this: any, config: any) {
+                const baseLoader = new (Hls as any).DefaultConfig.loader(config);
+                
+                Object.defineProperty(this, 'stats', {
+                  get: () => baseLoader.stats,
+                  set: (val) => { baseLoader.stats = val; }
+                });
+
+                this.load = async function (context: any, config: any, callbacks: any) {
+                  try {
+                    context.url = await getRefreshedUrl(context.url);
+                  } catch (err) {
+                    console.warn('Error in CustomLoader URL intercept:', err);
+                  }
+                  baseLoader.load(context, config, callbacks);
+                };
+                
+                this.abort = function () {
+                  baseLoader.abort();
+                };
+                
+                this.destroy = function () {
+                  baseLoader.destroy();
+                };
+              };
+
+              hlsConfig.pLoader = CustomLoader;
+              hlsConfig.fLoader = CustomLoader;
+
               // If resuming VOD, set startPosition
               if (!isLive && startTime && startTime > 0) {
                 hlsConfig.startPosition = startTime;
@@ -1151,41 +1324,88 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
               console.log(`Initializing HLS with config:`, { isLive, startTime, maxBufferLength: hlsConfig.maxBufferLength });
 
+              // Start Keep-Alive Ping
+              if (keepAliveIntervalRef.current) {
+                clearInterval(keepAliveIntervalRef.current);
+              }
+              
+              let pingUrl = url;
+              try {
+                const parsedPingUrl = new URL(url);
+                pingUrl = parsedPingUrl.origin;
+              } catch (e) {
+                console.warn('Failed to parse URL for keep-alive:', e);
+              }
+
+              const sendKeepAlive = () => {
+                console.log(`Sending keep-alive ping to: ${pingUrl}`);
+                fetch(`${pingUrl}/?keepalive=${Date.now()}`, {
+                  method: 'HEAD',
+                  mode: 'no-cors',
+                  cache: 'no-cache'
+                }).catch(err => {
+                  console.log('Keep alive ping response (ignored error/success):', err);
+                });
+              };
+
+              sendKeepAlive();
+              keepAliveIntervalRef.current = setInterval(sendKeepAlive, 60000);
+
               const hls = new Hls(hlsConfig);
               hlsRef.current = hls;
               hls.loadSource(url);
               hls.attachMedia(video);
 
+              let nativeRecoveryAttempts = 0;
+              const maxNativeAttempts = 3;
+
               // Handle fatal loading/media errors by automatically recovering/retrying
               hls.on(Hls.Events.ERROR, (event, data) => {
                 if (data.fatal) {
                   const currentTime = video.currentTime;
-                  switch (data.type) {
-                    case Hls.ErrorTypes.NETWORK_ERROR:
-                      console.warn('Fatal network-error encountered on HLS stream, attempting recovery...', data);
+                  console.warn(`Fatal HLS error encountered: ${data.type} (${data.details}). Attempting native recovery (attempt ${nativeRecoveryAttempts + 1})...`);
+                  
+                  if (nativeRecoveryAttempts < maxNativeAttempts) {
+                    nativeRecoveryAttempts++;
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                      console.warn('Fatal network-error encountered on HLS stream, starting load natively...');
                       hls.startLoad();
-                      break;
-                    case Hls.ErrorTypes.MEDIA_ERROR:
-                      console.warn('Fatal media-error encountered on HLS stream, attempting recovery...', data);
+                    } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                      console.warn('Fatal media-error encountered on HLS stream, attempting native recoverMediaError...');
                       hls.recoverMediaError();
-                      break;
-                    default:
-                      console.error('Fatal HLS stream error, re-initializing loader to resume from:', currentTime);
+                    } else {
+                      // Other fatal errors (like manifest load error), attempt hard reconnect
+                      console.warn('Other fatal error type, falling back to hard reconnect...');
                       if (hlsRetryCount < maxHlsRetries) {
                         hlsRetryCount++;
+                        dropTime = art.currentTime;
                         setTimeout(() => {
                           initHls(currentTime);
                         }, 1000);
                       } else {
                         art.notice.show = 'Connection lost. Please try reloading.';
                       }
-                      break;
+                    }
+                  } else {
+                    // Native recovery attempts exhausted, fall back to hard reconnect
+                    console.warn('Native HLS recovery attempts exhausted. Falling back to hard reconnect...');
+                    if (hlsRetryCount < maxHlsRetries) {
+                      hlsRetryCount++;
+                      dropTime = art.currentTime;
+                      nativeRecoveryAttempts = 0; // reset for next cycle
+                      setTimeout(() => {
+                        initHls(currentTime);
+                      }, 1000);
+                    } else {
+                      art.notice.show = 'Connection lost. Please try reloading.';
+                    }
                   }
                 }
               });
 
               hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 hlsRetryCount = 0; // reset retry count on success
+                nativeRecoveryAttempts = 0; // reset native recovery attempts
                 
                 // If we have a startTime, double check seeking
                 if (!isLive && startTime && startTime > 0) {
@@ -1272,6 +1492,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   if (!inBuffer && video.currentTime > 0) {
                     console.warn('Play clicked but buffer is dry for M3U8. Reconnecting HLS...');
                     art.notice.show = 'Restoring connection...';
+                    dropTime = art.currentTime;
                     initHls(video.currentTime);
                   }
                 }
@@ -1324,12 +1545,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
     });
 
+    const restoreDropTime = () => {
+      if (dropTime > 0) {
+        console.log(`Restoring playback time to: ${dropTime}`);
+        art.currentTime = dropTime;
+        dropTime = 0; // Clear the variable
+      }
+    };
+
     // Also hide loading indicator as soon as live stream video can start playing
     art.on('video:canplay', () => {
       if (isLiveStream) {
         setIsLoading(false);
         hasCompletedInitialLoad.current = true;
       }
+      restoreDropTime();
     });
 
     art.on('video:loadedmetadata', () => {
@@ -1337,6 +1567,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setIsLoading(false);
         hasCompletedInitialLoad.current = true;
       }
+      restoreDropTime();
     });
 
     // Show loading screen if the video stops to buffer mid-stream or during startup (bypassed for active live streams)
@@ -1379,6 +1610,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const lastTime = video.currentTime;
         const currentUrl = art.url;
         
+        dropTime = art.currentTime;
         art.switchUrl(currentUrl).then(() => {
           art.video.currentTime = lastTime;
           art.play().catch(() => {});
@@ -1767,6 +1999,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           }
         } catch (e) {
           console.error('AudioContext cleanup error:', e);
+        }
+        if (keepAliveIntervalRef.current) {
+          clearInterval(keepAliveIntervalRef.current);
+          keepAliveIntervalRef.current = null;
         }
         playerRef.current.destroy();
       }

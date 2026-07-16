@@ -411,6 +411,16 @@ const buildUrlWithKeys = (base: string, keys: string) => {
   return `${cleanBase}|drmScheme=clearkey&drmLicense=${trimmedKeys}`;
 };
 
+const extractIframeSrc = (input: string): string | null => {
+  if (!input) return null;
+  const trimmed = input.trim();
+  if (/^https?:\/\/[^\s]+$/i.test(trimmed)) {
+    return trimmed;
+  }
+  const match = trimmed.match(/<iframe[^>]+src=["']([^"']+)["']/i);
+  return match ? match[1].trim() : null;
+};
+
 const renderBrandName = (name: string) => {
   const separators = ['•', '·', '•', '*', '-'];
   let sepFound = '';
@@ -8445,27 +8455,53 @@ export default function App() {
                                       </div>
                                     </div>
                                   ) : (
-                                    <div className="space-y-1">
-                                      <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">Stream / Play Link</label>
-                                      <input 
-                                        type="text" 
-                                        value={channel.play_url}
-                                        onChange={(e) => {
-                                          const val = e.target.value;
-                                          const parsed = parseKeysFromUrl(val);
-                                          const updatedCh = [...newLiveEvent.channels];
-                                          if (parsed.keys || val.toLowerCase().includes('.mpd')) {
-                                            updatedCh[cIdx].play_url = val;
-                                            updatedCh[cIdx].is_mpd = true;
-                                            updatedCh[cIdx].is_embed = false;
-                                          } else {
-                                            updatedCh[cIdx].play_url = val;
-                                          }
-                                          setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                        }}
-                                        placeholder="e.g. m3u8 link, .mpd link, or embed stream"
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                                      />
+                                    <div className="space-y-2">
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">Stream / Play Link</label>
+                                        <input 
+                                          type="text" 
+                                          value={channel.play_url}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            const extracted = extractIframeSrc(val);
+                                            const updatedCh = [...newLiveEvent.channels];
+                                            if (extracted && val.toLowerCase().includes('<iframe')) {
+                                              updatedCh[cIdx].play_url = extracted;
+                                              updatedCh[cIdx].is_embed = true;
+                                            } else {
+                                              const parsed = parseKeysFromUrl(val);
+                                              if (parsed.keys || val.toLowerCase().includes('.mpd')) {
+                                                updatedCh[cIdx].play_url = val;
+                                                updatedCh[cIdx].is_mpd = true;
+                                                updatedCh[cIdx].is_embed = false;
+                                              } else {
+                                                updatedCh[cIdx].play_url = val;
+                                              }
+                                            }
+                                            setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                          }}
+                                          placeholder="e.g. m3u8 link, .mpd link, or embed stream"
+                                          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                                        />
+                                      </div>
+                                      <div className="space-y-1">
+                                        <label className="text-[8px] font-bold text-cyan-400 uppercase tracking-widest">📋 Paste Full Iframe Code (Pasted embed automatically)</label>
+                                        <input 
+                                          type="text" 
+                                          placeholder='e.g. <iframe src="..." ...></iframe>'
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            const extracted = extractIframeSrc(val);
+                                            if (extracted) {
+                                              const updatedCh = [...newLiveEvent.channels];
+                                              updatedCh[cIdx].play_url = extracted;
+                                              updatedCh[cIdx].is_embed = true;
+                                              setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                            }
+                                          }}
+                                          className="w-full bg-cyan-500/5 border border-cyan-500/20 rounded-xl px-3 py-2 text-[11px] text-cyan-200 placeholder:text-white/20 focus:outline-none font-mono"
+                                        />
+                                      </div>
                                     </div>
                                   )}
                                 </div>
@@ -8809,32 +8845,63 @@ export default function App() {
                                 </div>
                               </>
                             ) : (
-                              <div className="space-y-2">
-                                <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Custom Stream Link / Embed URL</label>
-                                <input 
-                                  type="text" 
-                                  value={newFifaChannel.play_url}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    const parsed = parseKeysFromUrl(val);
-                                    if (parsed.keys || val.toLowerCase().includes('.mpd')) {
-                                      setNewFifaChannel({
-                                        ...newFifaChannel, 
-                                        play_url: val,
-                                        is_mpd: true,
-                                        is_embed: false
-                                      });
-                                    } else {
-                                      setNewFifaChannel({
-                                        ...newFifaChannel, 
-                                        play_url: val,
-                                        is_embed: val.toLowerCase().includes('iframe') || !val.toLowerCase().includes('.m3u8') && !val.toLowerCase().includes('.ts')
-                                      });
-                                    }
-                                  }}
-                                  placeholder="e.g. http://server.com/live.m3u8 or iframe embed URL"
-                                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                                />
+                              <div className="space-y-4">
+                                <div className="space-y-2">
+                                  <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Custom Stream Link / Embed URL</label>
+                                  <input 
+                                    type="text" 
+                                    value={newFifaChannel.play_url}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      const extracted = extractIframeSrc(val);
+                                      if (extracted && val.toLowerCase().includes('<iframe')) {
+                                        setNewFifaChannel({
+                                          ...newFifaChannel,
+                                          play_url: extracted,
+                                          is_embed: true
+                                        });
+                                      } else {
+                                        const parsed = parseKeysFromUrl(val);
+                                        if (parsed.keys || val.toLowerCase().includes('.mpd')) {
+                                          setNewFifaChannel({
+                                            ...newFifaChannel, 
+                                            play_url: val,
+                                            is_mpd: true,
+                                            is_embed: false
+                                          });
+                                        } else {
+                                          setNewFifaChannel({
+                                            ...newFifaChannel, 
+                                            play_url: val,
+                                            is_embed: val.toLowerCase().includes('iframe') || !val.toLowerCase().includes('.m3u8') && !val.toLowerCase().includes('.ts')
+                                          });
+                                        }
+                                      }
+                                    }}
+                                    placeholder="e.g. http://server.com/live.m3u8 or iframe embed URL"
+                                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                                  />
+                                </div>
+
+                                <div className="space-y-2">
+                                  <label className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest px-1 font-black">📋 Paste Full Iframe Code (Pura Iframe Code paste karein)</label>
+                                  <textarea 
+                                    placeholder='e.g. <iframe src="https://..." width="100%" height="100%"></iframe>'
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      const extracted = extractIframeSrc(val);
+                                      if (extracted) {
+                                        setNewFifaChannel({
+                                          ...newFifaChannel,
+                                          play_url: extracted,
+                                          is_embed: true
+                                        });
+                                      }
+                                    }}
+                                    rows={2}
+                                    className="w-full bg-cyan-500/5 border border-cyan-500/20 rounded-2xl px-4 py-3 text-xs text-cyan-200 placeholder:text-white/20 focus:outline-none focus:border-cyan-500/50 font-mono resize-none"
+                                  />
+                                </div>
                               </div>
                             )}
 
