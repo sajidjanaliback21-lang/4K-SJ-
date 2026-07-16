@@ -1272,16 +1272,27 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
               const isLive = options.isLive !== undefined ? options.isLive : (originalUrl.toLowerCase().includes('.m3u8') || originalUrl.toLowerCase().includes('.ts') || originalUrl.toLowerCase().includes('.mpd'));
               
-              // Dynamic HLS Configuration for ultimate performance and stability
+              // Dynamic HLS Configuration optimized for ultimate smoothness, stability, and advanced buffering
               const hlsConfig: any = {
                 enableWorker: true,
-                lowLatencyMode: isLive ? true : false,
-                backBufferLength: isLive ? 30 : 120, // Keep 2 minutes of played video in buffer for fast rewind
-                maxBufferLength: isLive ? 8 : 120,   // Buffer 2 minutes ahead for VOD!
-                maxMaxBufferLength: isLive ? 15 : 180, // Allow up to 3 minutes max buffer
-                maxBufferSize: isLive ? 30 * 1024 * 1024 : 200 * 1024 * 1024, // 200MB buffer for high-quality VOD
+                backBufferLength: isLive ? 30 : 120, // Keep played video in buffer for fast rewind
+                maxBufferLength: isLive ? 30 : 120,   // Buffer 30 seconds ahead for live streams! 2 minutes for VOD!
+                maxMaxBufferLength: isLive ? 60 : 180, // Allow up to 60 seconds max buffer for live streams
+                maxBufferSize: isLive ? 60 * 1024 * 1024 : 200 * 1024 * 1024, // 60MB buffer for live streams to hold advanced data, 200MB for VOD
                 appendErrorMaxRetry: 10,
-                progressive: !isLive,
+                // Advanced buffer & gap recovery settings
+                maxBufferHole: 2, // Automatically skip over minor segment gaps up to 2 seconds instead of pausing
+                nudgeMaxRetries: 10, // Try to nudge player past silent stalls up to 10 times
+                nudgeDelay: 0.1, // Nudge forward in 100ms intervals to unfreeze quickly
+                maxFragLookUpTolerance: 0.25,
+                highBufferWatchdogDelay: 3, // Detect if playback is frozen even with high buffer and nudge it
+                // Robust retry values to handle unstable/lossy network connections
+                manifestLoadingMaxRetry: 6,
+                manifestLoadingRetryDelay: 1000,
+                levelLoadingMaxRetry: 6,
+                levelLoadingRetryDelay: 1000,
+                fragLoadingMaxRetry: 10,
+                fragLoadingRetryDelay: 1000,
               };
 
               // Custom Loader for dynamic token refresh & URL intercept
@@ -1318,8 +1329,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               if (!isLive && startTime && startTime > 0) {
                 hlsConfig.startPosition = startTime;
               } else if (isLive) {
-                hlsConfig.liveSyncDurationCount = 1;
-                hlsConfig.liveMaxLatencyDurationCount = 3;
+                // Ensure the player maintains a safe distance behind the live edge to preload sufficient buffer
+                hlsConfig.liveSyncDuration = 15; // Maintain a solid 15-second buffer (typical standard players like VLC use this range)
+                hlsConfig.liveMaxLatencyDuration = 120; // Allow the buffer to grow up to 120 seconds before needing to skip forward (completely prevents constant seeking/reloading!)
               }
 
               console.log(`Initializing HLS with config:`, { isLive, startTime, maxBufferLength: hlsConfig.maxBufferLength });
