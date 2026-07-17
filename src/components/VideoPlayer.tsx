@@ -1501,27 +1501,114 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = url;
 
+            let currentStreamUrl = url;
+            let tsSegmentUrl: string | null = null;
             let isSilentReconnecting = false;
             let lastReconnectTime = 0;
             let waitingTimeout: any = null;
 
+            // Helper to parse .m3u8 and resolve the first actual .ts video segment URL
+            const getTsSegmentUrl = async (m3u8Url: string): Promise<string | null> => {
+              if (tsSegmentUrl) return tsSegmentUrl;
+              try {
+                const busterUrl = m3u8Url.includes('?') ? `${m3u8Url}&_cb=${Date.now()}` : `${m3u8Url}?_cb=${Date.now()}`;
+                const res = await fetch(busterUrl);
+                const text = await res.text();
+                const lines = text.split('\n');
+                for (let line of lines) {
+                  line = line.trim();
+                  if (line && !line.startsWith('#')) {
+                    const resolved = new URL(line, m3u8Url).toString();
+                    if (resolved.toLowerCase().includes('.ts') || resolved.toLowerCase().includes('.key') || !resolved.toLowerCase().includes('.m3u8')) {
+                      tsSegmentUrl = resolved;
+                      return resolved;
+                    } else if (resolved.toLowerCase().includes('.m3u8')) {
+                      const subRes = await fetch(resolved.includes('?') ? `${resolved}&_cb=${Date.now()}` : `${resolved}?_cb=${Date.now()}`);
+                      const subText = await subRes.text();
+                      const subLines = subText.split('\n');
+                      for (let subLine of subLines) {
+                        subLine = subLine.trim();
+                        if (subLine && !subLine.startsWith('#')) {
+                          const subResolved = new URL(subLine, resolved).toString();
+                          tsSegmentUrl = subResolved;
+                          return subResolved;
+                        }
+                      }
+                    }
+                  }
+                }
+              } catch (err) {
+                console.warn('[iOS Heartbeat] Failed to resolve .ts segment URL:', err);
+              }
+              return null;
+            };
+
             // M3U8 Keep-Alive Heartbeat every 15 seconds while playing on iOS
             // This constantly triggers a lightweight HEAD fetch (or GET fallback) to keep the IPTV panel session marked 'Online'
             // Uses a dynamic cache-buster query parameter to force Safari to bypass cache and hit the actual server
-            const heartbeatInterval = setInterval(() => {
+            const heartbeatInterval = setInterval(async () => {
               if (art.playing && !video.paused) {
-                const busterUrl = url.includes('?') ? `${url}&_cb=${Date.now()}` : `${url}?_cb=${Date.now()}`;
-                console.log('[iOS Heartbeat] Sending 15s keep-alive request to server/panel (with cache buster)...');
-                fetch(busterUrl, { method: 'HEAD' })
-                  .then(() => console.log('[iOS Heartbeat] Keep-alive (HEAD) successful'))
-                  .catch(() => {
-                    // Fallback to GET if HEAD is rejected or not supported by the proxy/server
-                    fetch(busterUrl)
-                      .then(() => console.log('[iOS Heartbeat] Keep-alive (GET fallback) successful'))
-                      .catch(e => console.warn('[iOS Heartbeat] Keep-alive failed:', e));
-                  });
+                try {
+                  let targetHeartbeatUrl = await getTsSegmentUrl(currentStreamUrl);
+                  if (!targetHeartbeatUrl) {
+                    targetHeartbeatUrl = currentStreamUrl;
+                  }
+                  const busterUrl = targetHeartbeatUrl.includes('?') 
+                    ? `${targetHeartbeatUrl}&_cb=${Date.now()}` 
+                    : `${targetHeartbeatUrl}?_cb=${Date.now()}`;
+                  
+                  console.log(`[iOS Heartbeat] Sending 15s keep-alive request to: ${busterUrl}`);
+                  fetch(busterUrl, { method: 'HEAD', headers: { 'Accept': '*/*' } })
+                    .then(() => console.log('[iOS Heartbeat] Keep-alive (HEAD) successful'))
+                    .catch(() => {
+                      // Fallback to GET if HEAD is rejected or not supported by the proxy/server
+                      fetch(busterUrl, { headers: { 'Accept': '*/*' } })
+                        .then(() => console.log('[iOS Heartbeat] Keep-alive (GET fallback) successful'))
+                        .catch(e => console.warn('[iOS Heartbeat] Keep-alive failed:', e));
+                    });
+                } catch (err) {
+                  console.warn('[iOS Heartbeat] Error in heartbeat fetch:', err);
+                }
               }
             }, 15000);
+
+            // Aggressive Seek Debounce (Speed-Breaker) for iOS to prevent multiple parallel connection flood
+            const originalDescriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
+            const originalSet = originalDescriptor?.set;
+            const originalGet = originalDescriptor?.get;
+
+            let seekDebounceTimeout: any = null;
+            let pendingSeekTime: number | null = null;
+
+            if (originalSet && originalGet) {
+              Object.defineProperty(video, 'currentTime', {
+                get() {
+                  if (pendingSeekTime !== null) {
+                    return pendingSeekTime;
+                  }
+                  return originalGet.call(video);
+                },
+                set(newTime: number) {
+                  // If silent reconnecting, apply immediately to avoid blocking the recovery
+                  if (isSilentReconnecting) {
+                    originalSet.call(video, newTime);
+                    return;
+                  }
+
+                  console.log(`[iOS Seek Intercept] Attempted seek to ${newTime}s. Debouncing for 1000ms...`);
+                  pendingSeekTime = newTime;
+
+                  if (seekDebounceTimeout) clearTimeout(seekDebounceTimeout);
+                  seekDebounceTimeout = setTimeout(() => {
+                    console.log(`[iOS Seek Intercept] Applying debounced seek to ${newTime}s`);
+                    pendingSeekTime = null;
+                    originalSet.call(video, newTime);
+                  }, 1000);
+                },
+                configurable: true,
+                enumerable: true
+              });
+            }
 
             const performSilentReconnect = async () => {
               if (isSilentReconnecting) return;
@@ -1535,7 +1622,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               console.log(`[iOS Silent Reconnect] Stalled or dropped. Saving position ${savedTime}s and reconnecting silently...`);
               
               try {
-                const freshUrl = await getRefreshedUrl(url, true);
+                // Force a completely fresh URL from Firestore/backend
+                const freshUrl = await getRefreshedUrl(currentStreamUrl, true);
+                currentStreamUrl = freshUrl;
+                tsSegmentUrl = null; // Clear cached segment url to force re-resolution on next heartbeat
+                
                 video.src = freshUrl;
                 video.load();
                 
@@ -1633,6 +1724,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             art.on('destroy', () => {
               clearInterval(heartbeatInterval);
               if (waitingTimeout) clearTimeout(waitingTimeout);
+              if (seekDebounceTimeout) clearTimeout(seekDebounceTimeout);
+              
+              // Restore original currentTime property descriptor
+              if (originalDescriptor) {
+                try {
+                  Object.defineProperty(video, 'currentTime', originalDescriptor);
+                } catch (_) {}
+              }
+
               video.removeEventListener('stalled', onStalled);
               video.removeEventListener('suspend', onSuspend);
               video.removeEventListener('error', onError);
