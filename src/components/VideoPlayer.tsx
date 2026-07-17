@@ -1201,7 +1201,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }
           };
 
-          const getRefreshedUrl = async (urlStr: string): Promise<string> => {
+          const getRefreshedUrl = async (urlStr: string, forceRefresh = false): Promise<string> => {
             const lower = urlStr.toLowerCase();
             const hasToken = lower.includes('token=') || 
                              lower.includes('sign=') || 
@@ -1219,33 +1219,35 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             const now = Date.now();
             const timeSinceLastRefresh = now - lastRefreshTime;
             
-            // Refresh if more than 4 minutes (240000ms) has passed since last refresh
-            let needsRefresh = timeSinceLastRefresh > 240000;
+            // Refresh if more than 4 minutes (240000ms) has passed since last refresh, or if forced
+            let needsRefresh = forceRefresh || (timeSinceLastRefresh > 240000);
 
             // Also check explicit expiration in parameters if present
-            try {
-              const urlObj = new URL(urlStr);
-              const expParam = urlObj.searchParams.get('exp') || 
-                               urlObj.searchParams.get('expires') || 
-                               urlObj.searchParams.get('expiration') ||
-                               urlObj.searchParams.get('validuntil') ||
-                               urlObj.searchParams.get('time');
-              if (expParam) {
-                const expTime = parseInt(expParam, 10);
-                if (!isNaN(expTime)) {
-                  const expMs = expTime < 10000000000 ? expTime * 1000 : expTime;
-                  if (expMs - now < 120000) { // Less than 2 minutes left
-                    needsRefresh = true;
+            if (!needsRefresh) {
+              try {
+                const urlObj = new URL(urlStr);
+                const expParam = urlObj.searchParams.get('exp') || 
+                                 urlObj.searchParams.get('expires') || 
+                                 urlObj.searchParams.get('expiration') ||
+                                 urlObj.searchParams.get('validuntil') ||
+                                 urlObj.searchParams.get('time');
+                if (expParam) {
+                  const expTime = parseInt(expParam, 10);
+                  if (!isNaN(expTime)) {
+                    const expMs = expTime < 10000000000 ? expTime * 1000 : expTime;
+                    if (expMs - now < 120000) { // Less than 2 minutes left
+                      needsRefresh = true;
+                    }
                   }
                 }
-              }
-            } catch (_) {}
+              } catch (_) {}
+            }
 
             if (!needsRefresh) {
               return mergeTokens(urlStr, cachedRefreshedUrl);
             }
 
-            console.log('HLS Token/Session close to expiring, fetching fresh URL/token from database...');
+            console.log('HLS Token/Session close to expiring (or forced recovery), fetching fresh URL/token from database...');
             try {
               const freshUrl = await fetchLatestPlayUrlFromFirestore();
               if (freshUrl) {
@@ -1505,14 +1507,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             // M3U8 Keep-Alive Heartbeat every 15 seconds while playing on iOS
             // This constantly triggers a lightweight HEAD fetch (or GET fallback) to keep the IPTV panel session marked 'Online'
+            // Uses a dynamic cache-buster query parameter to force Safari to bypass cache and hit the actual server
             const heartbeatInterval = setInterval(() => {
               if (art.playing && !video.paused) {
-                console.log('[iOS Heartbeat] Sending 15s keep-alive request to server/panel...');
-                fetch(url, { method: 'HEAD' })
+                const busterUrl = url.includes('?') ? `${url}&_cb=${Date.now()}` : `${url}?_cb=${Date.now()}`;
+                console.log('[iOS Heartbeat] Sending 15s keep-alive request to server/panel (with cache buster)...');
+                fetch(busterUrl, { method: 'HEAD' })
                   .then(() => console.log('[iOS Heartbeat] Keep-alive (HEAD) successful'))
                   .catch(() => {
                     // Fallback to GET if HEAD is rejected or not supported by the proxy/server
-                    fetch(url)
+                    fetch(busterUrl)
                       .then(() => console.log('[iOS Heartbeat] Keep-alive (GET fallback) successful'))
                       .catch(e => console.warn('[iOS Heartbeat] Keep-alive failed:', e));
                   });
@@ -1531,7 +1535,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               console.log(`[iOS Silent Reconnect] Stalled or dropped. Saving position ${savedTime}s and reconnecting silently...`);
               
               try {
-                const freshUrl = await getRefreshedUrl(url);
+                const freshUrl = await getRefreshedUrl(url, true);
                 video.src = freshUrl;
                 video.load();
                 
