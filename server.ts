@@ -26,6 +26,9 @@ async function startServer() {
     const { url, ...params } = req.query;
     if (!url) return res.status(400).json({ error: "URL is required" });
 
+    const rawIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || req.ip || '';
+    const clientIp = rawIp.split(',')[0].trim();
+
     const fullUrl = url as string;
     const cacheKey = fullUrl + JSON.stringify(params);
 
@@ -36,7 +39,7 @@ async function startServer() {
       return res.json(cached.data);
     }
 
-    console.log(`Proxying request to: ${url}`);
+    console.log(`Proxying request to: ${url} (Client IP forwarded: ${clientIp})`);
     try {
       const targetUrl = new URL(url as string);
       const response = await axios.get(url as string, {
@@ -48,6 +51,8 @@ async function startServer() {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
           'Accept': '*/*',
           'Host': targetUrl.host,
+          'X-Forwarded-For': clientIp,
+          'X-Real-IP': clientIp,
         }
       });
       
@@ -80,12 +85,17 @@ async function startServer() {
     const { url } = req.query;
     if (!url) return res.status(400).send("URL is required");
 
+    const rawIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || req.ip || '';
+    const clientIp = rawIp.split(',')[0].trim();
+
     const targetUrl = url as string;
     const range = req.headers.range;
 
     try {
       const headers: any = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'X-Forwarded-For': clientIp,
+        'X-Real-IP': clientIp,
       };
       if (range) {
         headers['Range'] = range;

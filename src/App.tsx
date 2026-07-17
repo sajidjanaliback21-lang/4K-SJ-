@@ -599,7 +599,15 @@ export default function App() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [userInfo, setUserInfo] = useState<any>(null);
-  const [serverInfo, setServerInfo] = useState<any>(null);
+  const [serverInfo, setServerInfo] = useState<any>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const saved = localStorage.getItem('iptv_server_info');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
   const [favorites, setFavorites] = useState<any[]>([]);
   const [profileData, setProfileData] = useState<any>({
     avatarId: 'cinephile',
@@ -782,10 +790,42 @@ export default function App() {
     return saved !== 'false';
   });
 
+  const [streamingMode, setStreamingMode] = useState<'A' | 'B'>(() => {
+    if (typeof window === 'undefined') return 'B';
+    const saved = localStorage.getItem('iptv_streaming_mode');
+    return (saved === 'A' || saved === 'B') ? saved : 'B';
+  });
+
   // Reactive reseller helper values
   const currentBrandName = activeReseller?.brand_name || (getResellerKey() ? guessBrandNameFromKey(getResellerKey()) : "4K•SJ");
   const currentTagline = activeReseller?.tagline || (getResellerKey() ? "Loading Premium Experience..." : "Premium Experience");
-  const currentServerHost = activeReseller?.server_url || "https://sjstorehot-lbskip.hf.space";
+  
+  const getStreamingHost = () => {
+    if (streamingMode === 'B') {
+      if (serverInfo) {
+        let url = serverInfo.url;
+        if (url) {
+          // Clean up URL
+          if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            url = `https://${url}`;
+          } else if (url.startsWith('http://')) {
+            url = url.replace('http://', 'https://');
+          }
+          // Remove trailing slash
+          url = url.replace(/\/$/, '');
+          
+          // If there is an HTTPS port and it is not 443, append it
+          if (serverInfo.https_port && serverInfo.https_port !== '443' && serverInfo.https_port !== '80' && !url.includes(':', 6)) {
+            url = `${url}:${serverInfo.https_port}`;
+          }
+          return url;
+        }
+      }
+    }
+    return activeReseller?.server_url || "https://sjstorehot-lbskip.hf.space";
+  };
+
+  const currentServerHost = getStreamingHost();
   
   // If an active reseller is matched, we MUST NOT fall back to the main admin's details.
   // We keep it empty if the reseller hasn't specified their whatsapp_number or set it to 'N/A'.
@@ -1671,7 +1711,10 @@ export default function App() {
           const loginRes = await xtreamApi.login(creds);
           if (loginRes) {
             if (loginRes.user_info) setUserInfo(loginRes.user_info);
-            if (loginRes.server_info) setServerInfo(loginRes.server_info);
+            if (loginRes.server_info) {
+              setServerInfo(loginRes.server_info);
+              localStorage.setItem('iptv_server_info', JSON.stringify(loginRes.server_info));
+            }
             // Track session login on mount
             if (creds && creds.username) {
               const sessionKey = `tracked_session_${creds.username.toLowerCase()}`;
@@ -2279,7 +2322,10 @@ export default function App() {
       if (response.user_info.status === 'Active' || response.user_info.auth === 1) {
         setCreds(userCreds);
         if (response.user_info) setUserInfo(response.user_info);
-        if (response.server_info) setServerInfo(response.server_info);
+        if (response.server_info) {
+          setServerInfo(response.server_info);
+          localStorage.setItem('iptv_server_info', JSON.stringify(response.server_info));
+        }
         setIsLoggedIn(true);
         setShowLoginModal(false);
         setSelectedItem(null);
@@ -2310,6 +2356,7 @@ export default function App() {
     setIsLoggedIn(false);
     localStorage.removeItem('iptv_creds');
     localStorage.removeItem('iptv_logged_in');
+    localStorage.removeItem('iptv_server_info');
   };
 
   const formatExpiryDate = (expDateRaw: any) => {
@@ -6029,6 +6076,56 @@ export default function App() {
                           {userInfo ? formatCreationDate(userInfo.created_at) : 'N/A'}
                         </span>
                       </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3.5 mt-4">
+                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#00D1FF]">Streaming Route</h3>
+                    
+                    <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 space-y-3">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-white/40 font-medium">Connection Type</span>
+                        <span className="text-white/90 font-bold">
+                          {streamingMode === 'B' ? 'Direct (No Proxy)' : 'Proxy / Load Balancer'}
+                        </span>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-2 mt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStreamingMode('A');
+                            localStorage.setItem('iptv_streaming_mode', 'A');
+                          }}
+                          className={`py-2 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 ${
+                            streamingMode === 'A'
+                              ? 'bg-cyan-500 text-black border-cyan-500 shadow-md shadow-cyan-500/10'
+                              : 'bg-white/[0.02] hover:bg-white/[0.05] text-white/60 border-white/5'
+                          }`}
+                        >
+                          Option A (Proxy)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStreamingMode('B');
+                            localStorage.setItem('iptv_streaming_mode', 'B');
+                          }}
+                          className={`py-2 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 ${
+                            streamingMode === 'B'
+                              ? 'bg-[#00D1FF] text-black border-[#00D1FF] shadow-md shadow-cyan-500/20'
+                              : 'bg-white/[0.02] hover:bg-white/[0.05] text-white/60 border-white/5'
+                          }`}
+                        >
+                          Option B (Direct)
+                        </button>
+                      </div>
+                      <p className="text-[9px] text-white/40 leading-relaxed font-medium">
+                        {streamingMode === 'B' 
+                          ? "🟢 Option B Streams directly from the secure IPTV server. Bypasses the load-balancer proxy, resulting in faster startup speeds and showing your real original IP on the IPTV admin panel." 
+                          : "🔵 Option A Routes video traffic through the USA-based cloud load-balancer. Use this if Direct playback fails on your network."
+                        }
+                      </p>
                     </div>
                   </div>
 

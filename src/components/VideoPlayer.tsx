@@ -1336,32 +1336,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
               console.log(`Initializing HLS with config:`, { isLive, startTime, maxBufferLength: hlsConfig.maxBufferLength });
 
-              // Start Keep-Alive Ping
-              if (keepAliveIntervalRef.current) {
-                clearInterval(keepAliveIntervalRef.current);
-              }
-              
-              let pingUrl = url;
-              try {
-                const parsedPingUrl = new URL(url);
-                pingUrl = parsedPingUrl.origin;
-              } catch (e) {
-                console.warn('Failed to parse URL for keep-alive:', e);
-              }
 
-              const sendKeepAlive = () => {
-                console.log(`Sending keep-alive ping to: ${pingUrl}`);
-                fetch(`${pingUrl}/?keepalive=${Date.now()}`, {
-                  method: 'HEAD',
-                  mode: 'no-cors',
-                  cache: 'no-cache'
-                }).catch(err => {
-                  console.log('Keep alive ping response (ignored error/success):', err);
-                });
-              };
-
-              sendKeepAlive();
-              keepAliveIntervalRef.current = setInterval(sendKeepAlive, 60000);
 
               const hls = new Hls(hlsConfig);
               hlsRef.current = hls;
