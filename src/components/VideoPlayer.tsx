@@ -187,6 +187,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const hasCompletedInitialLoad = useRef<boolean>(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingText, setLoadingText] = useState('LOADING VIDEO...');
+  const [isOPlayerConnecting, setIsOPlayerConnecting] = useState(false);
   const [showEqPanel, setShowEqPanel] = useState(false);
   const [showEpisodesPanel, setShowEpisodesPanel] = useState(false);
   const [showSpeedPanel, setShowSpeedPanel] = useState(false);
@@ -485,7 +486,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return !!(options.isLive || isHls || isTs || isMpd || originalUrl?.includes('/live/'));
   }, [originalUrl, options.isLive, source]);
 
-  const showInfuseFallback = React.useMemo(() => {
+  const showOPlayerFallback = React.useMemo(() => {
     if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
                   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -494,10 +495,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [options.isLive, originalUrl]);
 
   useEffect(() => {
-    if (showInfuseFallback) {
+    if (showOPlayerFallback) {
       setIsLoading(false);
     }
-  }, [showInfuseFallback]);
+  }, [showOPlayerFallback]);
 
   const isEmbeddable = (url: string) => {
     if (isEmbed) return true;
@@ -607,7 +608,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   });
 
   useEffect(() => {
-    if (!artRef.current || !sourceUrl || isEmbeddable(originalUrl) || options.is_webpage || showInfuseFallback) return;
+    if (!artRef.current || !sourceUrl || isEmbeddable(originalUrl) || options.is_webpage || showOPlayerFallback) return;
 
     let dropTime = 0;
 
@@ -2298,7 +2299,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <div className="w-full h-full relative bg-black overflow-hidden" style={{ minHeight: '100%' }}>
       <AnimatePresence>
-        {isLoading && !isEmbeddable(originalUrl) && !options.is_webpage && !showInfuseFallback && (
+        {isLoading && !isEmbeddable(originalUrl) && !options.is_webpage && !showOPlayerFallback && (
           <motion.div 
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -2409,7 +2410,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </div>
           )}
         </div>
-      ) : showInfuseFallback ? (
+      ) : showOPlayerFallback ? (
         <div className="absolute inset-0 w-full h-full bg-[#080808] flex flex-col items-center justify-center p-4 text-center select-none">
           {/* Ambient Glow */}
           <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -2425,38 +2426,59 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             {/* Header */}
             <div className="flex flex-col gap-2">
               <h2 className="text-lg md:text-xl font-bold text-white tracking-widest uppercase italic">
-                Play in Infuse Player
+                Play in OPlayer Lite
               </h2>
               <p className="text-xs text-white/60 max-w-[280px] mx-auto leading-relaxed">
-                Enjoy stable high-speed VOD playback, rich subtitles, and full audio controls via Infuse on iOS.
+                Enjoy stable high-speed VOD playback, rich subtitles, and full audio controls via OPlayer on iOS.
               </p>
             </div>
 
-            {/* Actions */}
-            <div className="flex flex-col w-full gap-3.5 mt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const safeUrl = encodeURIComponent(originalUrl);
-                  const deepLink = 'infuse://play?url=' + safeUrl;
-                  console.log('[Infuse Fallback] Launching Infuse Deep Link:', deepLink);
-                  window.location.href = deepLink;
-                }}
-                className="w-full py-3 px-4 bg-[#00D1FF] hover:bg-cyan-400 text-black font-extrabold text-xs uppercase tracking-widest rounded-xl transition-all duration-300 transform active:scale-[0.98] shadow-lg shadow-[#00D1FF]/20 border border-[#00D1FF]/20 flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Tv className="w-4 h-4 fill-black" />
-                Play in Infuse Player
-              </button>
+            {/* Actions / Loading state */}
+            <div className="flex flex-col w-full gap-3.5 mt-2 min-h-[100px] justify-center items-center">
+              {isOPlayerConnecting ? (
+                <div className="flex flex-col items-center gap-4">
+                  {/* Custom CSS Loading Spinner */}
+                  <div className="relative flex items-center justify-center w-12 h-12">
+                    <div className="absolute inset-0 rounded-full border-4 border-white/10" />
+                    <div className="absolute inset-0 rounded-full border-4 border-t-[#00D1FF] border-r-transparent border-b-transparent border-l-transparent animate-spin" />
+                  </div>
+                  <span className="text-xs font-black text-[#00D1FF] uppercase tracking-widest italic animate-pulse">
+                    Connecting to Secure 4K Server...
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsOPlayerConnecting(true);
+                      setTimeout(() => {
+                        const deepLink = 'oplayerlite://' + originalUrl;
+                        console.log('[OPlayer Fallback] Launching OPlayer Deep Link:', deepLink);
+                        window.location.href = deepLink;
+                        // Auto reset connecting state after 5 seconds in case they return back to screen
+                        setTimeout(() => {
+                          setIsOPlayerConnecting(false);
+                        }, 5000);
+                      }, 2500);
+                    }}
+                    className="w-full py-3 px-4 bg-[#00D1FF] hover:bg-cyan-400 text-black font-extrabold text-xs uppercase tracking-widest rounded-xl transition-all duration-300 transform active:scale-[0.98] shadow-lg shadow-[#00D1FF]/20 border border-[#00D1FF]/20 flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Tv className="w-4 h-4 fill-black" />
+                    Play in OPlayer (Recommended)
+                  </button>
 
-              <a
-                href="https://apps.apple.com/app/infuse-video-player/id1136220934"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-white/40 hover:text-[#00D1FF] font-medium transition-colors py-1 flex items-center justify-center gap-1 cursor-pointer"
-              >
-                Don't have Infuse? Install it first
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
+                  <a
+                    href="https://apps.apple.com/app/oplayer-lite-media-player/id385907472"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-white/40 hover:text-[#00D1FF] font-medium transition-colors py-1 flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    Don't have OPlayer? Install it first
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </>
+              )}
             </div>
           </div>
         </div>
