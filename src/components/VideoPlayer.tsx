@@ -1503,16 +1503,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             let lastReconnectTime = 0;
             let waitingTimeout: any = null;
 
-            // M3U8 Keep-Alive Heartbeat every 45 seconds while playing on iOS
-            // This constantly triggers a lightweight fetch to keep the IPTV panel session marked 'Online'
+            // M3U8 Keep-Alive Heartbeat every 15 seconds while playing on iOS
+            // This constantly triggers a lightweight HEAD fetch (or GET fallback) to keep the IPTV panel session marked 'Online'
             const heartbeatInterval = setInterval(() => {
               if (art.playing && !video.paused) {
-                console.log('[iOS Heartbeat] Sending keep-alive request to server/panel...');
-                fetch(url)
-                  .then(() => console.log('[iOS Heartbeat] Keep-alive successful'))
-                  .catch(e => console.warn('[iOS Heartbeat] Keep-alive failed:', e));
+                console.log('[iOS Heartbeat] Sending 15s keep-alive request to server/panel...');
+                fetch(url, { method: 'HEAD' })
+                  .then(() => console.log('[iOS Heartbeat] Keep-alive (HEAD) successful'))
+                  .catch(() => {
+                    // Fallback to GET if HEAD is rejected or not supported by the proxy/server
+                    fetch(url)
+                      .then(() => console.log('[iOS Heartbeat] Keep-alive (GET fallback) successful'))
+                      .catch(e => console.warn('[iOS Heartbeat] Keep-alive failed:', e));
+                  });
               }
-            }, 45000);
+            }, 15000);
 
             const performSilentReconnect = async () => {
               if (isSilentReconnecting) return;
