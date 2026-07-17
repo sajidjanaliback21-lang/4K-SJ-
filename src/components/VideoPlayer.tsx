@@ -1128,142 +1128,143 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         },
         m3u8: function (video: HTMLVideoElement, url: string, art: Artplayer) {
           latestUrlRef.current = url;
+
+          let lastRefreshTime = Date.now();
+          let cachedRefreshedUrl = url;
+
+          const fetchLatestPlayUrlFromFirestore = async (): Promise<string | null> => {
+            try {
+              const { doc, getDoc, collection, getDocs, query } = await import('firebase/firestore');
+              const { db } = await import('../firebase');
+
+              // 1. If options specify a channelId/collectionName, query directly
+              if (options.channelId && options.collectionName) {
+                const docRef = doc(db, options.collectionName, options.channelId);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                  const data = docSnap.data();
+                  if (data && data.play_url) return data.play_url;
+                }
+              }
+
+              // 2. Otherwise, auto-discover by searching collections
+              const collectionsToSearch = ['fifa_channels', 'live_events', 'free_movies', 'free_series'];
+              for (const colName of collectionsToSearch) {
+                const currentBase = url.split('?')[0];
+
+                const colRef = collection(db, colName);
+                const q = query(colRef);
+                const querySnapshot = await getDocs(q);
+                
+                for (const d of querySnapshot.docs) {
+                  const data = d.data();
+                  if (data && data.play_url) {
+                    const playBase = data.play_url.split('?')[0];
+                    if (playBase === currentBase) {
+                      return data.play_url;
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn('Error fetching latest play_url from Firestore:', err);
+            }
+            return null;
+          };
+
+          const mergeTokens = (targetUrlStr: string, sourceUrlStr: string): string => {
+            try {
+              const targetUrl = new URL(targetUrlStr);
+              const sourceUrlObj = new URL(sourceUrlStr);
+
+              // Copy query parameters that are related to tokens/authorization
+              const tokenParams = ['token', 'sign', 'hash', 'auth', 'expires', 'hdnts', 'security', 'exp', 'validuntil', 'time'];
+              tokenParams.forEach(param => {
+                const val = sourceUrlObj.searchParams.get(param);
+                if (val !== null) {
+                  targetUrl.searchParams.set(param, val);
+                }
+              });
+
+              // Path-based Xtream credentials replacement if applicable
+              const targetParts = targetUrl.pathname.split('/');
+              const sourceParts = sourceUrlObj.pathname.split('/');
+              if (targetParts[1] === 'live' && targetParts.length >= 5 && sourceParts[1] === 'live' && sourceParts.length >= 5) {
+                targetParts[2] = sourceParts[2]; // username
+                targetParts[3] = sourceParts[3]; // password
+                targetUrl.pathname = targetParts.join('/');
+              }
+
+              return targetUrl.toString();
+            } catch (_) {
+              return targetUrlStr;
+            }
+          };
+
+          const getRefreshedUrl = async (urlStr: string): Promise<string> => {
+            const lower = urlStr.toLowerCase();
+            const hasToken = lower.includes('token=') || 
+                             lower.includes('sign=') || 
+                             lower.includes('hash=') || 
+                             lower.includes('auth=') || 
+                             lower.includes('expires=') || 
+                             lower.includes('hdnts=') ||
+                             lower.includes('security=') ||
+                             lower.includes('/live/');
+
+            if (!hasToken) {
+              return urlStr;
+            }
+
+            const now = Date.now();
+            const timeSinceLastRefresh = now - lastRefreshTime;
+            
+            // Refresh if more than 4 minutes (240000ms) has passed since last refresh
+            let needsRefresh = timeSinceLastRefresh > 240000;
+
+            // Also check explicit expiration in parameters if present
+            try {
+              const urlObj = new URL(urlStr);
+              const expParam = urlObj.searchParams.get('exp') || 
+                               urlObj.searchParams.get('expires') || 
+                               urlObj.searchParams.get('expiration') ||
+                               urlObj.searchParams.get('validuntil') ||
+                               urlObj.searchParams.get('time');
+              if (expParam) {
+                const expTime = parseInt(expParam, 10);
+                if (!isNaN(expTime)) {
+                  const expMs = expTime < 10000000000 ? expTime * 1000 : expTime;
+                  if (expMs - now < 120000) { // Less than 2 minutes left
+                    needsRefresh = true;
+                  }
+                }
+              }
+            } catch (_) {}
+
+            if (!needsRefresh) {
+              return mergeTokens(urlStr, cachedRefreshedUrl);
+            }
+
+            console.log('HLS Token/Session close to expiring, fetching fresh URL/token from database...');
+            try {
+              const freshUrl = await fetchLatestPlayUrlFromFirestore();
+              if (freshUrl) {
+                console.log('Successfully refreshed HLS URL from database:', freshUrl);
+                cachedRefreshedUrl = freshUrl;
+                lastRefreshTime = Date.now();
+                return mergeTokens(urlStr, freshUrl);
+              }
+            } catch (err) {
+              console.warn('Failed to fetch refreshed URL:', err);
+            }
+
+            return urlStr;
+          };
+
           if (Hls.isSupported()) {
             let hlsRetryCount = 0;
             const maxHlsRetries = 3;
             let onPlayAttemptM3u8: (() => void) | null = null;
-
-            let lastRefreshTime = Date.now();
-            let cachedRefreshedUrl = url;
-
-            const fetchLatestPlayUrlFromFirestore = async (): Promise<string | null> => {
-              try {
-                const { doc, getDoc, collection, getDocs, query } = await import('firebase/firestore');
-                const { db } = await import('../firebase');
-
-                // 1. If options specify a channelId/collectionName, query directly
-                if (options.channelId && options.collectionName) {
-                  const docRef = doc(db, options.collectionName, options.channelId);
-                  const docSnap = await getDoc(docRef);
-                  if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    if (data && data.play_url) return data.play_url;
-                  }
-                }
-
-                // 2. Otherwise, auto-discover by searching collections
-                const collectionsToSearch = ['fifa_channels', 'live_events', 'free_movies', 'free_series'];
-                for (const colName of collectionsToSearch) {
-                  const currentBase = url.split('?')[0];
-
-                  const colRef = collection(db, colName);
-                  const q = query(colRef);
-                  const querySnapshot = await getDocs(q);
-                  
-                  for (const d of querySnapshot.docs) {
-                    const data = d.data();
-                    if (data && data.play_url) {
-                      const playBase = data.play_url.split('?')[0];
-                      if (playBase === currentBase) {
-                        return data.play_url;
-                      }
-                    }
-                  }
-                }
-              } catch (err) {
-                console.warn('Error fetching latest play_url from Firestore:', err);
-              }
-              return null;
-            };
-
-            const mergeTokens = (targetUrlStr: string, sourceUrlStr: string): string => {
-              try {
-                const targetUrl = new URL(targetUrlStr);
-                const sourceUrlObj = new URL(sourceUrlStr);
-
-                // Copy query parameters that are related to tokens/authorization
-                const tokenParams = ['token', 'sign', 'hash', 'auth', 'expires', 'hdnts', 'security', 'exp', 'validuntil', 'time'];
-                tokenParams.forEach(param => {
-                  const val = sourceUrlObj.searchParams.get(param);
-                  if (val !== null) {
-                    targetUrl.searchParams.set(param, val);
-                  }
-                });
-
-                // Path-based Xtream credentials replacement if applicable
-                const targetParts = targetUrl.pathname.split('/');
-                const sourceParts = sourceUrlObj.pathname.split('/');
-                if (targetParts[1] === 'live' && targetParts.length >= 5 && sourceParts[1] === 'live' && sourceParts.length >= 5) {
-                  targetParts[2] = sourceParts[2]; // username
-                  targetParts[3] = sourceParts[3]; // password
-                  targetUrl.pathname = targetParts.join('/');
-                }
-
-                return targetUrl.toString();
-              } catch (_) {
-                return targetUrlStr;
-              }
-            };
-
-            const getRefreshedUrl = async (urlStr: string): Promise<string> => {
-              const lower = urlStr.toLowerCase();
-              const hasToken = lower.includes('token=') || 
-                               lower.includes('sign=') || 
-                               lower.includes('hash=') || 
-                               lower.includes('auth=') || 
-                               lower.includes('expires=') || 
-                               lower.includes('hdnts=') ||
-                               lower.includes('security=') ||
-                               lower.includes('/live/');
-
-              if (!hasToken) {
-                return urlStr;
-              }
-
-              const now = Date.now();
-              const timeSinceLastRefresh = now - lastRefreshTime;
-              
-              // Refresh if more than 4 minutes (240000ms) has passed since last refresh
-              let needsRefresh = timeSinceLastRefresh > 240000;
-
-              // Also check explicit expiration in parameters if present
-              try {
-                const urlObj = new URL(urlStr);
-                const expParam = urlObj.searchParams.get('exp') || 
-                                 urlObj.searchParams.get('expires') || 
-                                 urlObj.searchParams.get('expiration') ||
-                                 urlObj.searchParams.get('validuntil') ||
-                                 urlObj.searchParams.get('time');
-                if (expParam) {
-                  const expTime = parseInt(expParam, 10);
-                  if (!isNaN(expTime)) {
-                    const expMs = expTime < 10000000000 ? expTime * 1000 : expTime;
-                    if (expMs - now < 120000) { // Less than 2 minutes left
-                      needsRefresh = true;
-                    }
-                  }
-                }
-              } catch (_) {}
-
-              if (!needsRefresh) {
-                return mergeTokens(urlStr, cachedRefreshedUrl);
-              }
-
-              console.log('HLS Token/Session close to expiring, fetching fresh URL/token from database...');
-              try {
-                const freshUrl = await fetchLatestPlayUrlFromFirestore();
-                if (freshUrl) {
-                  console.log('Successfully refreshed HLS URL from database:', freshUrl);
-                  cachedRefreshedUrl = freshUrl;
-                  lastRefreshTime = Date.now();
-                  return mergeTokens(urlStr, freshUrl);
-                }
-              } catch (err) {
-                console.warn('Failed to fetch refreshed URL:', err);
-              }
-
-              return urlStr;
-            };
 
             const initHls = async (startTime?: number) => {
               await cleanAllActivePlayers();
@@ -1272,13 +1273,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
               const isLive = options.isLive !== undefined ? options.isLive : (originalUrl.toLowerCase().includes('.m3u8') || originalUrl.toLowerCase().includes('.ts') || originalUrl.toLowerCase().includes('.mpd'));
               
-              // Dynamic HLS Configuration optimized for ultimate smoothness, stability, and advanced buffering
+              // Dynamic HLS Configuration optimized for ultimate smoothness, stability, and continuous buffering
               const hlsConfig: any = {
                 enableWorker: true,
                 backBufferLength: isLive ? 30 : 120, // Keep played video in buffer for fast rewind
-                maxBufferLength: isLive ? 30 : 120,   // Buffer 30 seconds ahead for live streams! 2 minutes for VOD!
-                maxMaxBufferLength: isLive ? 60 : 180, // Allow up to 60 seconds max buffer for live streams
-                maxBufferSize: isLive ? 60 * 1024 * 1024 : 200 * 1024 * 1024, // 60MB buffer for live streams to hold advanced data, 200MB for VOD
+                maxBufferLength: 3600, // Force it to buffer up to an hour of VOD so it keeps downloading non-stop
+                maxMaxBufferLength: 7200, // Stop hls.js from going to sleep
+                maxBufferSize: 1024 * 1024 * 1024, // 1GB buffer capacity limit to allow massive buffering without constraints
                 appendErrorMaxRetry: 10,
                 // Advanced buffer & gap recovery settings
                 maxBufferHole: 2, // Automatically skip over minor segment gaps up to 2 seconds instead of pausing
@@ -1291,8 +1292,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 manifestLoadingRetryDelay: 1000,
                 levelLoadingMaxRetry: 6,
                 levelLoadingRetryDelay: 1000,
-                fragLoadingMaxRetry: 10,
-                fragLoadingRetryDelay: 1000,
+                fragLoadingMaxRetry: 15, // VLC-style aggressive retries for chunks
+                fragLoadingRetryDelay: 500, // Retry delay in ms
               };
 
               // Custom Loader for dynamic token refresh & URL intercept
@@ -1335,8 +1336,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }
 
               console.log(`Initializing HLS with config:`, { isLive, startTime, maxBufferLength: hlsConfig.maxBufferLength });
-
-
 
               const hls = new Hls(hlsConfig);
               hlsRef.current = hls;
@@ -1499,6 +1498,98 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             initHls();
           } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = url;
+
+            let isSilentReconnecting = false;
+            let lastReconnectTime = 0;
+
+            const performSilentReconnect = async () => {
+              if (isSilentReconnecting) return;
+              const now = Date.now();
+              if (now - lastReconnectTime < 2000) return; // limit to once per 2 seconds
+              
+              isSilentReconnecting = true;
+              lastReconnectTime = now;
+              
+              const savedTime = art.currentTime;
+              console.log(`[iOS Silent Reconnect] Stalled or dropped. Saving position ${savedTime}s and reconnecting silently...`);
+              
+              try {
+                const freshUrl = await getRefreshedUrl(url);
+                video.src = freshUrl;
+                video.load();
+                
+                const onLoadedMetadata = () => {
+                  video.currentTime = savedTime;
+                  if (art.playing) {
+                    video.play().catch(e => console.warn('[iOS Silent Reconnect] play() failed:', e));
+                  }
+                  video.removeEventListener('loadedmetadata', onLoadedMetadata);
+                  video.removeEventListener('canplay', onCanPlay);
+                  isSilentReconnecting = false;
+                };
+
+                const onCanPlay = () => {
+                  video.currentTime = savedTime;
+                  if (art.playing) {
+                    video.play().catch(e => console.warn('[iOS Silent Reconnect] play() failed:', e));
+                  }
+                  video.removeEventListener('loadedmetadata', onLoadedMetadata);
+                  video.removeEventListener('canplay', onCanPlay);
+                  isSilentReconnecting = false;
+                };
+
+                video.addEventListener('loadedmetadata', onLoadedMetadata);
+                video.addEventListener('canplay', onCanPlay);
+
+                // Fallback timeout to reset flag in case load fails completely
+                setTimeout(() => {
+                  if (isSilentReconnecting) {
+                    isSilentReconnecting = false;
+                  }
+                }, 5000);
+
+              } catch (err) {
+                console.error('[iOS Silent Reconnect] Error refreshing URL:', err);
+                isSilentReconnecting = false;
+              }
+            };
+
+            const onStalled = () => {
+              if (art.playing && !isSilentReconnecting) {
+                console.log('[iOS Silent Reconnect] stalled event triggered');
+                performSilentReconnect();
+              }
+            };
+
+            const onSuspend = () => {
+              if (art.playing && !isSilentReconnecting) {
+                // Check if time has stopped moving
+                const timeBefore = video.currentTime;
+                setTimeout(() => {
+                  if (art.playing && video.currentTime === timeBefore && !isSilentReconnecting) {
+                    console.log('[iOS Silent Reconnect] suspend event triggered and currentTime is frozen');
+                    performSilentReconnect();
+                  }
+                }, 250);
+              }
+            };
+
+            const onError = () => {
+              if (art.playing && !isSilentReconnecting) {
+                console.log('[iOS Silent Reconnect] error event triggered');
+                performSilentReconnect();
+              }
+            };
+
+            video.addEventListener('stalled', onStalled);
+            video.addEventListener('suspend', onSuspend);
+            video.addEventListener('error', onError);
+
+            art.on('destroy', () => {
+              video.removeEventListener('stalled', onStalled);
+              video.removeEventListener('suspend', onSuspend);
+              video.removeEventListener('error', onError);
+            });
           }
         },
         mpd: function (video: HTMLVideoElement, url: string, art: Artplayer) {
