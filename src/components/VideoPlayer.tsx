@@ -1501,6 +1501,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             let isSilentReconnecting = false;
             let lastReconnectTime = 0;
+            let waitingTimeout: any = null;
+
+            // M3U8 Keep-Alive Heartbeat every 45 seconds while playing on iOS
+            // This constantly triggers a lightweight fetch to keep the IPTV panel session marked 'Online'
+            const heartbeatInterval = setInterval(() => {
+              if (art.playing && !video.paused) {
+                console.log('[iOS Heartbeat] Sending keep-alive request to server/panel...');
+                fetch(url)
+                  .then(() => console.log('[iOS Heartbeat] Keep-alive successful'))
+                  .catch(e => console.warn('[iOS Heartbeat] Keep-alive failed:', e));
+              }
+            }, 45000);
 
             const performSilentReconnect = async () => {
               if (isSilentReconnecting) return;
@@ -1581,14 +1593,43 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }
             };
 
+            const onWaiting = () => {
+              if (waitingTimeout) clearTimeout(waitingTimeout);
+              if (art.playing && !isSilentReconnecting) {
+                const stuckTime = video.currentTime;
+                console.log(`[iOS Silent Reconnect] waiting event triggered at currentTime ${stuckTime}s. Setting 3s stuck check...`);
+                waitingTimeout = setTimeout(() => {
+                  if (art.playing && video.currentTime === stuckTime && !isSilentReconnecting) {
+                    console.log('[iOS Silent Reconnect] waiting event triggered and currentTime remains stuck for 3 seconds');
+                    performSilentReconnect();
+                  }
+                }, 3000);
+              }
+            };
+
+            const onPlaying = () => {
+              if (waitingTimeout) {
+                clearTimeout(waitingTimeout);
+                waitingTimeout = null;
+              }
+            };
+
             video.addEventListener('stalled', onStalled);
             video.addEventListener('suspend', onSuspend);
             video.addEventListener('error', onError);
+            video.addEventListener('waiting', onWaiting);
+            video.addEventListener('playing', onPlaying);
+            video.addEventListener('timeupdate', onPlaying);
 
             art.on('destroy', () => {
+              clearInterval(heartbeatInterval);
+              if (waitingTimeout) clearTimeout(waitingTimeout);
               video.removeEventListener('stalled', onStalled);
               video.removeEventListener('suspend', onSuspend);
               video.removeEventListener('error', onError);
+              video.removeEventListener('waiting', onWaiting);
+              video.removeEventListener('playing', onPlaying);
+              video.removeEventListener('timeupdate', onPlaying);
             });
           }
         },
