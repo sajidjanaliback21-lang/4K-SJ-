@@ -2437,7 +2437,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  const deepLink = 'infuse://play?url=' + originalUrl;
+                  const safeUrl = encodeURIComponent(originalUrl);
+                  const deepLink = 'infuse://play?url=' + safeUrl;
                   console.log('[Infuse Fallback] Launching Infuse Deep Link:', deepLink);
                   window.location.href = deepLink;
                 }}
