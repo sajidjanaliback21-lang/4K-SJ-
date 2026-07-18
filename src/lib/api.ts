@@ -2,7 +2,7 @@ import axios from 'axios';
 import { XtreamCredentials, Category, Stream, Series, LoginResponse, LiveStream } from '../types';
 
 export const DEFAULT_CREDENTIALS: XtreamCredentials = {
-  host: 'https://sjstorehot-lbskip.hf.space',
+  host: 'https://60fpssj-60fps10.hf.space',
   username: 'webplayer44',
   password: '62246624',
 };
@@ -12,7 +12,7 @@ const sanitizeHost = (host: string): string => {
     return (window as any).activeResellerServerUrl;
   }
   if (!host || host.includes('lb-skip.vercel.app') || host.includes('4ksjpun-lbff.hf.space')) {
-    return 'https://sjstorehot-lbskip.hf.space';
+    return 'https://60fpssj-60fps10.hf.space';
   }
   return host;
 };

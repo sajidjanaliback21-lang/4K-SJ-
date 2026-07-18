@@ -583,7 +583,7 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed && (parsed.host?.includes('lb-skip.vercel.app') || parsed.host?.includes('4ksjpun-lbff.hf.space') || !parsed.host)) {
-          parsed.host = 'https://sjstorehot-lbskip.hf.space';
+          parsed.host = 'https://60fpssj-60fps10.hf.space';
           localStorage.setItem('iptv_creds', JSON.stringify(parsed));
         }
         return parsed;
@@ -822,7 +822,7 @@ export default function App() {
         }
       }
     }
-    return activeReseller?.server_url || "https://sjstorehot-lbskip.hf.space";
+    return activeReseller?.server_url || "https://60fpssj-60fps10.hf.space";
   };
 
   const currentServerHost = getStreamingHost();
@@ -844,8 +844,8 @@ export default function App() {
     if (activeReseller?.server_url) {
       const resellerHost = activeReseller.server_url.replace(/\/$/, ''); // strip trailing slash
       return url
-        .replace(/https:\/\/sjstorehot-lbskip\.hf\.space/g, resellerHost)
-        .replace(/http:\/\/sjstorehot-lbskip\.hf\.space/g, resellerHost);
+        .replace(/https:\/\/60fpssj-60fps10\.hf\.space/g, resellerHost)
+        .replace(/http:\/\/60fpssj-60fps10\.hf\.space/g, resellerHost);
     }
     return url;
   };
@@ -8221,7 +8221,7 @@ export default function App() {
                             type="text" 
                             value={newFreeSeries.playlist_url || ''}
                             onChange={(e) => setNewFreeSeries({...newFreeSeries, playlist_url: e.target.value})}
-                            placeholder="e.g. https://sjstorehot-lbskip.hf.space/series_links/spider/playlist.m3u"
+                            placeholder="e.g. https://60fpssj-60fps10.hf.space/series_links/spider/playlist.m3u"
                             className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
                           />
                         </div>
@@ -9559,7 +9559,7 @@ export default function App() {
                             <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom IPTV Server URL / Host (Optional)</label>
                             <input
                               type="url"
-                              placeholder="e.g. http://your-server-dns.com or https://sjstorehot-lbskip.hf.space"
+                              placeholder="e.g. http://your-server-dns.com or https://60fpssj-60fps10.hf.space"
                               value={newReseller.server_url || ''}
                               onChange={(e) => setNewReseller({ ...newReseller, server_url: e.target.value })}
                               className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
