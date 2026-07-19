@@ -560,11 +560,24 @@ export default function App() {
     whatsapp_group_link: '',
     logo_url: '',
     server_url: '',
+    download_url: '',
     app_link: '',
     password: '',
     license_type: '1 Year'
   });
   const [editingResellerId, setEditingResellerId] = useState<string | null>(null);
+
+  const [isEditingResellerProfile, setIsEditingResellerProfile] = useState(false);
+  const [tempResellerSettings, setTempResellerSettings] = useState({
+    tagline: '',
+    whatsapp_number: '',
+    whatsapp_group_link: '',
+    server_url: '',
+    download_url: '',
+    app_link: '',
+    logo_url: '',
+    brand_name: ''
+  });
 
   const [loggedInReseller, setLoggedInReseller] = useState<any | null>(() => {
     if (typeof window === 'undefined') return null;
@@ -786,7 +799,10 @@ export default function App() {
     ipl_title: 'IPL',
     free_movies_title: 'FREE CINEMA',
     free_series_title: 'FREE BINGE',
-    live_events_title: 'LIVE EVENTS'
+    live_events_title: 'LIVE EVENTS',
+    default_server_url: '',
+    default_download_url: '',
+    default_app_download_url: ''
   });
   const [newAppSettings, setNewAppSettings] = useState(appSettings);
   const [isAntiPopupActive, setIsAntiPopupActive] = useState(() => {
@@ -826,7 +842,7 @@ export default function App() {
         }
       }
     }
-    return activeReseller?.server_url || "https://60fpssj-60fps10.hf.space";
+    return activeReseller?.server_url || appSettings.default_server_url || "https://60fpssj-60fps10.hf.space";
   };
 
   const currentServerHost = getStreamingHost();
@@ -845,24 +861,63 @@ export default function App() {
   const getResellerAdjustedUrl = (url: string, action: string = 'play') => {
     if (!url) return '';
     
-    // If it's a download action, use the specified custom download path and adjust for reseller host if active
+    let adjustedUrl = url;
+    
     if (action === 'download') {
-      const resellerHost = activeReseller?.server_url
-        ? activeReseller.server_url.replace(/\/$/, '')
-        : 'https://60fpssj-60fps10.hf.space';
-      return `https://60fpssj-60fps10.hf.space/-/-/-/-.mkv`
-        .replace(/https:\/\/60fpssj-60fps10\.hf\.space/g, resellerHost)
-        .replace(/http:\/\/60fpssj-60fps10\.hf\.space/g, resellerHost);
+      // Use Download Server custom host if configured
+      const resellerDownloadHost = activeReseller?.download_url ? activeReseller.download_url.replace(/\/$/, '') : null;
+      const defaultDownloadHost = appSettings.default_download_url ? appSettings.default_download_url.replace(/\/$/, '') : null;
+      
+      const targetHost = resellerDownloadHost || defaultDownloadHost;
+      
+      if (targetHost) {
+        // Replace standard IPTV play hosts with the custom download host
+        adjustedUrl = adjustedUrl
+          .replace(/https:\/\/60fpssj-60fps10\.hf\.space/g, targetHost)
+          .replace(/http:\/\/60fpssj-60fps10\.hf\.space/g, targetHost);
+          
+        if (appSettings.default_server_url) {
+          const cleanedCustomDefault = appSettings.default_server_url.replace(/\/$/, '');
+          const escapedCustomDefault = cleanedCustomDefault.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+          const regex = new RegExp(escapedCustomDefault, 'g');
+          adjustedUrl = adjustedUrl.replace(regex, targetHost);
+        }
+        
+        if (activeReseller?.server_url) {
+          const cleanedResellerServer = activeReseller.server_url.replace(/\/$/, '');
+          const escapedResellerServer = cleanedResellerServer.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+          const regex = new RegExp(escapedResellerServer, 'g');
+          adjustedUrl = adjustedUrl.replace(regex, targetHost);
+        }
+        return adjustedUrl;
+      }
     }
-
-    // If there is an active reseller with a custom server URL, replace the default host
+    
+    // Play or fallback download action: use Server play URL
     if (activeReseller?.server_url) {
       const resellerHost = activeReseller.server_url.replace(/\/$/, ''); // strip trailing slash
-      return url
+      adjustedUrl = adjustedUrl
         .replace(/https:\/\/60fpssj-60fps10\.hf\.space/g, resellerHost)
         .replace(/http:\/\/60fpssj-60fps10\.hf\.space/g, resellerHost);
+        
+      if (appSettings.default_server_url) {
+        const cleanedCustomDefault = appSettings.default_server_url.replace(/\/$/, '');
+        const escapedCustomDefault = cleanedCustomDefault.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const regex = new RegExp(escapedCustomDefault, 'g');
+        adjustedUrl = adjustedUrl.replace(regex, resellerHost);
+      }
+      return adjustedUrl;
     }
-    return url;
+    
+    // If not a reseller, but custom default server URL is set, adjust hardcoded URLs to use the custom default server
+    if (appSettings.default_server_url) {
+      const customDefault = appSettings.default_server_url.replace(/\/$/, '');
+      adjustedUrl = adjustedUrl
+        .replace(/https:\/\/60fpssj-60fps10\.hf\.space/g, customDefault)
+        .replace(/http:\/\/60fpssj-60fps10\.hf\.space/g, customDefault);
+    }
+    
+    return adjustedUrl;
   };
 
   useEffect(() => {
@@ -1232,7 +1287,10 @@ export default function App() {
           ipl_title: data.ipl_title || 'IPL',
           free_movies_title: data.free_movies_title || 'FREE CINEMA',
           free_series_title: data.free_series_title || 'FREE BINGE',
-          live_events_title: data.live_events_title || 'LIVE EVENTS'
+          live_events_title: data.live_events_title || 'LIVE EVENTS',
+          default_server_url: data.default_server_url || '',
+          default_download_url: data.default_download_url || '',
+          default_app_download_url: data.default_app_download_url || ''
         };
         setAppSettings(updated);
         setNewAppSettings(updated);
@@ -2475,6 +2533,7 @@ export default function App() {
         whatsapp_group_link: '',
         logo_url: '',
         server_url: '',
+        download_url: '',
         app_link: '',
         password: '',
         license_type: '1 Year'
@@ -2492,6 +2551,41 @@ export default function App() {
     } catch (error) {
       console.error("Error deleting reseller:", error);
       handleFirestoreError(error, OperationType.DELETE, `resellers/${id}`);
+    }
+  };
+
+  const handleSaveResellerProfile = async () => {
+    if (!loggedInReseller?.id) return;
+    try {
+      await updateDoc(doc(db, 'resellers', loggedInReseller.id), {
+        tagline: tempResellerSettings.tagline,
+        whatsapp_number: tempResellerSettings.whatsapp_number,
+        whatsapp_group_link: tempResellerSettings.whatsapp_group_link,
+        server_url: tempResellerSettings.server_url,
+        download_url: tempResellerSettings.download_url,
+        app_link: tempResellerSettings.app_link,
+        logo_url: tempResellerSettings.logo_url,
+        updatedAt: new Date().toISOString()
+      });
+      const updated = {
+        ...loggedInReseller,
+        tagline: tempResellerSettings.tagline,
+        whatsapp_number: tempResellerSettings.whatsapp_number,
+        whatsapp_group_link: tempResellerSettings.whatsapp_group_link,
+        server_url: tempResellerSettings.server_url,
+        download_url: tempResellerSettings.download_url,
+        app_link: tempResellerSettings.app_link,
+        logo_url: tempResellerSettings.logo_url
+      };
+      setLoggedInReseller(updated);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('logged_in_reseller', JSON.stringify(updated));
+      }
+      setIsEditingResellerProfile(false);
+      alert("Settings saved successfully!");
+    } catch (err) {
+      console.error("Error saving reseller settings:", err);
+      alert("An error occurred while saving your settings.");
     }
   };
 
@@ -3565,9 +3659,9 @@ export default function App() {
                       <span className="w-1.5 h-6 bg-cyan-500 rounded-full" />
                       Trending Movies
                     </h3>
-                    {activeReseller?.app_link && (
+                    {(activeReseller?.app_link || appSettings.default_app_download_url) && (
                       <motion.a
-                        href={activeReseller.app_link}
+                        href={activeReseller?.app_link || appSettings.default_app_download_url}
                         target="_blank"
                         rel="noopener noreferrer"
                         initial={{ opacity: 0, scale: 0.92 }}
@@ -7848,34 +7942,160 @@ export default function App() {
 
                 {/* Configuration Details Box */}
                 <div className="space-y-3">
-                  <h4 className="text-xs font-black uppercase tracking-wider text-white/40 px-1">Your Branded App Settings</h4>
-                  
-                  <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3 text-xs">
-                    <div className="flex justify-between py-1.5 border-b border-white/5">
-                      <span className="text-white/50">Tagline / Slogan:</span>
-                      <span className="text-white font-bold">{loggedInReseller.tagline || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-white/5">
-                      <span className="text-white/50">WhatsApp Contact:</span>
-                      <span className="text-white font-bold">{loggedInReseller.whatsapp_number || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-white/5">
-                      <span className="text-white/50">Group Link:</span>
-                      <span className="text-white font-bold truncate max-w-[200px] text-cyan-400">{loggedInReseller.whatsapp_group_link || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-white/5">
-                      <span className="text-white/50">Custom IPTV Server URL:</span>
-                      <span className="text-white font-bold truncate max-w-[200px] text-purple-400">{loggedInReseller.server_url || 'Default System'}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-white/5">
-                      <span className="text-white/50">App Download Link:</span>
-                      <span className="text-white font-bold truncate max-w-[200px] text-emerald-400">{loggedInReseller.app_link || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5">
-                      <span className="text-white/50">Custom Logo:</span>
-                      <span className="text-white font-bold truncate max-w-[200px]">{loggedInReseller.logo_url ? 'Configured' : 'Default Logo'}</span>
-                    </div>
+                  <div className="flex items-center justify-between px-1">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-white/40">Your Branded App Settings</h4>
+                    {!isEditingResellerProfile ? (
+                      <button 
+                        onClick={() => {
+                          setTempResellerSettings({
+                            tagline: loggedInReseller.tagline || '',
+                            whatsapp_number: loggedInReseller.whatsapp_number || '',
+                            whatsapp_group_link: loggedInReseller.whatsapp_group_link || '',
+                            server_url: loggedInReseller.server_url || '',
+                            download_url: loggedInReseller.download_url || '',
+                            app_link: loggedInReseller.app_link || '',
+                            logo_url: loggedInReseller.logo_url || '',
+                            brand_name: loggedInReseller.brand_name || ''
+                          });
+                          setIsEditingResellerProfile(true);
+                        }}
+                        className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 uppercase tracking-widest bg-cyan-500/10 px-2 py-1 rounded border border-cyan-500/20 cursor-pointer"
+                      >
+                        ✏️ Edit Settings
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => setIsEditingResellerProfile(false)}
+                        className="text-[10px] font-bold text-neutral-400 hover:text-neutral-300 uppercase tracking-widest bg-white/5 px-2 py-1 rounded border border-white/10 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    )}
                   </div>
+                  
+                  {!isEditingResellerProfile ? (
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3 text-xs">
+                      <div className="flex justify-between py-1.5 border-b border-white/5">
+                        <span className="text-white/50">Tagline / Slogan:</span>
+                        <span className="text-white font-bold">{loggedInReseller.tagline || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between py-1.5 border-b border-white/5">
+                        <span className="text-white/50">WhatsApp Contact:</span>
+                        <span className="text-white font-bold">{loggedInReseller.whatsapp_number || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between py-1.5 border-b border-white/5">
+                        <span className="text-white/50">Group Link:</span>
+                        <span className="text-white font-bold truncate max-w-[200px] text-cyan-400">{loggedInReseller.whatsapp_group_link || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between py-1.5 border-b border-white/5">
+                        <span className="text-white/50">Custom IPTV Server URL:</span>
+                        <span className="text-white font-bold truncate max-w-[200px] text-purple-400">{loggedInReseller.server_url || 'Default System'}</span>
+                      </div>
+                      <div className="flex justify-between py-1.5 border-b border-white/5">
+                        <span className="text-white/50">Custom Download URL (MKV):</span>
+                        <span className="text-white font-bold truncate max-w-[200px] text-pink-400">{loggedInReseller.download_url || 'Default System'}</span>
+                      </div>
+                      <div className="flex justify-between py-1.5 border-b border-white/5">
+                        <span className="text-white/50">App Download Link:</span>
+                        <span className="text-white font-bold truncate max-w-[200px] text-emerald-400">{loggedInReseller.app_link || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between py-1.5">
+                        <span className="text-white/50">Custom Logo:</span>
+                        <span className="text-white font-bold truncate max-w-[200px]">{loggedInReseller.logo_url ? 'Configured' : 'Default Logo'}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-black/40 border border-white/10 rounded-2xl p-5 space-y-4 text-xs">
+                      <div className="space-y-3">
+                        <div>
+                          <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-1">Tagline / Slogan</label>
+                          <input 
+                            type="text"
+                            value={tempResellerSettings.tagline}
+                            onChange={(e) => setTempResellerSettings(prev => ({ ...prev, tagline: e.target.value }))}
+                            placeholder="e.g. Premium Live & VOD Experience"
+                            className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-1">WhatsApp Number (digits only)</label>
+                            <input 
+                              type="text"
+                              value={tempResellerSettings.whatsapp_number}
+                              onChange={(e) => setTempResellerSettings(prev => ({ ...prev, whatsapp_number: e.target.value }))}
+                              placeholder="e.g. 923161611304"
+                              className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-1">Custom WhatsApp Group Link</label>
+                            <input 
+                              type="url"
+                              value={tempResellerSettings.whatsapp_group_link}
+                              onChange={(e) => setTempResellerSettings(prev => ({ ...prev, whatsapp_group_link: e.target.value }))}
+                              placeholder="https://chat.whatsapp.com/..."
+                              className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-1">Custom IPTV Server URL / Host</label>
+                          <input 
+                            type="url"
+                            value={tempResellerSettings.server_url}
+                            onChange={(e) => setTempResellerSettings(prev => ({ ...prev, server_url: e.target.value }))}
+                            placeholder="e.g. https://your-server-dns.com"
+                            className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold font-mono"
+                          />
+                          <p className="text-[8px] text-white/30 mt-0.5">Overrides standard server for streams.</p>
+                        </div>
+
+                        <div>
+                          <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-1">Custom Movie Download Server URL / Host</label>
+                          <input 
+                            type="url"
+                            value={tempResellerSettings.download_url}
+                            onChange={(e) => setTempResellerSettings(prev => ({ ...prev, download_url: e.target.value }))}
+                            placeholder="e.g. https://reseller-mkv-dns.com"
+                            className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold font-mono"
+                          />
+                          <p className="text-[8px] text-white/30 mt-0.5">Overrides standard server for .mkv file downloads.</p>
+                        </div>
+
+                        <div>
+                          <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-1">App APK Download Link</label>
+                          <input 
+                            type="url"
+                            value={tempResellerSettings.app_link}
+                            onChange={(e) => setTempResellerSettings(prev => ({ ...prev, app_link: e.target.value }))}
+                            placeholder="https://example.com/download-app.apk"
+                            className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-1">Custom Logo URL (Optional)</label>
+                          <input 
+                            type="url"
+                            value={tempResellerSettings.logo_url}
+                            onChange={(e) => setTempResellerSettings(prev => ({ ...prev, logo_url: e.target.value }))}
+                            placeholder="https://example.com/logo.png"
+                            className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                          />
+                        </div>
+                      </div>
+
+                      <button 
+                        onClick={handleSaveResellerProfile}
+                        className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black py-2.5 rounded-xl font-black uppercase tracking-widest text-[10px] shadow-lg transition-all active:scale-[0.98] cursor-pointer"
+                      >
+                        💾 Save Settings
+                      </button>
+                    </div>
+                  )}
                 </div>
 
               </div>
@@ -8061,6 +8281,52 @@ export default function App() {
                         <p className="text-[10px] text-white/50 font-medium leading-relaxed">
                           Blocks iframe-based players from opening popups, redirecting this page, or opening new windows. Note: If a stream fails to load, try disabling this.
                         </p>
+                      </div>
+
+                      {/* Default Server & Download URLs Customization */}
+                      <div className="p-5 bg-gradient-to-br from-amber-500/5 via-neutral-950 to-neutral-950 rounded-2xl border border-amber-500/10 space-y-4 md:col-span-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">⚙️</span>
+                          <h4 className="text-xs font-black text-amber-400 uppercase tracking-widest">Default Server & Download URL Customization</h4>
+                        </div>
+                        <p className="text-[11px] text-white/50 leading-relaxed">
+                          Yahan se aap default/apna IPTV Server play host, Movie/Series (.mkv/download) Server host aur default APK Application ka download link customize kar sakte hain. Jab koi reseller matching website na ho, tab ye custom default URLs use honge. Is se aapko code edit karne ki zaroorat nahi padegi!
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-2">
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest block px-1">Default IPTV Server URL</label>
+                            <input 
+                              type="url" 
+                              value={newAppSettings.default_server_url || ''}
+                              onChange={(e) => setNewAppSettings(prev => ({ ...prev, default_server_url: e.target.value }))}
+                              placeholder="e.g. https://60fpssj-60fps10.hf.space"
+                              className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-amber-500/50 font-bold font-mono"
+                            />
+                            <p className="text-[9px] text-white/30">Standard play fallback is: https://60fpssj-60fps10.hf.space</p>
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest block px-1">Default Movie Download Server</label>
+                            <input 
+                              type="url" 
+                              value={newAppSettings.default_download_url || ''}
+                              onChange={(e) => setNewAppSettings(prev => ({ ...prev, default_download_url: e.target.value }))}
+                              placeholder="e.g. https://mkv-download-dns.com"
+                              className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-amber-500/50 font-bold font-mono"
+                            />
+                            <p className="text-[9px] text-white/30">Used for Movie/Series (.mkv/.mp4) file downloads. Bypasses play server host for downloads.</p>
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest block px-1">Default App Link (APK)</label>
+                            <input 
+                              type="url" 
+                              value={newAppSettings.default_app_download_url || ''}
+                              onChange={(e) => setNewAppSettings(prev => ({ ...prev, default_app_download_url: e.target.value }))}
+                              placeholder="e.g. https://example.com/myapp.apk"
+                              className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-amber-500/50 font-bold font-mono"
+                            />
+                            <p className="text-[9px] text-white/30">Provides a default "Download App" button on the home screen when no reseller is active.</p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -9697,6 +9963,18 @@ export default function App() {
                           </div>
 
                           <div className="sm:col-span-2">
+                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom Movie/Series Download Server URL (Optional)</label>
+                            <input
+                              type="url"
+                              placeholder="e.g. https://reseller-mkv-dns.com"
+                              value={newReseller.download_url || ''}
+                              onChange={(e) => setNewReseller({ ...newReseller, download_url: e.target.value })}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                            />
+                            <p className="text-[9px] text-white/40 mt-1">If specified, user movie/series (.mkv/.mp4) file downloads for this reseller's domain will route through this custom media download server instead of play/streaming server host.</p>
+                          </div>
+
+                          <div className="sm:col-span-2">
                             <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom Application Download Link (Optional)</label>
                             <input
                               type="url"
@@ -9770,6 +10048,7 @@ export default function App() {
                                             whatsapp_group_link: item.whatsapp_group_link || '',
                                             logo_url: item.logo_url || '',
                                             server_url: item.server_url || '',
+                                            download_url: item.download_url || '',
                                             app_link: item.app_link || '',
                                             password: item.password || '',
                                             license_type: item.license_type || '1 Year'
@@ -9796,7 +10075,8 @@ export default function App() {
                                 <div className="pt-2 border-t border-white/5 space-y-1 text-[10px] text-white/60">
                                   <div>📱 WA No: <span className="font-mono text-white">{item.whatsapp_number || 'N/A'}</span></div>
                                   <div className="truncate">🔗 Group: <a href={item.whatsapp_group_link} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline font-bold">{item.whatsapp_group_link || 'N/A'}</a></div>
-                                  <div className="truncate">🖥️ Server: <span className="font-mono text-white">{item.server_url || 'Default'}</span></div>
+                                  <div className="truncate">🖥️ Play Server: <span className="font-mono text-cyan-400">{item.server_url || 'Default'}</span></div>
+                                  <div className="truncate">💾 Download Host: <span className="font-mono text-purple-400">{item.download_url || 'Default'}</span></div>
                                   <div className="truncate">📥 App Link: <span className="font-mono text-emerald-400 font-bold truncate max-w-[200px]" title={item.app_link || 'N/A'}>{item.app_link || 'N/A'}</span></div>
                                   <div className="flex items-center gap-4 mt-1 pt-1 border-t border-white/5">
                                     <div>🔑 Pass: <span className="font-mono text-cyan-400 font-bold">{item.password || 'None'}</span></div>

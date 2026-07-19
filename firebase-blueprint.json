@@ -27,6 +27,14 @@
         "free_movies_title": { "type": "string" },
         "free_series_title": { "type": "string" },
         "live_events_title": { "type": "string" },
+        "default_server_url": {
+          "type": "string",
+          "description": "Default server URL used when no reseller domain is matched"
+        },
+        "default_download_url": {
+          "type": "string",
+          "description": "Default download URL for the application APK"
+        },
         "updatedAt": {
           "type": "string",
           "format": "date-time",
