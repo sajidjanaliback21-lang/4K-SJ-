@@ -695,6 +695,7 @@ export default function App() {
     is_webpage: false,
     sandbox_disabled: false,
     iframe_cropping: false,
+    show_live_viewer_count: false,
     status: 'Live',
     order: '',
     stream_id: '',
@@ -723,16 +724,16 @@ export default function App() {
   const [newLiveEvent, setNewLiveEvent] = useState<{
     name: string;
     poster_url: string;
-    channels: Array<{ name: string; play_url: string; is_embed?: boolean; is_mpd?: boolean; is_webpage?: boolean; sandbox_disabled?: boolean; iframe_cropping?: boolean; drm_license_url?: string }>;
+    channels: Array<{ name: string; play_url: string; is_embed?: boolean; is_mpd?: boolean; is_webpage?: boolean; sandbox_disabled?: boolean; iframe_cropping?: boolean; show_live_viewer_count?: boolean; drm_license_url?: string }>;
     available_for_resellers?: boolean;
   }>({
     name: '',
     poster_url: '',
-    channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false, iframe_cropping: false }],
+    channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false, iframe_cropping: false, show_live_viewer_count: false }],
     available_for_resellers: true
   });
 
-  const [newFreeMovie, setNewFreeMovie] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, is_webpage: false, iframe_cropping: false, password: '', available_for_resellers: true });
+  const [newFreeMovie, setNewFreeMovie] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, is_webpage: false, iframe_cropping: false, show_live_viewer_count: false, password: '', available_for_resellers: true });
   const [newFreeSeries, setNewFreeSeries] = useState({ 
     tmdb_id: '', 
     name: '', 
@@ -743,6 +744,7 @@ export default function App() {
     is_embed: false, 
     is_webpage: false, 
     iframe_cropping: false,
+    show_live_viewer_count: false,
     password: '', 
     available_for_resellers: true,
     episodes: [] as Array<{ id: string, season: string, episode_num: string, title: string, play_url: string, download_url?: string }>
@@ -2544,7 +2546,7 @@ export default function App() {
           createdAt: new Date().toISOString()
         });
       }
-      setNewLiveEvent({ name: '', poster_url: '', channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false }], available_for_resellers: true });
+      setNewLiveEvent({ name: '', poster_url: '', channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false, iframe_cropping: false, show_live_viewer_count: false }], available_for_resellers: true });
     } catch (error) {
       console.error("Error saving live event:", error);
       alert("Failed to save live event.");
@@ -2590,6 +2592,7 @@ export default function App() {
       is_webpage: isIptv ? false : !!newFifaChannel.is_webpage,
       sandbox_disabled: isIptv ? false : !!newFifaChannel.sandbox_disabled,
       iframe_cropping: isIptv ? false : !!newFifaChannel.iframe_cropping,
+      show_live_viewer_count: isIptv ? false : !!newFifaChannel.show_live_viewer_count,
       status: newFifaChannel.status || 'Live',
       order: orderVal,
       is_premium: isPremiumVal,
@@ -2615,6 +2618,7 @@ export default function App() {
         is_webpage: false,
         sandbox_disabled: false,
         iframe_cropping: false,
+        show_live_viewer_count: false,
         status: 'Live',
         order: '',
         stream_id: '',
@@ -5509,6 +5513,7 @@ export default function App() {
                     autoplay: true,
                     controls: true,
                     isLive: !!(selectedItem as any)?.stream_type && (selectedItem as any).stream_type === 'live',
+                    show_live_viewer_count: !!(selectedItem as any)?.show_live_viewer_count,
                     sources: [{
                       src: webPlayUrl,
                       type: webPlayUrl.toLowerCase().includes('.m3u8') ? 'application/x-mpegURL' : 'video/mp4'
@@ -6679,6 +6684,7 @@ export default function App() {
                       poster: playingFreeMovie.poster_url,
                       is_embed: playingFreeMovie.is_embed,
                       iframe_cropping: !!playingFreeMovie.iframe_cropping,
+                      show_live_viewer_count: !!playingFreeMovie.show_live_viewer_count,
                       skipProxy: true,
                       isLive: false,
                       sources: [{
@@ -6942,6 +6948,7 @@ export default function App() {
                           is_webpage: !!activeChannel.is_webpage,
                           sandbox_disabled: !!activeChannel.sandbox_disabled,
                           iframe_cropping: !!activeChannel.iframe_cropping,
+                          show_live_viewer_count: !!activeChannel.show_live_viewer_count,
                           skipProxy: true,
                           isLive: true,
                           sources: [{
@@ -7706,6 +7713,7 @@ export default function App() {
                         poster: playingFreeSeries.poster_url,
                         is_embed: playingFreeSeries.is_embed,
                         iframe_cropping: !!playingFreeSeries.iframe_cropping,
+                        show_live_viewer_count: !!playingFreeSeries.show_live_viewer_count,
                         skipProxy: true,
                         sources: [{
                           src: getResellerAdjustedUrl(freeSeriesActiveUrl || playingFreeSeries.play_url),
@@ -8293,6 +8301,20 @@ export default function App() {
                           <label htmlFor="resellers_access_admin" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Resellers Access</label>
                         </div>
 
+                        <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-2xl px-5 py-3 w-fit animate-pulse-slow">
+                          <input 
+                            type="checkbox" 
+                            id="show_live_viewer_count_admin"
+                            checked={activeAdminTab === 'free_movies' ? !!newFreeMovie.show_live_viewer_count : !!newFreeSeries.show_live_viewer_count}
+                            onChange={(e) => activeAdminTab === 'free_movies' 
+                              ? setNewFreeMovie({...newFreeMovie, show_live_viewer_count: e.target.checked}) 
+                              : setNewFreeSeries({...newFreeSeries, show_live_viewer_count: e.target.checked})
+                            }
+                            className="w-4 h-4 accent-red-500"
+                          />
+                          <label htmlFor="show_live_viewer_count_admin" className="text-[10px] text-red-400 font-black uppercase tracking-widest cursor-pointer select-none">Show Live Viewer Count</label>
+                        </div>
+
                         {(activeAdminTab === 'free_movies' ? newFreeMovie.is_embed : newFreeSeries.is_embed) && (
                           <div className="flex items-center gap-3 bg-cyan-500/10 border border-cyan-500/20 rounded-2xl px-5 py-3 w-fit">
                             <input 
@@ -8472,6 +8494,7 @@ export default function App() {
                                         is_embed: !!item.is_embed,
                                         is_webpage: !!item.is_webpage,
                                         iframe_cropping: !!item.iframe_cropping,
+                                        show_live_viewer_count: !!item.show_live_viewer_count,
                                         password: item.password || '',
                                         available_for_resellers: item.available_for_resellers !== false
                                       });
@@ -8487,6 +8510,7 @@ export default function App() {
                                         is_embed: !!item.is_embed,
                                         is_webpage: !!item.is_webpage,
                                         iframe_cropping: !!item.iframe_cropping,
+                                        show_live_viewer_count: !!item.show_live_viewer_count,
                                         password: item.password || '',
                                         episodes: item.episodes || [],
                                         available_for_resellers: item.available_for_resellers !== false
@@ -8544,7 +8568,7 @@ export default function App() {
                             onClick={() => {
                               setNewLiveEvent({
                                 ...newLiveEvent,
-                                channels: [...newLiveEvent.channels, { name: `Channel ${newLiveEvent.channels.length + 1}`, play_url: '', is_embed: false, is_mpd: false }]
+                                channels: [...newLiveEvent.channels, { name: `Channel ${newLiveEvent.channels.length + 1}`, play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false, iframe_cropping: false, show_live_viewer_count: false }]
                               });
                             }}
                             className="px-3 py-1.5 rounded-xl bg-cyan-500 text-black font-black text-[9px] uppercase tracking-wider hover:bg-cyan-400 transition-all cursor-pointer"
@@ -8722,6 +8746,21 @@ export default function App() {
                                   <label htmlFor={`is_webpage-${cIdx}`} className="text-[9px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Webpage</label>
                                 </div>
 
+                                <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2 h-[38px] animate-pulse-slow">
+                                  <input 
+                                    type="checkbox" 
+                                    id={`show_live_viewer_count_channel-${cIdx}`}
+                                    checked={!!channel.show_live_viewer_count}
+                                    onChange={(e) => {
+                                      const updatedCh = [...newLiveEvent.channels];
+                                      updatedCh[cIdx].show_live_viewer_count = e.target.checked;
+                                      setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                    }}
+                                    className="w-4 h-4 accent-red-500"
+                                  />
+                                  <label htmlFor={`show_live_viewer_count_channel-${cIdx}`} className="text-[9px] text-red-400 font-black uppercase tracking-widest cursor-pointer select-none">Live Viewers</label>
+                                </div>
+
                                 {(channel.is_embed || channel.is_webpage) && (
                                   <>
                                     <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2 h-[38px]">
@@ -8830,9 +8869,10 @@ export default function App() {
                                               is_mpd: !!ch.is_mpd,
                                               is_webpage: !!ch.is_webpage,
                                               sandbox_disabled: !!ch.sandbox_disabled,
-                                              iframe_cropping: !!ch.iframe_cropping
+                                              iframe_cropping: !!ch.iframe_cropping,
+                                              show_live_viewer_count: !!ch.show_live_viewer_count
                                             }))
-                                          : [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false, iframe_cropping: false }],
+                                          : [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false, iframe_cropping: false, show_live_viewer_count: false }],
                                         available_for_resellers: item.available_for_resellers !== false
                                       });
                                     }}
@@ -9164,6 +9204,22 @@ export default function App() {
                                 <label htmlFor="available_for_resellers_fifa" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Resellers Access</label>
                               </div>
 
+                              <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-2xl px-5 py-3 animate-pulse-slow">
+                                <input 
+                                  type="checkbox" 
+                                  id="show_live_viewer_count_fifa"
+                                  checked={!!newFifaChannel.show_live_viewer_count}
+                                  onChange={(e) => {
+                                    setNewFifaChannel({
+                                      ...newFifaChannel, 
+                                      show_live_viewer_count: e.target.checked
+                                    });
+                                  }}
+                                  className="w-4 h-4 accent-red-500"
+                                />
+                                <label htmlFor="show_live_viewer_count_fifa" className="text-[10px] text-red-400 font-black uppercase tracking-widest cursor-pointer select-none">Show Live Viewer Count</label>
+                              </div>
+
                               {(newFifaChannel.is_embed || newFifaChannel.is_webpage) && (
                                 <>
                                   <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 rounded-2xl px-5 py-3">
@@ -9272,6 +9328,7 @@ export default function App() {
                                         is_embed: !!item.is_embed,
                                         is_webpage: !!item.is_webpage,
                                         sandbox_disabled: !!item.sandbox_disabled,
+                                        show_live_viewer_count: !!item.show_live_viewer_count,
                                         iframe_cropping: !!item.iframe_cropping,
                                         status: item.status || 'Live',
                                         order: item.order !== undefined && item.order !== 999999 ? String(item.order) : '',
@@ -9905,6 +9962,7 @@ export default function App() {
                     is_webpage: !!playingFifaChannel.is_webpage,
                     sandbox_disabled: !!playingFifaChannel.sandbox_disabled,
                     iframe_cropping: !!playingFifaChannel.iframe_cropping,
+                    show_live_viewer_count: !!playingFifaChannel.show_live_viewer_count,
                     skipProxy: true,
                     isLive: true,
                     sources: [{

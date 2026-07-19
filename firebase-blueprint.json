@@ -48,6 +48,7 @@
         "is_webpage": { "type": "boolean" },
         "sandbox_disabled": { "type": "boolean" },
         "iframe_cropping": { "type": "boolean", "description": "Enable Iframe Cropping (Hide Top Bar)" },
+        "show_live_viewer_count": { "type": "boolean", "description": "Show Live Viewer Count using Socket.io" },
         "password": { "type": "string", "description": "Optional password to lock access to this movie" },
         "available_for_resellers": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
@@ -67,6 +68,7 @@
         "is_webpage": { "type": "boolean" },
         "sandbox_disabled": { "type": "boolean" },
         "iframe_cropping": { "type": "boolean", "description": "Enable Iframe Cropping (Hide Top Bar)" },
+        "show_live_viewer_count": { "type": "boolean", "description": "Show Live Viewer Count using Socket.io" },
         "password": { "type": "string", "description": "Optional password to lock access to this series" },
         "available_for_resellers": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
@@ -124,6 +126,7 @@
         "is_webpage": { "type": "boolean" },
         "sandbox_disabled": { "type": "boolean" },
         "iframe_cropping": { "type": "boolean", "description": "Enable Iframe Cropping (Hide Top Bar)" },
+        "show_live_viewer_count": { "type": "boolean", "description": "Show Live Viewer Count using Socket.io" },
         "status": { "type": "string" },
         "order": { "type": "number" },
         "createdAt": { "type": "string", "format": "date-time" }

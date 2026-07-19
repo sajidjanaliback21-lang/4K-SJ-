@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Artplayer from 'artplayer';
+import { io } from 'socket.io-client';
 import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
 import * as dashjs from 'dashjs';
@@ -22,6 +23,7 @@ interface VideoPlayerProps {
     drm_license_url?: string;
     sandbox_disabled?: boolean;
     iframe_cropping?: boolean;
+    show_live_viewer_count?: boolean;
   };
   onReady?: (player: Artplayer) => void;
   onClose?: () => void;
@@ -200,6 +202,51 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [midGain, setMidGain] = useState(0);
   const [trebleGain, setTrebleGain] = useState(0);
   const [volumeBoost, setVolumeBoost] = useState(1.0);
+  const [liveViewers, setLiveViewers] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!options.show_live_viewer_count) {
+      setLiveViewers(null);
+      return;
+    }
+
+    console.log('[Socket] Connecting to socket server https://api.xyzcloud3.xyz:2083');
+    const socket = io('https://api.xyzcloud3.xyz:2083', {
+      transports: ['websocket'],
+      reconnectionAttempts: 10,
+      reconnectionDelay: 2000,
+    });
+
+    socket.on('connect', () => {
+      console.log('[Socket] Connected to server');
+    });
+
+    socket.on('viewerUpdate', (data: any) => {
+      console.log('[Socket] Received viewerUpdate:', data);
+      if (typeof data === 'number') {
+        setLiveViewers(data);
+      } else if (data && typeof data === 'object') {
+        if (typeof data.count === 'number') {
+          setLiveViewers(data.count);
+        } else if (typeof data.viewers === 'number') {
+          setLiveViewers(data.viewers);
+        }
+      }
+    });
+
+    socket.on('connect_error', (err) => {
+      console.warn('[Socket] Connection error:', err);
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.log('[Socket] Disconnected:', reason);
+    });
+
+    return () => {
+      console.log('[Socket] Cleaning up socket connection');
+      socket.disconnect();
+    };
+  }, [options.show_live_viewer_count]);
 
   const handleVolumeBoostChange = (val: number) => {
     const rounded = Number(val.toFixed(2));
@@ -2299,6 +2346,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   return (
     <div className="w-full h-full relative bg-black overflow-hidden" style={{ minHeight: '100%' }}>
+      {options.show_live_viewer_count && (isEmbeddable(originalUrl) || options.is_webpage) && (
+        <div className="absolute top-4 right-4 z-[99] pointer-events-none flex items-center gap-2 bg-black/60 border border-white/10 px-3 py-1.5 rounded-full backdrop-blur-md animate-pulse-slow">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+          </span>
+          <span className="text-[10px] text-white/95 font-mono font-bold uppercase tracking-wider">
+            {liveViewers !== null ? `${liveViewers.toLocaleString()} Viewing` : 'Connecting...'}
+          </span>
+        </div>
+      )}
       <AnimatePresence>
         {isLoading && !isEmbeddable(originalUrl) && !options.is_webpage && !showOPlayerFallback && (
           <motion.div 
@@ -2504,6 +2562,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             (showEqPanel || showSpeedPanel || showEpisodesPanel) ? 'hide-player-controls' : ''
           }`} 
         />
+      )}
+
+      {/* Live Viewer Count Overlay inside our custom portal layer inside Artplayer (maintains visibility in fullscreen) */}
+      {eqPortalTarget && options.show_live_viewer_count && createPortal(
+        <div className="absolute top-4 right-4 z-[99] pointer-events-none flex items-center gap-2 bg-black/60 border border-white/10 px-3 py-1.5 rounded-full backdrop-blur-md animate-pulse-slow">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+          </span>
+          <span className="text-[10px] text-white/95 font-mono font-bold uppercase tracking-wider">
+            {liveViewers !== null ? `${liveViewers.toLocaleString()} Viewing` : 'Connecting...'}
+          </span>
+        </div>,
+        eqPortalTarget
       )}
 
       {/* Floating EQ Toggle Button inside our custom portal layer inside Artplayer */}
