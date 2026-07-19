@@ -694,6 +694,7 @@ export default function App() {
     is_embed: false,
     is_webpage: false,
     sandbox_disabled: false,
+    iframe_cropping: false,
     status: 'Live',
     order: '',
     stream_id: '',
@@ -722,16 +723,16 @@ export default function App() {
   const [newLiveEvent, setNewLiveEvent] = useState<{
     name: string;
     poster_url: string;
-    channels: Array<{ name: string; play_url: string; is_embed?: boolean; is_mpd?: boolean; is_webpage?: boolean; sandbox_disabled?: boolean; drm_license_url?: string }>;
+    channels: Array<{ name: string; play_url: string; is_embed?: boolean; is_mpd?: boolean; is_webpage?: boolean; sandbox_disabled?: boolean; iframe_cropping?: boolean; drm_license_url?: string }>;
     available_for_resellers?: boolean;
   }>({
     name: '',
     poster_url: '',
-    channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false }],
+    channels: [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false, iframe_cropping: false }],
     available_for_resellers: true
   });
 
-  const [newFreeMovie, setNewFreeMovie] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, is_webpage: false, password: '', available_for_resellers: true });
+  const [newFreeMovie, setNewFreeMovie] = useState({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, is_webpage: false, iframe_cropping: false, password: '', available_for_resellers: true });
   const [newFreeSeries, setNewFreeSeries] = useState({ 
     tmdb_id: '', 
     name: '', 
@@ -741,6 +742,7 @@ export default function App() {
     playlist_url: '', 
     is_embed: false, 
     is_webpage: false, 
+    iframe_cropping: false,
     password: '', 
     available_for_resellers: true,
     episodes: [] as Array<{ id: string, season: string, episode_num: string, title: string, play_url: string, download_url?: string }>
@@ -2498,7 +2500,7 @@ export default function App() {
           createdAt: new Date().toISOString()
         });
       }
-      setNewFreeMovie({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, is_webpage: false, password: '', available_for_resellers: true });
+      setNewFreeMovie({ tmdb_id: '', name: '', poster_url: '', play_url: '', download_url: '', is_embed: false, is_webpage: false, iframe_cropping: false, password: '', available_for_resellers: true });
     } catch (error) {
       console.error("Error saving free movie:", error);
     }
@@ -2587,6 +2589,7 @@ export default function App() {
       is_embed: isIptv ? false : !!newFifaChannel.is_embed,
       is_webpage: isIptv ? false : !!newFifaChannel.is_webpage,
       sandbox_disabled: isIptv ? false : !!newFifaChannel.sandbox_disabled,
+      iframe_cropping: isIptv ? false : !!newFifaChannel.iframe_cropping,
       status: newFifaChannel.status || 'Live',
       order: orderVal,
       is_premium: isPremiumVal,
@@ -2611,6 +2614,7 @@ export default function App() {
         is_embed: false,
         is_webpage: false,
         sandbox_disabled: false,
+        iframe_cropping: false,
         status: 'Live',
         order: '',
         stream_id: '',
@@ -3132,6 +3136,7 @@ export default function App() {
         playlist_url: '', 
         is_embed: false, 
         is_webpage: false,
+        iframe_cropping: false,
         password: '', 
         available_for_resellers: true,
         episodes: [] 
@@ -6673,6 +6678,7 @@ export default function App() {
                       fluid: true,
                       poster: playingFreeMovie.poster_url,
                       is_embed: playingFreeMovie.is_embed,
+                      iframe_cropping: !!playingFreeMovie.iframe_cropping,
                       skipProxy: true,
                       isLive: false,
                       sources: [{
@@ -6935,6 +6941,7 @@ export default function App() {
                           is_embed: !!activeChannel.is_embed,
                           is_webpage: !!activeChannel.is_webpage,
                           sandbox_disabled: !!activeChannel.sandbox_disabled,
+                          iframe_cropping: !!activeChannel.iframe_cropping,
                           skipProxy: true,
                           isLive: true,
                           sources: [{
@@ -7698,6 +7705,7 @@ export default function App() {
                         isLive: false,
                         poster: playingFreeSeries.poster_url,
                         is_embed: playingFreeSeries.is_embed,
+                        iframe_cropping: !!playingFreeSeries.iframe_cropping,
                         skipProxy: true,
                         sources: [{
                           src: getResellerAdjustedUrl(freeSeriesActiveUrl || playingFreeSeries.play_url),
@@ -8284,6 +8292,22 @@ export default function App() {
                           />
                           <label htmlFor="resellers_access_admin" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Resellers Access</label>
                         </div>
+
+                        {(activeAdminTab === 'free_movies' ? newFreeMovie.is_embed : newFreeSeries.is_embed) && (
+                          <div className="flex items-center gap-3 bg-cyan-500/10 border border-cyan-500/20 rounded-2xl px-5 py-3 w-fit">
+                            <input 
+                              type="checkbox" 
+                              id="iframe_cropping_admin"
+                              checked={activeAdminTab === 'free_movies' ? !!newFreeMovie.iframe_cropping : !!newFreeSeries.iframe_cropping}
+                              onChange={(e) => activeAdminTab === 'free_movies' 
+                                ? setNewFreeMovie({...newFreeMovie, iframe_cropping: e.target.checked}) 
+                                : setNewFreeSeries({...newFreeSeries, iframe_cropping: e.target.checked})
+                              }
+                              className="w-4 h-4 accent-cyan-500"
+                            />
+                            <label htmlFor="iframe_cropping_admin" className="text-[10px] text-cyan-400 font-black uppercase tracking-widest cursor-pointer select-none">Enable Iframe Cropping (Hide Top Bar)</label>
+                          </div>
+                        )}
                       </div>
 
                       {activeAdminTab === 'free_series' && (
@@ -8447,6 +8471,7 @@ export default function App() {
                                         download_url: item.download_url || '',
                                         is_embed: !!item.is_embed,
                                         is_webpage: !!item.is_webpage,
+                                        iframe_cropping: !!item.iframe_cropping,
                                         password: item.password || '',
                                         available_for_resellers: item.available_for_resellers !== false
                                       });
@@ -8461,6 +8486,7 @@ export default function App() {
                                         playlist_url: item.playlist_url || '',
                                         is_embed: !!item.is_embed,
                                         is_webpage: !!item.is_webpage,
+                                        iframe_cropping: !!item.iframe_cropping,
                                         password: item.password || '',
                                         episodes: item.episodes || [],
                                         available_for_resellers: item.available_for_resellers !== false
@@ -8697,20 +8723,36 @@ export default function App() {
                                 </div>
 
                                 {(channel.is_embed || channel.is_webpage) && (
-                                  <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2 h-[38px]">
-                                    <input 
-                                      type="checkbox" 
-                                      id={`sandbox_disabled-${cIdx}`}
-                                      checked={!!channel.sandbox_disabled}
-                                      onChange={(e) => {
-                                        const updatedCh = [...newLiveEvent.channels];
-                                        updatedCh[cIdx].sandbox_disabled = e.target.checked;
-                                        setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                      }}
-                                      className="w-4 h-4 accent-rose-500"
-                                    />
-                                    <label htmlFor={`sandbox_disabled-${cIdx}`} className="text-[9px] text-rose-400 font-black uppercase tracking-widest cursor-pointer select-none">Sandbox Off</label>
-                                  </div>
+                                  <>
+                                    <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2 h-[38px]">
+                                      <input 
+                                        type="checkbox" 
+                                        id={`sandbox_disabled-${cIdx}`}
+                                        checked={!!channel.sandbox_disabled}
+                                        onChange={(e) => {
+                                          const updatedCh = [...newLiveEvent.channels];
+                                          updatedCh[cIdx].sandbox_disabled = e.target.checked;
+                                          setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                        }}
+                                        className="w-4 h-4 accent-rose-500"
+                                      />
+                                      <label htmlFor={`sandbox_disabled-${cIdx}`} className="text-[9px] text-rose-400 font-black uppercase tracking-widest cursor-pointer select-none">Sandbox Off</label>
+                                    </div>
+                                    <div className="flex items-center gap-3 bg-cyan-500/10 border border-cyan-500/20 rounded-xl px-3 py-2 h-[38px]">
+                                      <input 
+                                        type="checkbox" 
+                                        id={`iframe_cropping_channel-${cIdx}`}
+                                        checked={!!channel.iframe_cropping}
+                                        onChange={(e) => {
+                                          const updatedCh = [...newLiveEvent.channels];
+                                          updatedCh[cIdx].iframe_cropping = e.target.checked;
+                                          setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
+                                        }}
+                                        className="w-4 h-4 accent-cyan-500"
+                                      />
+                                      <label htmlFor={`iframe_cropping_channel-${cIdx}`} className="text-[9px] text-cyan-400 font-black uppercase tracking-widest cursor-pointer select-none">Enable Iframe Cropping (Hide Top Bar)</label>
+                                    </div>
+                                  </>
                                 )}
 
                                 {newLiveEvent.channels.length > 1 && (
@@ -8787,9 +8829,10 @@ export default function App() {
                                               is_embed: !!ch.is_embed,
                                               is_mpd: !!ch.is_mpd,
                                               is_webpage: !!ch.is_webpage,
-                                              sandbox_disabled: !!ch.sandbox_disabled
+                                              sandbox_disabled: !!ch.sandbox_disabled,
+                                              iframe_cropping: !!ch.iframe_cropping
                                             }))
-                                          : [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false }],
+                                          : [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false, iframe_cropping: false }],
                                         available_for_resellers: item.available_for_resellers !== false
                                       });
                                     }}
@@ -9122,21 +9165,38 @@ export default function App() {
                               </div>
 
                               {(newFifaChannel.is_embed || newFifaChannel.is_webpage) && (
-                                <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 rounded-2xl px-5 py-3">
-                                  <input 
-                                    type="checkbox" 
-                                    id="sandbox_disabled_fifa"
-                                    checked={!!newFifaChannel.sandbox_disabled}
-                                    onChange={(e) => {
-                                      setNewFifaChannel({
-                                        ...newFifaChannel, 
-                                        sandbox_disabled: e.target.checked
-                                      });
-                                    }}
-                                    className="w-4 h-4 accent-rose-500"
-                                  />
-                                  <label htmlFor="sandbox_disabled_fifa" className="text-[10px] text-rose-400 font-black uppercase tracking-widest cursor-pointer select-none">Disable Sandbox (Allow Popups/Redirects)</label>
-                                </div>
+                                <>
+                                  <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 rounded-2xl px-5 py-3">
+                                    <input 
+                                      type="checkbox" 
+                                      id="sandbox_disabled_fifa"
+                                      checked={!!newFifaChannel.sandbox_disabled}
+                                      onChange={(e) => {
+                                        setNewFifaChannel({
+                                          ...newFifaChannel, 
+                                          sandbox_disabled: e.target.checked
+                                        });
+                                      }}
+                                      className="w-4 h-4 accent-rose-500"
+                                    />
+                                    <label htmlFor="sandbox_disabled_fifa" className="text-[10px] text-rose-400 font-black uppercase tracking-widest cursor-pointer select-none">Disable Sandbox (Allow Popups/Redirects)</label>
+                                  </div>
+                                  <div className="flex items-center gap-3 bg-cyan-500/10 border border-cyan-500/20 rounded-2xl px-5 py-3">
+                                    <input 
+                                      type="checkbox" 
+                                      id="iframe_cropping_fifa"
+                                      checked={!!newFifaChannel.iframe_cropping}
+                                      onChange={(e) => {
+                                        setNewFifaChannel({
+                                          ...newFifaChannel, 
+                                          iframe_cropping: e.target.checked
+                                        });
+                                      }}
+                                      className="w-4 h-4 accent-cyan-500"
+                                    />
+                                    <label htmlFor="iframe_cropping_fifa" className="text-[10px] text-cyan-400 font-black uppercase tracking-widest cursor-pointer select-none">Enable Iframe Cropping (Hide Top Bar)</label>
+                                  </div>
+                                </>
                               )}
                             </div>
                           </div>
@@ -9212,6 +9272,7 @@ export default function App() {
                                         is_embed: !!item.is_embed,
                                         is_webpage: !!item.is_webpage,
                                         sandbox_disabled: !!item.sandbox_disabled,
+                                        iframe_cropping: !!item.iframe_cropping,
                                         status: item.status || 'Live',
                                         order: item.order !== undefined && item.order !== 999999 ? String(item.order) : '',
                                         stream_id: item.stream_id || '',
@@ -9843,6 +9904,7 @@ export default function App() {
                     is_embed: !!playingFifaChannel.is_embed,
                     is_webpage: !!playingFifaChannel.is_webpage,
                     sandbox_disabled: !!playingFifaChannel.sandbox_disabled,
+                    iframe_cropping: !!playingFifaChannel.iframe_cropping,
                     skipProxy: true,
                     isLive: true,
                     sources: [{

@@ -21,6 +21,7 @@ interface VideoPlayerProps {
     isLive?: boolean;
     drm_license_url?: string;
     sandbox_disabled?: boolean;
+    iframe_cropping?: boolean;
   };
   onReady?: (player: Artplayer) => void;
   onClose?: () => void;
@@ -2384,14 +2385,28 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {(isEmbeddable(originalUrl) || options.is_webpage) ? (
         <div className="absolute inset-0 w-full h-full bg-black">
-          <iframe
-            src={getAutoplayUrl(originalUrl)}
-            className="w-full h-full border-0 m-0 p-0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
-            referrerPolicy="no-referrer"
-            sandbox={options.sandbox_disabled ? undefined : (options.is_webpage ? "allow-scripts allow-same-origin allow-presentation allow-forms allow-pointer-lock" : (isAntiPopupActive ? "allow-scripts allow-same-origin allow-presentation allow-forms allow-pointer-lock" : undefined))}
-          />
+          {options.iframe_cropping ? (
+            <div style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: '#000' }}>
+              <iframe 
+                src={getAutoplayUrl(originalUrl)} 
+                style={{ position: 'absolute', top: '-90px', left: '0', width: '100%', height: 'calc(100% + 90px)' }} 
+                frameBorder="0" 
+                allowFullScreen
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                referrerPolicy="no-referrer"
+                sandbox={options.sandbox_disabled ? undefined : (options.is_webpage ? "allow-scripts allow-same-origin allow-presentation allow-forms allow-pointer-lock" : (isAntiPopupActive ? "allow-scripts allow-same-origin allow-presentation allow-forms allow-pointer-lock" : undefined))}
+              />
+            </div>
+          ) : (
+            <iframe
+              src={getAutoplayUrl(originalUrl)}
+              className="w-full h-full border-0 m-0 p-0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              referrerPolicy="no-referrer"
+              sandbox={options.sandbox_disabled ? undefined : (options.is_webpage ? "allow-scripts allow-same-origin allow-presentation allow-forms allow-pointer-lock" : (isAntiPopupActive ? "allow-scripts allow-same-origin allow-presentation allow-forms allow-pointer-lock" : undefined))}
+            />
+          )}
           {/* Floating Ad-Shield / Anti-Popup Controller */}
           {!options.is_webpage && (
             <div className="absolute top-[20px] left-[20px] z-[99] pointer-events-auto flex items-center gap-2">

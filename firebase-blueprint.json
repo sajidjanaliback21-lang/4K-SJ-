@@ -44,7 +44,12 @@
         "poster_url": { "type": "string" },
         "play_url": { "type": "string" },
         "download_url": { "type": "string" },
+        "is_embed": { "type": "boolean" },
+        "is_webpage": { "type": "boolean" },
+        "sandbox_disabled": { "type": "boolean" },
+        "iframe_cropping": { "type": "boolean", "description": "Enable Iframe Cropping (Hide Top Bar)" },
         "password": { "type": "string", "description": "Optional password to lock access to this movie" },
+        "available_for_resellers": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "poster_url", "play_url"]
@@ -58,7 +63,12 @@
         "poster_url": { "type": "string" },
         "play_url": { "type": "string" },
         "download_url": { "type": "string" },
+        "is_embed": { "type": "boolean" },
+        "is_webpage": { "type": "boolean" },
+        "sandbox_disabled": { "type": "boolean" },
+        "iframe_cropping": { "type": "boolean", "description": "Enable Iframe Cropping (Hide Top Bar)" },
         "password": { "type": "string", "description": "Optional password to lock access to this series" },
+        "available_for_resellers": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "poster_url", "play_url"]
@@ -111,6 +121,9 @@
         "play_url": { "type": "string" },
         "is_mpd": { "type": "boolean" },
         "is_embed": { "type": "boolean" },
+        "is_webpage": { "type": "boolean" },
+        "sandbox_disabled": { "type": "boolean" },
+        "iframe_cropping": { "type": "boolean", "description": "Enable Iframe Cropping (Hide Top Bar)" },
         "status": { "type": "string" },
         "order": { "type": "number" },
         "createdAt": { "type": "string", "format": "date-time" }
