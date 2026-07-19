@@ -844,6 +844,17 @@ export default function App() {
 
   const getResellerAdjustedUrl = (url: string, action: string = 'play') => {
     if (!url) return '';
+    
+    // If it's a download action, use the specified custom download path and adjust for reseller host if active
+    if (action === 'download') {
+      const resellerHost = activeReseller?.server_url
+        ? activeReseller.server_url.replace(/\/$/, '')
+        : 'https://60fpssj-60fps10.hf.space';
+      return `https://60fpssj-60fps10.hf.space/-/-/-/-.mkv`
+        .replace(/https:\/\/60fpssj-60fps10\.hf\.space/g, resellerHost)
+        .replace(/http:\/\/60fpssj-60fps10\.hf\.space/g, resellerHost);
+    }
+
     // If there is an active reseller with a custom server URL, replace the default host
     if (activeReseller?.server_url) {
       const resellerHost = activeReseller.server_url.replace(/\/$/, ''); // strip trailing slash
