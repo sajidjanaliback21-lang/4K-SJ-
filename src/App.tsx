@@ -40,7 +40,12 @@ import {
   Youtube,
   Radio,
   GripVertical,
-  Trash2
+  Trash2,
+  Globe,
+  ChevronDown,
+  MapPin,
+  Sparkles,
+  Compass
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -52,7 +57,27 @@ import IntroLoading from './components/IntroLoading';
 import { db, auth } from './firebase';
 import { doc, onSnapshot, setDoc, getDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
-import { fetchTmdbDetails, TmdbDetails, fetchTrendingMovies, fetchTrendingSeries, TmdbTrendingItem, cleanMediaTitle, fetchTmdbDetailsById, getStoredTmdbDetails, getStoredTmdbDetailsById, getLanguageTags } from './lib/tmdb';
+import { fetchTmdbDetails, TmdbDetails, fetchTrendingMovies, fetchTrendingSeries, TmdbTrendingItem, cleanMediaTitle, fetchTmdbDetailsById, getStoredTmdbDetails, getStoredTmdbDetailsById, getLanguageTags, getLanguageBadge, TRENDING_REGIONS, TrendingRegion } from './lib/tmdb';
+
+const RegionFlag = ({ code, className = "w-5 h-3.5" }: { code: string; className?: string }) => {
+  if (code === 'ALL') {
+    return (
+      <span className={`inline-flex items-center justify-center rounded bg-gradient-to-tr from-cyan-600 via-blue-600 to-indigo-600 text-white shadow-sm border border-white/20 shrink-0 ${className}`}>
+        <Globe size={11} className="text-white" />
+      </span>
+    );
+  }
+  const iso = code.toLowerCase();
+  return (
+    <img
+      src={`https://flagcdn.com/w80/${iso}.png`}
+      srcSet={`https://flagcdn.com/w160/${iso}.png 2x`}
+      alt={code}
+      className={`object-cover rounded-[3px] shadow-sm border border-white/25 shrink-0 ${className}`}
+      loading="lazy"
+    />
+  );
+};
 
 
 enum OperationType {
@@ -626,7 +651,8 @@ export default function App() {
     avatarId: 'cinephile',
     customAvatar: null
   });
-  const [activeTab, setActiveTab] = useState<'home' | 'movies' | 'series' | 'live' | 'free'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'movies' | 'series' | 'live' | 'free' | 'search'>('home');
+  const [previousTab, setPreviousTab] = useState<'home' | 'movies' | 'series' | 'live' | 'free'>('home');
   const [activeFreeTab, setActiveFreeTab] = useState<'menu' | 'movies' | 'series' | 'live_events'>('menu');
   const [movieCategories, setMovieCategories] = useState<Category[]>([]);
   const [seriesCategories, setSeriesCategories] = useState<Category[]>([]);
@@ -653,6 +679,8 @@ export default function App() {
   const [loadingSeries, setLoadingSeries] = useState(false);
   const [loadingLive, setLoadingLive] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [executedSearchQuery, setExecutedSearchQuery] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchingOnServer, setSearchingOnServer] = useState(false);
   const [selectedItem, setSelectedItem] = useState<Stream | Series | null>(null);
   const [seriesInfo, setSeriesInfo] = useState<any>(null);
@@ -665,6 +693,18 @@ export default function App() {
   const [trendingMovies, setTrendingMovies] = useState<TmdbTrendingItem[]>([]);
   const [trendingSeries, setTrendingSeries] = useState<TmdbTrendingItem[]>([]);
   const [loadingTrending, setLoadingTrending] = useState(false);
+  const [selectedTrendingRegion, setSelectedTrendingRegion] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('trending_region') || 'IN';
+    }
+    return 'IN';
+  });
+  const [showRegionModal, setShowRegionModal] = useState<boolean>(false);
+
+  const currentRegionObj = useMemo(() => {
+    return TRENDING_REGIONS.find(r => r.code === selectedTrendingRegion) || TRENDING_REGIONS[0];
+  }, [selectedTrendingRegion]);
+
   const [trendingSelectorData, setTrendingSelectorData] = useState<{
     show: boolean;
     title: string;
@@ -1660,8 +1700,8 @@ export default function App() {
       setLoadingTrending(true);
       try {
         const [movies, series] = await Promise.all([
-          fetchTrendingMovies(),
-          fetchTrendingSeries()
+          fetchTrendingMovies(selectedTrendingRegion),
+          fetchTrendingSeries(selectedTrendingRegion)
         ]);
         setTrendingMovies(movies);
         setTrendingSeries(series);
@@ -1672,7 +1712,7 @@ export default function App() {
       }
     };
     loadTrendingContent();
-  }, [creds]);
+  }, [creds, selectedTrendingRegion]);
 
   // Fetch Movie items when category changes
   useEffect(() => {
@@ -2072,6 +2112,170 @@ export default function App() {
       }));
   }, [selectedItem, selectedFreeMovie, selectedFreeSeries, seriesInfo, movieInfo, tmdbDetails]);
 
+  const handleSearchChange = (val: string) => {
+    setSearchQuery(val);
+  };
+
+  const handleExecuteSearch = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const term = searchQuery.trim();
+    if (term.length > 0) {
+      setExecutedSearchQuery(term);
+      if (activeTab !== 'search') {
+        setPreviousTab(activeTab === 'search' ? previousTab : activeTab as any);
+        setActiveTab('search');
+      }
+    } else {
+      setExecutedSearchQuery('');
+      if (activeTab === 'search') {
+        setActiveTab(previousTab || 'home');
+      }
+    }
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery('');
+    setExecutedSearchQuery('');
+    if (activeTab === 'search') {
+      setActiveTab(previousTab || 'home');
+    }
+  };
+
+  // Auto-fetch live streams if searching and liveItems is empty
+  useEffect(() => {
+    if (activeTab === 'search' && liveItems.length === 0 && creds) {
+      const fetchLiveForSearch = async () => {
+        try {
+          const data = await xtreamApi.getLiveStreams(creds, '0');
+          setLiveItems(data);
+          setTotalLiveCount(data.length);
+        } catch (e) {
+          console.warn("Failed to auto-fetch live channels for master search:", e);
+        }
+      };
+      fetchLiveForSearch();
+    }
+  }, [activeTab, liveItems.length, creds]);
+
+  const searchMoviesResults = useMemo(() => {
+    const q = executedSearchQuery.trim().toLowerCase();
+    if (!q) return [];
+
+    const iptvSeen = new Set<string>();
+    const iptvPool: any[] = [];
+    
+    (movieItems || []).forEach(m => {
+      const idStr = String(m.stream_id || m.id || m.name);
+      if (!iptvSeen.has(idStr)) {
+        iptvSeen.add(idStr);
+        iptvPool.push(m);
+      }
+    });
+
+    (homeData?.popularMovies || []).forEach(pm => {
+      const idStr = String(pm.stream_id || pm.id || pm.name);
+      if (!iptvSeen.has(idStr)) {
+        iptvSeen.add(idStr);
+        iptvPool.push(pm);
+      }
+    });
+
+    const matchingIptv = iptvPool
+      .filter(item => {
+        const title = (item.name || item.title || '').toLowerCase();
+        return title.includes(q);
+      })
+      .map(item => ({ ...item, isFree: false, searchType: 'iptv_movie' }));
+
+    const matchingFree = (displayedFreeMovies || [])
+      .filter(item => {
+        const title = (item.name || item.title || '').toLowerCase();
+        return title.includes(q);
+      })
+      .map(item => ({ ...item, isFree: true, searchType: 'free_movie' }));
+
+    return [...matchingIptv, ...matchingFree].slice(0, 150);
+  }, [executedSearchQuery, movieItems, homeData?.popularMovies, displayedFreeMovies]);
+
+  const searchSeriesResults = useMemo(() => {
+    const q = executedSearchQuery.trim().toLowerCase();
+    if (!q) return [];
+
+    const iptvSeen = new Set<string>();
+    const iptvPool: any[] = [];
+
+    (seriesItems || []).forEach(s => {
+      const idStr = String(s.series_id || s.id || s.name);
+      if (!iptvSeen.has(idStr)) {
+        iptvSeen.add(idStr);
+        iptvPool.push(s);
+      }
+    });
+
+    (homeData?.popularSeries || []).forEach(ps => {
+      const idStr = String(ps.series_id || ps.id || ps.name);
+      if (!iptvSeen.has(idStr)) {
+        iptvSeen.add(idStr);
+        iptvPool.push(ps);
+      }
+    });
+
+    const matchingIptv = iptvPool
+      .filter(item => {
+        const title = (item.name || item.title || '').toLowerCase();
+        return title.includes(q);
+      })
+      .map(item => ({ ...item, isFree: false, searchType: 'iptv_series' }));
+
+    const matchingFree = (displayedFreeSeries || [])
+      .filter(item => {
+        const title = (item.name || item.title || '').toLowerCase();
+        return title.includes(q);
+      })
+      .map(item => ({ ...item, isFree: true, searchType: 'free_series' }));
+
+    return [...matchingIptv, ...matchingFree].slice(0, 150);
+  }, [executedSearchQuery, seriesItems, homeData?.popularSeries, displayedFreeSeries]);
+
+  const searchLiveResults = useMemo(() => {
+    const q = executedSearchQuery.trim().toLowerCase();
+    if (!q) return [];
+
+    const matchingIptv = (liveItems || [])
+      .filter(item => {
+        const title = (item.name || item.title || '').toLowerCase();
+        return title.includes(q);
+      })
+      .map(item => ({ ...item, isFree: false, searchType: 'iptv_live' }));
+
+    const matchingFreeEvents = (displayedLiveEvents || [])
+      .filter(item => {
+        const nameMatch = (item.name || item.title || '').toLowerCase().includes(q);
+        const chMatch = item.channels && item.channels.some((ch: any) => (ch.name || '').toLowerCase().includes(q));
+        return nameMatch || chMatch;
+      })
+      .map(item => ({ ...item, isFree: true, searchType: 'free_live_event' }));
+
+    return [...matchingIptv, ...matchingFreeEvents].slice(0, 150);
+  }, [executedSearchQuery, liveItems, displayedLiveEvents]);
+
+  const handleMasterSearchItemClick = (item: any) => {
+    if (item.searchType === 'iptv_movie' || item.searchType === 'iptv_series') {
+      handleItemClick(item);
+    } else if (item.searchType === 'free_movie') {
+      handleSelectFreeMovieWithPass(item);
+    } else if (item.searchType === 'free_series') {
+      handleSelectFreeSeriesWithPass(item);
+    } else if (item.searchType === 'iptv_live') {
+      setPlayingLiveStream(item);
+      setActiveTab('live');
+      showToast(`Playing Live Channel: ${item.name}`, 'success');
+    } else if (item.searchType === 'free_live_event') {
+      setSelectedLiveEvent(item);
+      showToast(`Opening Live Event: ${item.name}`, 'info');
+    }
+  };
+
   const currentItems = useMemo(() => {
     const currentSelectedCategory = activeTab === 'movies' ? selectedMovieCategory : (activeTab === 'series' ? selectedSeriesCategory : selectedLiveCategory);
     if (isLoggedIn && currentSelectedCategory === 'favorites') {
@@ -2080,18 +2284,18 @@ export default function App() {
       const favsForCurrentTab = favorites
         .filter((fav: any) => fav.type === currentType)
         .map((fav: any) => fav.itemData);
-      const filtered = searchQuery 
-        ? favsForCurrentTab.filter((item: any) => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      const filtered = executedSearchQuery 
+        ? favsForCurrentTab.filter((item: any) => item.name.toLowerCase().includes(executedSearchQuery.toLowerCase()))
         : favsForCurrentTab;
       return filtered.slice(0, visibleCount);
     }
 
     const items = activeTab === 'movies' ? movieItems : (activeTab === 'series' ? seriesItems : liveItems);
-    const filtered = searchQuery 
-      ? items.filter((item: any) => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    const filtered = executedSearchQuery 
+      ? items.filter((item: any) => item.name.toLowerCase().includes(executedSearchQuery.toLowerCase()))
       : items;
     return filtered.slice(0, visibleCount);
-  }, [activeTab, movieItems, seriesItems, liveItems, searchQuery, visibleCount, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, favorites, isLoggedIn]);
+  }, [activeTab, movieItems, seriesItems, liveItems, executedSearchQuery, visibleCount, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, favorites, isLoggedIn]);
 
   const hasMore = useMemo(() => {
     const currentSelectedCategory = activeTab === 'movies' ? selectedMovieCategory : (activeTab === 'series' ? selectedSeriesCategory : selectedLiveCategory);
@@ -3123,55 +3327,55 @@ export default function App() {
       </AnimatePresence>
 
       {/* Header */}
-      <header className="sticky top-0 z-50 glass-dark px-4 md:px-6 py-3 md:py-4 safe-top flex items-center justify-between border-b border-white/5">
-        <div className="flex items-center gap-4 md:gap-8">
-          <div className="flex flex-col -space-y-1">
-            <h1 className="text-xl md:text-2xl font-display font-bold text-gradient tracking-tighter flex items-center italic">
+      <header className="sticky top-0 z-50 bg-slate-950/90 backdrop-blur-xl border-b border-white/10 px-4 md:px-6 h-14 md:h-16 flex items-center justify-between shadow-lg shadow-black/40">
+        <div className="flex items-center gap-4 md:gap-8 shrink-0">
+          <div className="flex flex-col justify-center -space-y-0.5">
+            <h1 className="text-lg md:text-2xl font-display font-bold text-gradient tracking-tighter flex items-center italic leading-none">
               {renderBrandName(currentBrandName)}
             </h1>
-            <span className="text-[8px] md:text-[10px] text-cyan-400/60 font-bold uppercase tracking-[0.2em] pl-1 italic">Premium Experience</span>
+            <span className="text-[8px] md:text-[10px] text-cyan-400/70 font-bold uppercase tracking-[0.2em] italic leading-none pl-0.5 mt-0.5">Premium Experience</span>
           </div>
           <nav className="hidden md:flex items-center gap-6">
             <button 
-              onClick={() => { setActiveTab('home'); }}
+              onClick={() => { setActiveTab('home'); setSearchQuery(''); }}
               className={cn(
-                "flex items-center gap-2 text-sm font-medium transition-all hover:scale-105",
-                activeTab === 'home' ? "text-cyan-400" : "text-white/60 hover:text-white"
+                "flex items-center gap-2 text-sm font-medium transition-all hover:scale-105 cursor-pointer",
+                activeTab === 'home' ? "text-cyan-400 font-bold" : "text-white/60 hover:text-white"
               )}
             >
               <Home size={18} /> Home
             </button>
             <button 
-              onClick={() => { setActiveTab('movies'); setSelectedMovieCategory('0'); }}
+              onClick={() => { setActiveTab('movies'); setSelectedMovieCategory('0'); setSearchQuery(''); }}
               className={cn(
-                "flex items-center gap-2 text-sm font-medium transition-all hover:scale-105",
-                activeTab === 'movies' ? "text-cyan-400" : "text-white/60 hover:text-white"
+                "flex items-center gap-2 text-sm font-medium transition-all hover:scale-105 cursor-pointer",
+                activeTab === 'movies' ? "text-cyan-400 font-bold" : "text-white/60 hover:text-white"
               )}
             >
               <Film size={18} /> Movies
             </button>
             <button 
-              onClick={() => { setActiveTab('series'); setSelectedSeriesCategory('0'); }}
+              onClick={() => { setActiveTab('series'); setSelectedSeriesCategory('0'); setSearchQuery(''); }}
               className={cn(
-                "flex items-center gap-2 text-sm font-medium transition-all hover:scale-105",
-                activeTab === 'series' ? "text-cyan-400" : "text-white/60 hover:text-white"
+                "flex items-center gap-2 text-sm font-medium transition-all hover:scale-105 cursor-pointer",
+                activeTab === 'series' ? "text-cyan-400 font-bold" : "text-white/60 hover:text-white"
               )}
             >
               <Tv size={18} /> Web Series
             </button>
             <button 
-              onClick={() => { setActiveTab('live'); setSelectedLiveCategory('0'); }}
+              onClick={() => { setActiveTab('live'); setSelectedLiveCategory('0'); setSearchQuery(''); }}
               className={cn(
-                "flex items-center gap-2 text-sm font-medium transition-all hover:scale-105",
-                activeTab === 'live' ? "text-cyan-400" : "text-white/60 hover:text-white"
+                "flex items-center gap-2 text-sm font-medium transition-all hover:scale-105 cursor-pointer",
+                activeTab === 'live' ? "text-cyan-400 font-bold" : "text-white/60 hover:text-white"
               )}
             >
               <LayoutGrid size={18} /> Live TV
             </button>
             <button 
-              onClick={() => { setActiveTab('free'); setActiveFreeTab('menu'); }}
+              onClick={() => { setActiveTab('free'); setActiveFreeTab('menu'); setSearchQuery(''); }}
               className={cn(
-                "flex items-center gap-2 text-sm font-medium transition-all hover:scale-105",
+                "flex items-center gap-2 text-sm font-medium transition-all hover:scale-105 cursor-pointer",
                 activeTab === 'free' ? "text-cyan-400 font-bold" : "text-white/60 hover:text-white"
               )}
             >
@@ -3185,27 +3389,80 @@ export default function App() {
           </nav>
         </div>
 
-        <div className="flex items-center gap-3 md:gap-4">
-          <div className="relative group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-cyan-400 transition-colors" size={14} />
-            <input 
-              type="text"
-              placeholder="Search..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="bg-white/5 border border-white/10 rounded-full py-1.5 md:py-2 pl-9 pr-4 text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 w-24 sm:w-48 md:w-64 transition-all focus:w-32 sm:focus:w-64 md:focus:w-80"
-            />
-          </div>
+        <div className="flex items-center gap-2.5 md:gap-3.5 shrink-0">
+          <AnimatePresence initial={false} mode="wait">
+            {!isSearchOpen ? (
+              <motion.button 
+                key="search-trigger-btn"
+                type="button"
+                onClick={() => setIsSearchOpen(true)}
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.8, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black flex items-center justify-center transition-all hover:scale-105 active:scale-95 shadow-md shadow-cyan-500/20 cursor-pointer shrink-0"
+                title="Search Movies, Series & Live TV"
+              >
+                <Search size={18} className="stroke-[2.5]" />
+              </motion.button>
+            ) : (
+              <motion.form 
+                key="search-input-form"
+                onSubmit={handleExecuteSearch} 
+                initial={{ width: 40, opacity: 0, scaleX: 0.8 }}
+                animate={{ width: 'auto', opacity: 1, scaleX: 1 }}
+                exit={{ width: 40, opacity: 0, scaleX: 0.8 }}
+                transition={{ type: "spring", stiffness: 350, damping: 25 }}
+                className="flex items-center gap-2 bg-slate-900/95 border border-cyan-500/50 rounded-full h-9 md:h-10 px-3 shadow-lg shadow-cyan-500/20 overflow-hidden origin-right shrink-0"
+              >
+                <Search size={16} className="text-cyan-400 shrink-0 pointer-events-none" />
+                <motion.input 
+                  type="text"
+                  autoFocus
+                  placeholder="Type movie, series name..."
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleExecuteSearch(e);
+                    }
+                  }}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.1, duration: 0.2 }}
+                  className="bg-transparent text-xs md:text-sm text-white placeholder:text-white/40 focus:outline-none w-32 sm:w-52 md:w-64"
+                />
+                <button 
+                  type="submit"
+                  className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black font-extrabold px-3 py-1 rounded-full text-xs transition-all hover:scale-105 active:scale-95 shrink-0 cursor-pointer flex items-center gap-1 shadow-sm h-7"
+                >
+                  <Search size={12} className="stroke-[2.5]" />
+                  <span className="hidden sm:inline">Search</span>
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setIsSearchOpen(false);
+                    handleClearSearch();
+                  }}
+                  className="p-1 text-white/50 hover:text-white hover:bg-white/10 rounded-full transition-all cursor-pointer shrink-0"
+                  title="Close Search Bar"
+                >
+                  <X size={15} />
+                </button>
+              </motion.form>
+            )}
+          </AnimatePresence>
           
           {isLoggedIn ? (
             <div className="flex items-center gap-2 md:gap-3">
               <button
                 onClick={() => setShowProfileModal(true)}
-                className="flex items-center gap-2.5 bg-white/5 hover:bg-white/10 border border-white/15 hover:border-white/25 rounded-full pr-4 pl-1.5 py-1.5 transition-all group cursor-pointer"
+                className="flex items-center gap-2.5 bg-white/5 hover:bg-white/10 border border-white/15 hover:border-white/25 rounded-full pr-3.5 pl-1 py-1 h-9 md:h-10 transition-all group cursor-pointer"
                 title="View Profile Details"
                 id="profile-trigger-btn"
               >
-                <div className="w-8 h-8 rounded-full bg-[#083344] overflow-hidden flex items-center justify-center select-none shrink-0 border border-cyan-400/50 shadow-[0_0_8px_rgba(6,182,212,0.3)]">
+                <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-[#083344] overflow-hidden flex items-center justify-center select-none shrink-0 border border-cyan-400/50 shadow-[0_0_8px_rgba(6,182,212,0.3)]">
                   {renderAvatar(profileData.avatarId, profileData.customAvatar)}
                 </div>
                 <span className="text-xs text-white/90 font-medium group-hover:text-[#00D1FF] transition-colors hidden sm:inline-block">
@@ -3215,7 +3472,7 @@ export default function App() {
               
               <button 
                 onClick={handleLogout}
-                className="p-2 hover:bg-white/10 rounded-full transition-all hover:rotate-12 text-white/60 hover:text-white"
+                className="p-2 hover:bg-white/10 rounded-full transition-all hover:rotate-12 text-white/60 hover:text-white flex items-center justify-center w-9 h-9 md:w-10 md:h-10"
                 title="Logout"
                 id="logout-btn"
               >
@@ -3225,16 +3482,243 @@ export default function App() {
           ) : (
             <button 
               onClick={() => setShowLoginModal(true)}
-              className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 px-3 md:px-4 py-1.5 md:py-2 rounded-full text-xs md:text-sm font-semibold transition-all shadow-lg shadow-cyan-900/20 active:scale-95"
+              className="h-9 md:h-10 px-3.5 md:px-5 rounded-full bg-cyan-600 hover:bg-cyan-500 text-xs md:text-sm font-semibold text-white flex items-center gap-2 transition-all shadow-md shadow-cyan-900/30 active:scale-95 shrink-0 cursor-pointer"
             >
-              <LogIn size={14} className="md:w-4 md:h-4" /> Login
+              <LogIn size={15} className="stroke-[2.5]" />
+              <span>Login</span>
             </button>
           )}
         </div>
       </header>
 
       <main className="flex-1 p-4 md:p-6 space-y-6 md:space-y-8 pb-24 md:pb-8">
-        {activeTab === 'home' ? (
+        {activeTab === 'search' ? (
+          <div className="space-y-8 animate-fadeIn">
+            {/* Search Page Header */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 glass-dark rounded-3xl border border-white/10 shadow-2xl bg-gradient-to-r from-cyan-950/40 via-slate-900/60 to-purple-950/40">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-cyan-400 text-xs font-bold uppercase tracking-widest">
+                  <Search size={14} className="animate-pulse" />
+                  <span>Master Search Engine</span>
+                </div>
+                <h2 className="text-2xl md:text-4xl font-display font-extrabold text-white tracking-tight">
+                  Results for <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400">"{executedSearchQuery || searchQuery}"</span>
+                </h2>
+                <p className="text-xs md:text-sm text-white/50 font-medium">
+                  Found <span className="text-cyan-400 font-bold">{searchMoviesResults.length + searchSeriesResults.length + searchLiveResults.length}</span> matching titles across Movies, Web Series, and Live TV.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  onClick={handleClearSearch}
+                  className="flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/15 px-5 py-2.5 rounded-full text-xs font-bold text-white transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                >
+                  <X size={14} /> Clear Search
+                </button>
+              </div>
+            </div>
+
+            {/* 3-Column Master Results Layout */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 items-start">
+              
+              {/* COLUMN 1: MOVIES */}
+              <div className="space-y-4 bg-black/40 p-4 md:p-5 rounded-3xl border border-white/10 backdrop-blur-md shadow-xl">
+                <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                  <h3 className="text-lg md:text-xl font-display font-bold text-white flex items-center gap-2.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_10px_#22d3ee]" />
+                    <Film size={20} className="text-cyan-400" />
+                    <span>Movies</span>
+                  </h3>
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                    {searchMoviesResults.length} Found
+                  </span>
+                </div>
+
+                {searchMoviesResults.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center text-white/40 space-y-2">
+                    <Film size={36} className="opacity-30" />
+                    <p className="text-xs font-medium">No movies matching "{executedSearchQuery || searchQuery}"</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 gap-3.5 max-h-[75vh] overflow-y-auto pr-1 no-scrollbar">
+                    {searchMoviesResults.map((item: any, idx: number) => (
+                      <motion.div
+                        key={`search-m-${item.stream_id || item.id}-${idx}`}
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                        onClick={() => handleMasterSearchItemClick(item)}
+                        className="group cursor-pointer relative bg-white/5 hover:bg-white/10 rounded-2xl overflow-hidden border border-white/10 hover:border-cyan-400/60 transition-all shadow-lg hover:shadow-cyan-500/20 flex flex-col"
+                      >
+                        <div className="relative aspect-[2/3] w-full overflow-hidden bg-black/60">
+                          <img
+                            src={item.stream_icon || item.poster_url || 'https://picsum.photos/seed/movie/300/450'}
+                            alt={item.name || item.title}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/movie/300/450?blur=1'; }}
+                          />
+                          {/* Language Badge Overlay */}
+                          {(() => {
+                            const badge = getLanguageBadge(item.name || item.title);
+                            return badge ? (
+                              <span className="absolute top-2 right-2 z-20 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-[8px] sm:text-[8.5px] font-black uppercase tracking-wider text-white shadow-[0_2px_12px_rgba(0,0,0,0.8)] group-hover:scale-105 group-hover:border-white/30 group-hover:bg-black/95 transition-all duration-300 pointer-events-none whitespace-nowrap overflow-hidden max-w-[85%]">
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${badge.barColor || 'bg-cyan-400'}`} />
+                                <span className={`truncate leading-none ${badge.color}`}>{badge.label}</span>
+                              </span>
+                            ) : null;
+                          })()}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                            <span className="bg-cyan-500 text-black px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 shadow-lg">
+                              <Play size={12} fill="currentColor" /> Play Movie
+                            </span>
+                          </div>
+                          {item.isFree && (
+                            <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-md bg-red-600/90 backdrop-blur-md text-[9px] font-extrabold text-white uppercase tracking-wider shadow">
+                              Free Cinema
+                            </span>
+                          )}
+                        </div>
+                        <div className="p-2.5 space-y-1">
+                          <h4 className="text-xs md:text-sm font-bold text-white line-clamp-2 leading-snug group-hover:text-cyan-400 transition-colors">{item.name || item.title}</h4>
+                          <p className="text-[10px] text-white/50 uppercase font-semibold">Movie • {item.isFree ? 'Free Stream' : 'IPTV Premium'}</p>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* COLUMN 2: WEB SERIES */}
+              <div className="space-y-4 bg-black/40 p-4 md:p-5 rounded-3xl border border-white/10 backdrop-blur-md shadow-xl">
+                <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                  <h3 className="text-lg md:text-xl font-display font-bold text-white flex items-center gap-2.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-purple-400 shadow-[0_0_10px_#c084fc]" />
+                    <Tv size={20} className="text-purple-400" />
+                    <span>Web Series</span>
+                  </h3>
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                    {searchSeriesResults.length} Found
+                  </span>
+                </div>
+
+                {searchSeriesResults.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center text-white/40 space-y-2">
+                    <Tv size={36} className="opacity-30" />
+                    <p className="text-xs font-medium">No web series matching "{executedSearchQuery || searchQuery}"</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 gap-3.5 max-h-[75vh] overflow-y-auto pr-1 no-scrollbar">
+                    {searchSeriesResults.map((item: any, idx: number) => (
+                      <motion.div
+                        key={`search-s-${item.series_id || item.id}-${idx}`}
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                        onClick={() => handleMasterSearchItemClick(item)}
+                        className="group cursor-pointer relative bg-white/5 hover:bg-white/10 rounded-2xl overflow-hidden border border-white/10 hover:border-purple-400/60 transition-all shadow-lg hover:shadow-purple-500/20 flex flex-col"
+                      >
+                        <div className="relative aspect-[2/3] w-full overflow-hidden bg-black/60">
+                          <img
+                            src={item.cover || item.poster_url || 'https://picsum.photos/seed/series/300/450'}
+                            alt={item.name || item.title}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/series/300/450?blur=1'; }}
+                          />
+                          {/* Language Badge Overlay */}
+                          {(() => {
+                            const badge = getLanguageBadge(item.name || item.title);
+                            return badge ? (
+                              <span className="absolute top-2 right-2 z-20 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-[8px] sm:text-[8.5px] font-black uppercase tracking-wider text-white shadow-[0_2px_12px_rgba(0,0,0,0.8)] group-hover:scale-105 group-hover:border-white/30 group-hover:bg-black/95 transition-all duration-300 pointer-events-none whitespace-nowrap overflow-hidden max-w-[85%]">
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${badge.barColor || 'bg-cyan-400'}`} />
+                                <span className={`truncate leading-none ${badge.color}`}>{badge.label}</span>
+                              </span>
+                            ) : null;
+                          })()}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                            <span className="bg-purple-500 text-white px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1 shadow-lg">
+                              <Play size={12} fill="currentColor" /> View Series
+                            </span>
+                          </div>
+                          {item.isFree && (
+                            <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-md bg-purple-600/90 backdrop-blur-md text-[9px] font-extrabold text-white uppercase tracking-wider shadow">
+                              Free Binge
+                            </span>
+                          )}
+                        </div>
+                        <div className="p-2.5 space-y-1">
+                          <h4 className="text-xs md:text-sm font-bold text-white line-clamp-2 leading-snug group-hover:text-purple-400 transition-colors">{item.name || item.title}</h4>
+                          <p className="text-[10px] text-white/50 uppercase font-semibold">Web Series • {item.isFree ? 'Free Stream' : 'IPTV Binge'}</p>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* COLUMN 3: LIVE TV & EVENTS */}
+              <div className="space-y-4 bg-black/40 p-4 md:p-5 rounded-3xl border border-white/10 backdrop-blur-md shadow-xl">
+                <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                  <h3 className="text-lg md:text-xl font-display font-bold text-white flex items-center gap-2.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+                    <Radio size={20} className="text-emerald-400" />
+                    <span>Live TV & Events</span>
+                  </h3>
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    {searchLiveResults.length} Found
+                  </span>
+                </div>
+
+                {searchLiveResults.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center text-white/40 space-y-2">
+                    <Radio size={36} className="opacity-30" />
+                    <p className="text-xs font-medium">No live channels matching "{executedSearchQuery || searchQuery}"</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[75vh] overflow-y-auto pr-1 no-scrollbar">
+                    {searchLiveResults.map((item: any, idx: number) => (
+                      <motion.div
+                        key={`search-l-${item.stream_id || item.id}-${idx}`}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => handleMasterSearchItemClick(item)}
+                        className="group cursor-pointer bg-white/5 hover:bg-white/10 rounded-2xl p-3 border border-white/10 hover:border-emerald-400/60 transition-all flex items-center gap-3.5 shadow-lg"
+                      >
+                        <div className="w-14 h-14 rounded-xl overflow-hidden bg-black/80 shrink-0 border border-white/10 p-1 flex items-center justify-center relative">
+                          <img
+                            src={item.stream_icon || item.poster_url || 'https://picsum.photos/seed/live/200/200'}
+                            alt={item.name || item.title}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-contain"
+                            onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/live/200/200?blur=1'; }}
+                          />
+                          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                        </div>
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <h4 className="text-xs md:text-sm font-bold text-white truncate group-hover:text-emerald-400 transition-colors">{item.name || item.title}</h4>
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20">
+                              {item.isFree ? 'Free Event' : 'Live Channel'}
+                            </span>
+                            {item.channels && (
+                              <span className="text-[10px] text-white/40 font-medium">
+                                {item.channels.length} Channels
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <button className="px-3 py-1.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-black text-xs font-bold transition-all shrink-0 cursor-pointer">
+                          Watch
+                        </button>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+        ) : activeTab === 'home' ? (
           <div className="space-y-10">
             {loadingHome && homeData.popularMovies.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-32 gap-4">
@@ -3259,46 +3743,68 @@ export default function App() {
               </div>
             ) : (
               <>
-                {/* 1. Trending Movies Section (Top 10 Pakistan & India) */}
+                {/* 1. Trending Movies Section */}
                 <section className="space-y-4">
-                  <div className="flex items-center justify-between px-2">
-                    <h3 className="text-xl md:text-3xl font-display font-bold flex items-center gap-3 tracking-tight">
-                      <span className="w-1.5 h-6 bg-cyan-500 rounded-full" />
-                      Trending Movies
-                    </h3>
-                    {(activeReseller?.app_link || appSettings.default_app_download_url) && (
-                      <motion.a
-                        href={activeReseller?.app_link || appSettings.default_app_download_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        initial={{ opacity: 0, scale: 0.92 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.97 }}
-                        className="relative overflow-hidden flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-emerald-500 via-teal-600 to-cyan-600 text-white font-black uppercase tracking-wider text-[10px] sm:text-xs rounded-full shadow-[0_0_20px_rgba(16,185,129,0.45)] hover:shadow-[0_0_30px_rgba(52,211,153,0.7)] border border-white/20 transition-all duration-300 cursor-pointer select-none group"
+                  <div className="flex items-center justify-between px-2 flex-wrap gap-3">
+                    <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                      <h3 className="text-xl md:text-3xl font-display font-bold flex items-center gap-3 tracking-tight">
+                        <span className="w-1.5 h-6 bg-cyan-500 rounded-full" />
+                        Trending Movies
+                      </h3>
+                      <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black/60 backdrop-blur-xl border border-white/15 text-[11px] sm:text-xs font-bold text-white shadow-lg">
+                        <RegionFlag code={currentRegionObj.code} className="w-5 h-3.5" />
+                        <span className="text-cyan-300 font-extrabold">{currentRegionObj.name}</span>
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <button
+                        onClick={() => setShowRegionModal(true)}
+                        className="group relative inline-flex items-center gap-2 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full bg-gradient-to-r from-zinc-900/90 via-black/90 to-zinc-900/90 hover:from-cyan-950/80 hover:via-zinc-900 hover:to-cyan-950/80 backdrop-blur-2xl border border-white/20 hover:border-cyan-400/60 text-xs sm:text-sm font-bold text-white transition-all duration-300 shadow-[0_4px_20px_rgba(0,0,0,0.6)] hover:shadow-[0_0_25px_rgba(6,182,212,0.35)] active:scale-95 cursor-pointer"
                       >
-                        {/* Premium continuous shine sweeping effect */}
-                        <div className="absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full animate-premium-shine" />
-
-                        {/* Beautiful live pulsing indicator point */}
-                        <span className="relative flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-200"></span>
+                        <Globe size={15} className="text-cyan-400 group-hover:rotate-45 transition-transform duration-500" />
+                        <span className="text-zinc-300 font-medium">Change Location</span>
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-[11px] font-black text-cyan-300">
+                          <RegionFlag code={currentRegionObj.code} className="w-4 h-2.5" />
+                          <span>{currentRegionObj.code}</span>
                         </span>
+                        <ChevronDown size={14} className="text-white/60 group-hover:translate-y-0.5 transition-transform" />
+                      </button>
 
-                        <Download size={14} className="text-white group-hover:translate-y-0.5 transition-transform duration-300" />
-                        
-                        <span className="relative z-10 text-white font-display font-black tracking-widest text-[9px] sm:text-[11px] drop-shadow-md">
-                          Download App
-                        </span>
-                      </motion.a>
-                    )}
+                      {(activeReseller?.app_link || appSettings.default_app_download_url) && (
+                        <motion.a
+                          href={activeReseller?.app_link || appSettings.default_app_download_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          initial={{ opacity: 0, scale: 0.92 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.97 }}
+                          className="relative overflow-hidden flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-emerald-500 via-teal-600 to-cyan-600 text-white font-black uppercase tracking-wider text-[10px] sm:text-xs rounded-full shadow-[0_0_20px_rgba(16,185,129,0.45)] hover:shadow-[0_0_30px_rgba(52,211,153,0.7)] border border-white/20 transition-all duration-300 cursor-pointer select-none group"
+                        >
+                          {/* Premium continuous shine sweeping effect */}
+                          <div className="absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full animate-premium-shine" />
+
+                          {/* Beautiful live pulsing indicator point */}
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-200"></span>
+                          </span>
+
+                          <Download size={14} className="text-white group-hover:translate-y-0.5 transition-transform duration-300" />
+                          
+                          <span className="relative z-10 text-white font-display font-black tracking-widest text-[9px] sm:text-[11px] drop-shadow-md">
+                            Download App
+                          </span>
+                        </motion.a>
+                      )}
+                    </div>
                   </div>
                   
                   {loadingTrending ? (
                     <div className="flex items-center justify-center py-16 gap-3">
                       <Loader2 className="animate-spin text-cyan-500" size={28} />
-                      <p className="text-white/40 text-sm">Fetching TMDB Trending Movies...</p>
+                      <p className="text-white/40 text-sm">Loading Trending Movies...</p>
                     </div>
                   ) : trendingMovies.length === 0 ? (
                     <div className="text-center py-12 bg-white/5 rounded-2xl border border-white/5">
@@ -3326,7 +3832,7 @@ export default function App() {
                               onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/movie/300/450?blur=1'; }}
                             />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-2.5">
-                              <p className="text-[10px] md:text-sm font-bold truncate text-white">{item.title}</p>
+                              <p className="text-[10px] md:text-xs font-bold line-clamp-2 leading-snug text-white">{item.title}</p>
                               <div className="flex items-center gap-1 text-[8px] md:text-xs text-yellow-400 font-bold mt-0.5">
                                 <span>★ {item.rating || '8.2'}</span>
                               </div>
@@ -3386,7 +3892,7 @@ export default function App() {
                           onClick={() => handleItemClick(item)}
                           className="group cursor-pointer space-y-2.5"
                         >
-                          <div className="premium-card aspect-[2/3] rounded-2xl overflow-hidden border border-white/10 group-hover:border-cyan-400 group-hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] shadow-xl transition-all duration-300">
+                          <div className="premium-card aspect-[2/3] rounded-2xl overflow-hidden border border-white/10 group-hover:border-cyan-400 group-hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] shadow-xl transition-all duration-300 relative">
                             <img 
                               src={item.stream_icon || null} 
                               alt={item.name}
@@ -3394,14 +3900,24 @@ export default function App() {
                               className="w-full h-full object-cover"
                               onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/movie/400/600?blur=1'; }}
                             />
+                            {/* Language Badge Overlay */}
+                            {(() => {
+                              const badge = getLanguageBadge(item.name);
+                              return badge ? (
+                                <span className="absolute top-2 right-2 z-20 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-[8px] sm:text-[8.5px] font-black uppercase tracking-wider text-white shadow-[0_2px_12px_rgba(0,0,0,0.8)] group-hover:scale-105 group-hover:border-white/30 group-hover:bg-black/95 transition-all duration-300 pointer-events-none whitespace-nowrap overflow-hidden max-w-[85%]">
+                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${badge.barColor || 'bg-cyan-400'}`} />
+                                  <span className={`truncate leading-none ${badge.color}`}>{badge.label}</span>
+                                </span>
+                              ) : null;
+                            })()}
                             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col justify-end p-4">
                               <div className="flex items-center gap-2 bg-cyan-500 text-black px-4 py-2 rounded-full text-xs font-bold mx-auto shadow-lg shadow-cyan-500/20 transform translate-y-3 group-hover:translate-y-0 transition-transform duration-305">
                                 <Play size={12} fill="currentColor" /> Play Now
                               </div>
                             </div>
                           </div>
-                          <div className="px-1.55">
-                            <h4 className="text-[11px] md:text-sm font-bold line-clamp-1 group-hover:text-cyan-400 transition-colors uppercase tracking-wide">{item.name}</h4>
+                          <div className="px-1">
+                            <h4 className="text-[11px] md:text-xs font-bold line-clamp-2 leading-tight group-hover:text-cyan-400 transition-colors uppercase tracking-wide mt-1">{item.name}</h4>
                           </div>
                         </motion.div>
                       ))}
@@ -3409,19 +3925,38 @@ export default function App() {
                   )}
                 </section>
 
-                {/* 3. Trending Web Series Section (Top 10 Pakistan & India) */}
+                {/* 3. Trending Web Series Section */}
                 <section className="space-y-4 pt-6">
-                  <div className="flex items-center justify-between px-2">
-                    <h3 className="text-xl md:text-3xl font-display font-bold flex items-center gap-3 tracking-tight">
-                      <span className="w-1.5 h-6 bg-cyan-500 rounded-full" />
-                      Trending Web Series
-                    </h3>
+                  <div className="flex items-center justify-between px-2 flex-wrap gap-3">
+                    <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                      <h3 className="text-xl md:text-3xl font-display font-bold flex items-center gap-3 tracking-tight">
+                        <span className="w-1.5 h-6 bg-cyan-500 rounded-full" />
+                        Trending Web Series
+                      </h3>
+                      <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black/60 backdrop-blur-xl border border-white/15 text-[11px] sm:text-xs font-bold text-white shadow-lg">
+                        <RegionFlag code={currentRegionObj.code} className="w-5 h-3.5" />
+                        <span className="text-cyan-300 font-extrabold">{currentRegionObj.name}</span>
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={() => setShowRegionModal(true)}
+                      className="group relative inline-flex items-center gap-2 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full bg-gradient-to-r from-zinc-900/90 via-black/90 to-zinc-900/90 hover:from-cyan-950/80 hover:via-zinc-900 hover:to-cyan-950/80 backdrop-blur-2xl border border-white/20 hover:border-cyan-400/60 text-xs sm:text-sm font-bold text-white transition-all duration-300 shadow-[0_4px_20px_rgba(0,0,0,0.6)] hover:shadow-[0_0_25px_rgba(6,182,212,0.35)] active:scale-95 cursor-pointer"
+                    >
+                      <Globe size={15} className="text-cyan-400 group-hover:rotate-45 transition-transform duration-500" />
+                      <span className="text-zinc-300 font-medium">Change Location</span>
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-[11px] font-black text-cyan-300">
+                        <RegionFlag code={currentRegionObj.code} className="w-4 h-2.5" />
+                        <span>{currentRegionObj.code}</span>
+                      </span>
+                      <ChevronDown size={14} className="text-white/60 group-hover:translate-y-0.5 transition-transform" />
+                    </button>
                   </div>
                   
                   {loadingTrending ? (
                     <div className="flex items-center justify-center py-16 gap-3">
                       <Loader2 className="animate-spin text-cyan-500" size={28} />
-                      <p className="text-white/40 text-sm">Fetching TMDB Trending Series...</p>
+                      <p className="text-white/40 text-sm">Loading Trending Series...</p>
                     </div>
                   ) : trendingSeries.length === 0 ? (
                     <div className="text-center py-12 bg-white/5 rounded-2xl border border-white/5">
@@ -3449,7 +3984,7 @@ export default function App() {
                               onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/series/300/450?blur=1'; }}
                             />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-2.5">
-                              <p className="text-[10px] md:text-sm font-bold truncate text-white">{item.title}</p>
+                              <p className="text-[10px] md:text-xs font-bold line-clamp-2 leading-snug text-white">{item.title}</p>
                               <div className="flex items-center gap-1 text-[8px] md:text-xs text-yellow-400 font-bold mt-0.5">
                                 <span>★ {item.rating || '8.4'}</span>
                               </div>
@@ -3509,7 +4044,7 @@ export default function App() {
                           onClick={() => handleItemClick(item)}
                           className="group cursor-pointer space-y-2.5"
                         >
-                          <div className="premium-card aspect-[2/3] rounded-2xl overflow-hidden border border-white/10 group-hover:border-cyan-400 group-hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] shadow-xl transition-all duration-300">
+                          <div className="premium-card aspect-[2/3] rounded-2xl overflow-hidden border border-white/10 group-hover:border-cyan-400 group-hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] shadow-xl transition-all duration-300 relative">
                             <img 
                               src={item.cover || null} 
                               alt={item.name}
@@ -3517,14 +4052,24 @@ export default function App() {
                               className="w-full h-full object-cover"
                               onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/series/400/600?blur=1'; }}
                             />
+                            {/* Language Badge Overlay */}
+                            {(() => {
+                              const badge = getLanguageBadge(item.name);
+                              return badge ? (
+                                <span className="absolute top-2 right-2 z-20 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-[8px] sm:text-[8.5px] font-black uppercase tracking-wider text-white shadow-[0_2px_12px_rgba(0,0,0,0.8)] group-hover:scale-105 group-hover:border-white/30 group-hover:bg-black/95 transition-all duration-300 pointer-events-none whitespace-nowrap overflow-hidden max-w-[85%]">
+                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${badge.barColor || 'bg-cyan-400'}`} />
+                                  <span className={`truncate leading-none ${badge.color}`}>{badge.label}</span>
+                                </span>
+                              ) : null;
+                            })()}
                             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col justify-end p-4">
                               <div className="flex items-center gap-2 bg-cyan-500 text-black px-4 py-2 rounded-full text-xs font-bold mx-auto shadow-lg shadow-cyan-500/20 transform translate-y-3 group-hover:translate-y-0 transition-transform duration-305">
                                 <Play size={12} fill="currentColor" /> Play Now
                               </div>
                             </div>
                           </div>
-                          <div className="px-1.5">
-                            <h4 className="text-[11px] md:text-sm font-bold line-clamp-1 group-hover:text-cyan-400 transition-colors uppercase tracking-wide">{item.name}</h4>
+                          <div className="px-1">
+                            <h4 className="text-[11px] md:text-xs font-bold line-clamp-2 leading-tight group-hover:text-cyan-400 transition-colors uppercase tracking-wide mt-1">{item.name}</h4>
                           </div>
                         </motion.div>
                       ))}
@@ -4003,8 +4548,18 @@ export default function App() {
                                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
                                 referrerPolicy="no-referrer"
                               />
+                              {/* Language Badge Overlay */}
+                              {(() => {
+                                const badge = getLanguageBadge(movie.name);
+                                return badge ? (
+                                  <span className="absolute top-2 right-2 z-20 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-[8px] sm:text-[8.5px] font-black uppercase tracking-wider text-white shadow-[0_2px_12px_rgba(0,0,0,0.8)] group-hover:scale-105 group-hover:border-white/30 group-hover:bg-black/95 transition-all duration-300 pointer-events-none whitespace-nowrap overflow-hidden max-w-[85%]">
+                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${badge.barColor || 'bg-cyan-400'}`} />
+                                    <span className={`truncate leading-none ${badge.color}`}>{badge.label}</span>
+                                  </span>
+                                ) : null;
+                              })()}
                               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-5">
-                                <h4 className="text-white font-black text-sm italic tracking-tighter line-clamp-2 uppercase leading-tight mb-2 group-hover:text-cyan-400 transition-colors">{movie.name}</h4>
+                                <h4 className="text-white font-black text-xs sm:text-sm italic tracking-tighter line-clamp-2 uppercase leading-tight mb-2 group-hover:text-cyan-400 transition-colors">{movie.name}</h4>
                                 <div className="flex items-center gap-2">
                                   <span className="px-2 py-0.5 bg-cyan-500/20 border border-cyan-500/40 rounded-lg text-[8px] font-black text-cyan-400 uppercase tracking-widest">Premium</span>
                                 </div>
@@ -4050,8 +4605,18 @@ export default function App() {
                                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
                                 referrerPolicy="no-referrer"
                               />
+                              {/* Language Badge Overlay */}
+                              {(() => {
+                                const badge = getLanguageBadge(series.name);
+                                return badge ? (
+                                  <span className="absolute top-2 right-2 z-20 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-[8px] sm:text-[8.5px] font-black uppercase tracking-wider text-white shadow-[0_2px_12px_rgba(0,0,0,0.8)] group-hover:scale-105 group-hover:border-white/30 group-hover:bg-black/95 transition-all duration-300 pointer-events-none whitespace-nowrap overflow-hidden max-w-[85%]">
+                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${badge.barColor || 'bg-cyan-400'}`} />
+                                    <span className={`truncate leading-none ${badge.color}`}>{badge.label}</span>
+                                  </span>
+                                ) : null;
+                              })()}
                               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-5">
-                                <h4 className="text-white font-black text-sm italic tracking-tighter line-clamp-2 uppercase leading-tight mb-2 group-hover:text-purple-400 transition-colors">{series.name}</h4>
+                                <h4 className="text-white font-black text-xs sm:text-sm italic tracking-tighter line-clamp-2 uppercase leading-tight mb-2 group-hover:text-purple-400 transition-colors">{series.name}</h4>
                                 <div className="flex items-center gap-2">
                                   <span className="px-2 py-0.5 bg-purple-500/20 border border-purple-500/40 rounded-lg text-[8px] font-black text-purple-400 uppercase tracking-widest">Premium</span>
                                 </div>
@@ -4277,6 +4842,17 @@ export default function App() {
                               (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/movie/400/600?blur=2';
                             }}
                           />
+                          {/* Language Badge Overlay */}
+                          {(() => {
+                            const catName = currentCategories.find(c => c.category_id === (item as any).category_id)?.category_name;
+                            const badge = getLanguageBadge(item.name, catName);
+                            return badge ? (
+                              <span className="absolute top-2 right-2 z-20 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-[8px] sm:text-[8.5px] font-black uppercase tracking-wider text-white shadow-[0_2px_12px_rgba(0,0,0,0.8)] group-hover:scale-105 group-hover:border-white/30 group-hover:bg-black/95 transition-all duration-300 pointer-events-none whitespace-nowrap overflow-hidden max-w-[85%]">
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${badge.barColor || 'bg-cyan-400'}`} />
+                                <span className={`truncate leading-none ${badge.color}`}>{badge.label}</span>
+                              </span>
+                            ) : null;
+                          })()}
                           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2 md:p-4">
                             <div className="flex items-center gap-1 md:gap-2 bg-cyan-500/20 backdrop-blur-md px-2 md:px-3 py-1 md:py-1.5 rounded-full text-[8px] md:text-xs font-bold text-cyan-400 border border-cyan-500/30">
                               <Play size={8} md:size={12} fill="currentColor" /> Watch
@@ -4284,7 +4860,7 @@ export default function App() {
                           </div>
                         </div>
                         <div className="px-1">
-                          <h3 className="text-[9px] md:text-sm font-semibold line-clamp-1 group-hover:text-cyan-400 transition-colors">{item.name}</h3>
+                          <h3 className="text-[10px] md:text-xs font-semibold line-clamp-2 leading-snug group-hover:text-cyan-400 transition-colors mt-0.5">{item.name}</h3>
                           <div className="flex items-center gap-1 md:gap-2 mt-0.5 md:mt-1">
                             <span className="text-[7px] md:text-[10px] uppercase tracking-wider text-white/40 font-bold">
                               {activeTab === 'movies' ? 'Movie' : (activeTab === 'series' ? 'Series' : 'Live TV')}
@@ -8764,6 +9340,124 @@ export default function App() {
 
               <div className="p-4 bg-white/5 text-center">
                  <p className="text-[9px] text-white/20 uppercase tracking-[0.3em] font-bold italic">Admin Surface v2.0 • Secure Session Exclusive</p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Premium Change Location Region Modal */}
+      <AnimatePresence>
+        {showRegionModal && (
+          <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              onClick={() => setShowRegionModal(false)}
+              className="absolute inset-0 bg-black/60"
+            />
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              className="relative w-full max-w-2xl bg-zinc-950 rounded-3xl border border-white/15 p-5 sm:p-7 shadow-2xl overflow-hidden z-10"
+            >
+              {/* Soft subtle glow */}
+              <div className="absolute -top-20 -left-20 w-48 h-48 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none" />
+
+              {/* Modal Header */}
+              <div className="flex items-start justify-between pb-4 border-b border-white/10 relative z-10">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+                    <Globe size={22} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-xl sm:text-2xl font-display font-extrabold text-white tracking-tight">
+                        Select Trending Location
+                      </h2>
+                      <span className="hidden sm:inline-flex text-[9px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-black uppercase tracking-widest">
+                        GLOBAL
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                      Explore top 10 movies & web series trending in different regions around the world
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowRegionModal(false)}
+                  className="p-2 rounded-full bg-white/5 hover:bg-white/15 text-white/70 hover:text-white border border-white/10 transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Region Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 my-4 max-h-[55vh] overflow-y-auto pr-1 no-scrollbar relative z-10">
+                {TRENDING_REGIONS.map((region) => {
+                  const isSelected = selectedTrendingRegion === region.code;
+                  return (
+                    <button
+                      key={`region-${region.code}`}
+                      onClick={() => {
+                        setSelectedTrendingRegion(region.code);
+                        localStorage.setItem('trending_region', region.code);
+                        setShowRegionModal(false);
+                      }}
+                      className={`flex items-center justify-between p-3 sm:p-3.5 rounded-2xl text-left border transition-all duration-150 group cursor-pointer active:scale-[0.98] ${
+                        isSelected
+                          ? 'bg-gradient-to-r from-cyan-950/80 via-zinc-900 to-cyan-950/80 border-cyan-400/80 shadow-md text-white'
+                          : 'bg-white/5 hover:bg-white/10 border-white/10 hover:border-white/25 text-zinc-300 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        <RegionFlag code={region.code} className="w-8 h-5 rounded-md shadow-md" />
+                        <div className="min-w-0">
+                          <h4 className="text-sm font-bold text-white flex items-center gap-2 truncate">
+                            {region.name}
+                            {isSelected && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-400 text-black font-extrabold uppercase">
+                                Active
+                              </span>
+                            )}
+                          </h4>
+                          <p className="text-xs text-zinc-400 truncate">{region.subtitle}</p>
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 ml-2">
+                        {isSelected ? (
+                          <div className="w-5 h-5 rounded-full bg-cyan-400 text-black flex items-center justify-center">
+                            <Check size={12} strokeWidth={3} />
+                          </div>
+                        ) : (
+                          <div className="w-5 h-5 rounded-full border border-white/20 group-hover:border-cyan-400/50 flex items-center justify-center text-transparent group-hover:text-cyan-400 transition-colors">
+                            <ChevronRight size={12} />
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="pt-3 border-t border-white/10 flex items-center justify-between text-xs text-zinc-400 relative z-10">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  <span className="text-zinc-300 font-medium">Location preference applied</span>
+                </div>
+                <button
+                  onClick={() => setShowRegionModal(false)}
+                  className="px-5 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white font-bold transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
               </div>
             </motion.div>
           </div>

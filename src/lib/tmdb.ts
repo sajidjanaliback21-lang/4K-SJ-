@@ -103,13 +103,39 @@ export interface TmdbTrendingItem {
   year?: string;
 }
 
-export async function fetchTrendingMovies(): Promise<TmdbTrendingItem[]> {
-  const cacheKey = 'trending_movies';
+export interface TrendingRegion {
+  code: string;
+  name: string;
+  subtitle: string;
+}
+
+export const TRENDING_REGIONS: TrendingRegion[] = [
+  { code: 'IN', name: 'India', subtitle: 'Bollywood & Indian Regional' },
+  { code: 'PK', name: 'Pakistan', subtitle: 'Pakistani Movies & Dramas' },
+  { code: 'US', name: 'United States', subtitle: 'Hollywood Blockbusters' },
+  { code: 'GB', name: 'United Kingdom', subtitle: 'British Hits & Cinema' },
+  { code: 'KR', name: 'South Korea', subtitle: 'K-Drama & Korean Hits' },
+  { code: 'JP', name: 'Japan', subtitle: 'Anime & Japanese Hits' },
+  { code: 'TR', name: 'Turkey', subtitle: 'Turkish Serials & Movies' },
+  { code: 'ES', name: 'Spain', subtitle: 'Spanish Cinema & Shows' },
+  { code: 'FR', name: 'France', subtitle: 'French Hits & Cinema' },
+  { code: 'DE', name: 'Germany', subtitle: 'German Cinema & Shows' },
+  { code: 'AE', name: 'UAE / Arab', subtitle: 'Middle Eastern Trending' },
+  { code: 'ALL', name: 'Worldwide', subtitle: 'Global Top Trending' },
+];
+
+export async function fetchTrendingMovies(countryCode: string = 'IN'): Promise<TmdbTrendingItem[]> {
+  const cacheKey = `trending_movies_${countryCode}`;
   const cached = getCachedItem(cacheKey);
-  if (cached) return cached;
+  if (cached && Array.isArray(cached) && cached.length > 0) return cached;
 
   try {
-    const url = `${BASE_URL}/3/discover/movie?api_key=${TMDB_API_KEY}&sort_by=popularity.desc&with_origin_country=IN|PK&page=1`;
+    let url = '';
+    if (countryCode === 'ALL') {
+      url = `${BASE_URL}/3/trending/movie/day?api_key=${TMDB_API_KEY}`;
+    } else {
+      url = `${BASE_URL}/3/discover/movie?api_key=${TMDB_API_KEY}&sort_by=popularity.desc&with_origin_country=${countryCode}&page=1`;
+    }
     const data = await getTmdbJson(url);
     const results = data.results || [];
     const formatted = results.slice(0, 10).map((item: any) => ({
@@ -130,16 +156,21 @@ export async function fetchTrendingMovies(): Promise<TmdbTrendingItem[]> {
   }
 }
 
-export async function fetchTrendingSeries(): Promise<TmdbTrendingItem[]> {
-  const cacheKey = 'trending_series';
+export async function fetchTrendingSeries(countryCode: string = 'IN'): Promise<TmdbTrendingItem[]> {
+  const cacheKey = `trending_series_${countryCode}`;
   const cached = getCachedItem(cacheKey);
-  if (cached) {
-    const hasEmptyTitles = Array.isArray(cached) && cached.some((item: any) => !item.title);
+  if (cached && Array.isArray(cached) && cached.length > 0) {
+    const hasEmptyTitles = cached.some((item: any) => !item.title);
     if (!hasEmptyTitles) return cached;
   }
 
   try {
-    const url = `${BASE_URL}/3/discover/tv?api_key=${TMDB_API_KEY}&sort_by=popularity.desc&page=1`;
+    let url = '';
+    if (countryCode === 'ALL') {
+      url = `${BASE_URL}/3/trending/tv/day?api_key=${TMDB_API_KEY}`;
+    } else {
+      url = `${BASE_URL}/3/discover/tv?api_key=${TMDB_API_KEY}&sort_by=popularity.desc&with_origin_country=${countryCode}&page=1`;
+    }
     const data = await getTmdbJson(url);
     const results = data.results || [];
     const formatted = results.slice(0, 10).map((item: any) => ({
@@ -380,4 +411,208 @@ export function getLanguageTags(rawTitle: string): string[] {
   const langKeywords = /\b(hindi|tamil|telugu|bengali|punjabi|malayalam|kannada|urdu|gujarati|marathi|bhojpuri|english|eng|dual|multi|dub|org|clean|chinese|korean|japanese|spanish|french|tel|tam|hin)\b/i;
   
   return matches.filter(tag => langKeywords.test(tag));
+}
+
+export interface LanguageBadge {
+  label: string;
+  color: string;
+  barColor: string;
+}
+
+export function getLanguageBadge(rawTitle?: string, categoryName?: string): LanguageBadge | null {
+  const combined = `${rawTitle || ''} ${categoryName || ''}`;
+  if (!combined.trim()) return null;
+
+  const text = combined.toLowerCase();
+
+  // Explicit check for Hindi
+  if (/\b(hindi|hin)\b/i.test(text)) {
+    if (/\b(dual\s*audio|dual)\b/i.test(text)) {
+      return { 
+        label: 'HIN · DUAL', 
+        color: 'text-amber-300',
+        barColor: 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.9)]'
+      };
+    }
+    if (/\b(dubbed|dub)\b/i.test(text)) {
+      return { 
+        label: 'HIN · DUB', 
+        color: 'text-orange-300',
+        barColor: 'bg-orange-400 shadow-[0_0_6px_rgba(251,146,60,0.9)]'
+      };
+    }
+    return { 
+      label: 'HINDI', 
+      color: 'text-rose-300',
+      barColor: 'bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.9)]'
+    };
+  }
+
+  if (/\b(tamil|tam)\b/i.test(text)) {
+    return { 
+      label: 'TAMIL', 
+      color: 'text-amber-300',
+      barColor: 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.9)]'
+    };
+  }
+
+  if (/\b(telugu|tel)\b/i.test(text)) {
+    return { 
+      label: 'TELUGU', 
+      color: 'text-purple-300',
+      barColor: 'bg-purple-400 shadow-[0_0_6px_rgba(192,132,252,0.9)]'
+    };
+  }
+
+  if (/\b(punjabi|pun)\b/i.test(text)) {
+    return { 
+      label: 'PUNJABI', 
+      color: 'text-emerald-300',
+      barColor: 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.9)]'
+    };
+  }
+
+  if (/\b(malayalam|mal)\b/i.test(text)) {
+    return { 
+      label: 'MALAYALAM', 
+      color: 'text-teal-300',
+      barColor: 'bg-teal-400 shadow-[0_0_6px_rgba(45,212,191,0.9)]'
+    };
+  }
+
+  if (/\b(kannada|kan)\b/i.test(text)) {
+    return { 
+      label: 'KANNADA', 
+      color: 'text-yellow-300',
+      barColor: 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.9)]'
+    };
+  }
+
+  if (/\b(turkish|turk)\b/i.test(text)) {
+    return { 
+      label: 'TURKISH', 
+      color: 'text-red-300',
+      barColor: 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.9)]'
+    };
+  }
+
+  if (/\b(korean|k-drama|kdrama)\b/i.test(text)) {
+    return { 
+      label: 'KOREAN', 
+      color: 'text-pink-300',
+      barColor: 'bg-pink-400 shadow-[0_0_6px_rgba(244,114,182,0.9)]'
+    };
+  }
+
+  if (/\b(chinese|c-drama|cdrama)\b/i.test(text)) {
+    return { 
+      label: 'CHINESE', 
+      color: 'text-red-300',
+      barColor: 'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.9)]'
+    };
+  }
+
+  if (/\b(urdu)\b/i.test(text)) {
+    return { 
+      label: 'URDU', 
+      color: 'text-emerald-300',
+      barColor: 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.9)]'
+    };
+  }
+
+  if (/\b(bengali|ben)\b/i.test(text)) {
+    return { 
+      label: 'BENGALI', 
+      color: 'text-sky-300',
+      barColor: 'bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.9)]'
+    };
+  }
+
+  if (/\b(marathi)\b/i.test(text)) {
+    return { 
+      label: 'MARATHI', 
+      color: 'text-indigo-300',
+      barColor: 'bg-indigo-400 shadow-[0_0_6px_rgba(129,140,248,0.9)]'
+    };
+  }
+
+  if (/\b(bhojpuri)\b/i.test(text)) {
+    return { 
+      label: 'BHOJPURI', 
+      color: 'text-amber-300',
+      barColor: 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.9)]'
+    };
+  }
+
+  if (/\b(gujarati)\b/i.test(text)) {
+    return { 
+      label: 'GUJARATI', 
+      color: 'text-orange-300',
+      barColor: 'bg-orange-400 shadow-[0_0_6px_rgba(251,146,60,0.9)]'
+    };
+  }
+
+  if (/\b(english|eng)\b/i.test(text)) {
+    return { 
+      label: 'ENGLISH', 
+      color: 'text-sky-300',
+      barColor: 'bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.9)]'
+    };
+  }
+
+  if (/\b(spanish)\b/i.test(text)) {
+    return { 
+      label: 'SPANISH', 
+      color: 'text-yellow-300',
+      barColor: 'bg-yellow-400 shadow-[0_0_6px_rgba(250,204,21,0.9)]'
+    };
+  }
+
+  if (/\b(french)\b/i.test(text)) {
+    return { 
+      label: 'FRENCH', 
+      color: 'text-indigo-300',
+      barColor: 'bg-indigo-400 shadow-[0_0_6px_rgba(129,140,248,0.9)]'
+    };
+  }
+
+  if (/\b(dual\s*audio|dual)\b/i.test(text)) {
+    return { 
+      label: 'DUAL', 
+      color: 'text-cyan-300',
+      barColor: 'bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.9)]'
+    };
+  }
+
+  if (/\b(multi\s*audio|multi)\b/i.test(text)) {
+    return { 
+      label: 'MULTI', 
+      color: 'text-cyan-300',
+      barColor: 'bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.9)]'
+    };
+  }
+
+  if (/\b(dubbed|dub)\b/i.test(text)) {
+    return { 
+      label: 'DUBBED', 
+      color: 'text-cyan-300',
+      barColor: 'bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.9)]'
+    };
+  }
+
+  // Fallback: Check regex brackets in title e.g. [Hindi], (Hindi)
+  const regex = /(\([^\)]*\)|\[[^\]]*\])/g;
+  const matches = rawTitle ? rawTitle.match(regex) : null;
+  if (matches && matches.length > 0) {
+    const rawTag = matches[0].replace(/[()[\]{}]/g, '').trim();
+    if (rawTag && rawTag.length <= 10) {
+      return { 
+        label: rawTag.toUpperCase(), 
+        color: 'text-cyan-300',
+        barColor: 'bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.9)]'
+      };
+    }
+  }
+
+  return null;
 }
