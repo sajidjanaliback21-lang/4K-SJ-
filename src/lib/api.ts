@@ -8,8 +8,14 @@ export const DEFAULT_CREDENTIALS: XtreamCredentials = {
 };
 
 const sanitizeHost = (host: string): string => {
+  if (host && host.startsWith('http') && !host.includes('lb-skip.vercel.app') && !host.includes('4ksjpun-lbff.hf.space')) {
+    return host;
+  }
   if (typeof window !== 'undefined' && (window as any).activeResellerServerUrl) {
-    return (window as any).activeResellerServerUrl;
+    const resellerHost = ((window as any).activeResellerServerUrl || '').trim();
+    if (resellerHost && resellerHost !== 'N/A') {
+      return resellerHost.startsWith('http') ? resellerHost : `https://${resellerHost}`;
+    }
   }
   if (!host || host.includes('lb-skip.vercel.app') || host.includes('4ksjpun-lbff.hf.space')) {
     return 'https://60fpssj-60fps10.hf.space';

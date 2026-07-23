@@ -944,10 +944,14 @@ export default function App() {
       const resellerKey = getResellerKey();
       const currentHost = window.location.hostname.toLowerCase();
       
-      const matched = list.find(r => 
-        (r.subdomain && r.subdomain.toLowerCase() === resellerKey) || 
-        (r.subdomain && r.subdomain.toLowerCase() === currentHost)
-      );
+      const matched = list.find(r => {
+        if (!r.subdomain) return false;
+        const sub = r.subdomain.toLowerCase().trim();
+        return sub === resellerKey || 
+               sub === currentHost || 
+               (resellerKey && (sub.includes(resellerKey) || resellerKey.includes(sub))) ||
+               (currentHost && currentHost.includes(sub));
+      });
       
       if (matched) {
         setActiveReseller(matched);
@@ -2361,15 +2365,37 @@ export default function App() {
     e.preventDefault();
     setLoginError('');
     const formData = new FormData(e.currentTarget);
-    const username = formData.get('username') as string;
-    const password = formData.get('password') as string;
-    const host = creds.host; // Use existing host, don't show in UI
+    const username = ((formData.get('username') as string) || '').trim();
+    const password = ((formData.get('password') as string) || '').trim();
 
-    const userCreds = { host, username, password };
+    const resellerServerUrl = activeReseller?.server_url?.trim();
+    const primaryHost = (resellerServerUrl && resellerServerUrl !== 'N/A')
+      ? (resellerServerUrl.startsWith('http') ? resellerServerUrl : `https://${resellerServerUrl}`)
+      : (creds.host || DEFAULT_CREDENTIALS.host);
+
+    let userCreds = { host: primaryHost, username, password };
 
     try {
-      const response = await xtreamApi.login(userCreds);
-      if (response.user_info.status === 'Active' || response.user_info.auth === 1) {
+      let response;
+      try {
+        response = await xtreamApi.login(userCreds);
+      } catch (err) {
+        if (primaryHost !== DEFAULT_CREDENTIALS.host) {
+          console.warn(`Primary reseller host ${primaryHost} failed, trying default host ${DEFAULT_CREDENTIALS.host}`);
+          userCreds.host = DEFAULT_CREDENTIALS.host;
+          const prevResellerUrl = (window as any).activeResellerServerUrl;
+          (window as any).activeResellerServerUrl = '';
+          try {
+            response = await xtreamApi.login(userCreds);
+          } finally {
+            (window as any).activeResellerServerUrl = prevResellerUrl;
+          }
+        } else {
+          throw err;
+        }
+      }
+
+      if (response && (response.user_info?.status === 'Active' || response.user_info?.auth === 1)) {
         setCreds(userCreds);
         if (response.user_info) setUserInfo(response.user_info);
         if (response.server_info) {
@@ -2381,17 +2407,42 @@ export default function App() {
         setSelectedItem(null);
         localStorage.setItem('iptv_creds', JSON.stringify(userCreds));
         localStorage.setItem('iptv_logged_in', 'true');
-        // Track manual login event
         trackUserActivity(username);
         sessionStorage.setItem(`tracked_session_${username.toLowerCase()}`, 'true');
       } else {
+        if (primaryHost !== DEFAULT_CREDENTIALS.host) {
+          userCreds.host = DEFAULT_CREDENTIALS.host;
+          const prevResellerUrl = (window as any).activeResellerServerUrl;
+          (window as any).activeResellerServerUrl = '';
+          try {
+            const fallbackRes = await xtreamApi.login(userCreds);
+            if (fallbackRes && (fallbackRes.user_info?.status === 'Active' || fallbackRes.user_info?.auth === 1)) {
+              setCreds(userCreds);
+              if (fallbackRes.user_info) setUserInfo(fallbackRes.user_info);
+              if (fallbackRes.server_info) {
+                setServerInfo(fallbackRes.server_info);
+                localStorage.setItem('iptv_server_info', JSON.stringify(fallbackRes.server_info));
+              }
+              setIsLoggedIn(true);
+              setShowLoginModal(false);
+              setSelectedItem(null);
+              localStorage.setItem('iptv_creds', JSON.stringify(userCreds));
+              localStorage.setItem('iptv_logged_in', 'true');
+              trackUserActivity(username);
+              sessionStorage.setItem(`tracked_session_${username.toLowerCase()}`, 'true');
+              return;
+            }
+          } catch (fallbackErr) {
+            // ignore fallback error and fall through
+          } finally {
+            (window as any).activeResellerServerUrl = prevResellerUrl;
+          }
+        }
         setLoginError('Your username or password is not valid. Click here to register new account');
       }
     } catch (error: any) {
       console.error('Login error:', error);
-      if (error.response?.status === 404) {
-        setLoginError('Your username or password is not valid. Click here to register new account');
-      } else if (error.response?.status === 401 || error.response?.status === 403) {
+      if (error.response?.status === 404 || error.response?.status === 401 || error.response?.status === 403) {
         setLoginError('Your username or password is not valid. Click here to register new account');
       } else {
         setLoginError('Failed to connect to server. Please check your internet and credentials.');
