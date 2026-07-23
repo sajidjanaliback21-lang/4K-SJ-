@@ -537,6 +537,11 @@ const getResellerKey = () => {
     hostname.includes('run.app') || 
     hostname.includes('hf.space') || 
     hostname.includes('github.io') || 
+    hostname.includes('vercel.app') ||
+    hostname.includes('workers.dev') ||
+    hostname.includes('pages.dev') ||
+    hostname.includes('netlify.app') ||
+    hostname.includes('onrender.com') ||
     hostname.includes('localhost') || 
     hostname.includes('127.0.0.1')
   ) {
