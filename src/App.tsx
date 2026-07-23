@@ -3311,7 +3311,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#020617] text-white selection:bg-cyan-500/30 selection:text-cyan-200">
+    <div className="min-h-screen flex flex-col bg-[#020617] text-white selection:bg-cyan-500/30 selection:text-cyan-200 overflow-x-hidden max-w-full">
       <AnimatePresence>
         {showIntro && (
           <IntroLoading 
@@ -3327,13 +3327,13 @@ export default function App() {
       </AnimatePresence>
 
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-slate-950/90 backdrop-blur-xl border-b border-white/10 px-4 md:px-6 h-14 md:h-16 flex items-center justify-between shadow-lg shadow-black/40">
-        <div className="flex items-center gap-4 md:gap-8 shrink-0">
-          <div className="flex flex-col justify-center -space-y-0.5">
-            <h1 className="text-lg md:text-2xl font-display font-bold text-gradient tracking-tighter flex items-center italic leading-none">
+      <header className="sticky top-0 z-50 bg-slate-950/90 backdrop-blur-xl border-b border-white/10 px-3 md:px-6 h-14 md:h-16 flex items-center justify-between shadow-lg shadow-black/40 max-w-full overflow-hidden">
+        <div className={cn("flex items-center gap-4 md:gap-8 shrink-0 min-w-0", isSearchOpen && "hidden sm:flex")}>
+          <div className="flex flex-col justify-center -space-y-0.5 min-w-0">
+            <h1 className="text-base sm:text-lg md:text-2xl font-display font-bold text-gradient tracking-tighter flex items-center italic leading-none truncate">
               {renderBrandName(currentBrandName)}
             </h1>
-            <span className="text-[8px] md:text-[10px] text-cyan-400/70 font-bold uppercase tracking-[0.2em] italic leading-none pl-0.5 mt-0.5">Premium Experience</span>
+            <span className="text-[7px] sm:text-[8px] md:text-[10px] text-cyan-400/70 font-bold uppercase tracking-[0.2em] italic leading-none pl-0.5 mt-0.5 truncate">Premium Experience</span>
           </div>
           <nav className="hidden md:flex items-center gap-6">
             <button 
@@ -3389,37 +3389,37 @@ export default function App() {
           </nav>
         </div>
 
-        <div className="flex items-center gap-2.5 md:gap-3.5 shrink-0">
+        <div className="flex items-center gap-2 md:gap-3.5 shrink-0 min-w-0">
           <AnimatePresence initial={false} mode="wait">
             {!isSearchOpen ? (
               <motion.button 
                 key="search-trigger-btn"
                 type="button"
                 onClick={() => setIsSearchOpen(true)}
-                initial={{ scale: 0.8, opacity: 0 }}
+                initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.8, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black flex items-center justify-center transition-all hover:scale-105 active:scale-95 shadow-md shadow-cyan-500/20 cursor-pointer shrink-0"
+                exit={{ scale: 0.9, opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="w-8 h-8 sm:w-9 sm:h-9 md:w-10 md:h-10 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black flex items-center justify-center transition-all hover:scale-105 active:scale-95 shadow-md shadow-cyan-500/20 cursor-pointer shrink-0"
                 title="Search Movies, Series & Live TV"
               >
-                <Search size={18} className="stroke-[2.5]" />
+                <Search size={16} className="stroke-[2.5] sm:w-4 sm:h-4 md:w-5 md:h-5" />
               </motion.button>
             ) : (
               <motion.form 
                 key="search-input-form"
                 onSubmit={handleExecuteSearch} 
-                initial={{ width: 40, opacity: 0, scaleX: 0.8 }}
-                animate={{ width: 'auto', opacity: 1, scaleX: 1 }}
-                exit={{ width: 40, opacity: 0, scaleX: 0.8 }}
-                transition={{ type: "spring", stiffness: 350, damping: 25 }}
-                className="flex items-center gap-2 bg-slate-900/95 border border-cyan-500/50 rounded-full h-9 md:h-10 px-3 shadow-lg shadow-cyan-500/20 overflow-hidden origin-right shrink-0"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.15, ease: "easeOut" }}
+                className="flex items-center gap-1.5 sm:gap-2 bg-slate-900/95 border border-cyan-500/50 rounded-full h-8 sm:h-9 md:h-10 px-2.5 sm:px-3 shadow-lg shadow-cyan-500/20 max-w-full overflow-hidden shrink"
               >
-                <Search size={16} className="text-cyan-400 shrink-0 pointer-events-none" />
-                <motion.input 
+                <Search size={15} className="text-cyan-400 shrink-0 pointer-events-none" />
+                <input 
                   type="text"
                   autoFocus
-                  placeholder="Type movie, series name..."
+                  placeholder="Search movies, series..."
                   value={searchQuery}
                   onChange={(e) => handleSearchChange(e.target.value)}
                   onKeyDown={(e) => {
@@ -3427,14 +3427,11 @@ export default function App() {
                       handleExecuteSearch(e);
                     }
                   }}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.1, duration: 0.2 }}
-                  className="bg-transparent text-xs md:text-sm text-white placeholder:text-white/40 focus:outline-none w-32 sm:w-52 md:w-64"
+                  className="bg-transparent text-xs md:text-sm text-white placeholder:text-white/40 focus:outline-none w-28 xs:w-36 sm:w-52 md:w-64 min-w-0"
                 />
                 <button 
                   type="submit"
-                  className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black font-extrabold px-3 py-1 rounded-full text-xs transition-all hover:scale-105 active:scale-95 shrink-0 cursor-pointer flex items-center gap-1 shadow-sm h-7"
+                  className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black font-extrabold px-2.5 sm:px-3 py-1 rounded-full text-xs transition-all hover:scale-105 active:scale-95 shrink-0 cursor-pointer flex items-center gap-1 shadow-sm h-6 sm:h-7"
                 >
                   <Search size={12} className="stroke-[2.5]" />
                   <span className="hidden sm:inline">Search</span>
