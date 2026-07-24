@@ -57,7 +57,7 @@ import IntroLoading from './components/IntroLoading';
 import { db, auth } from './firebase';
 import { doc, onSnapshot, setDoc, getDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
-import { fetchTmdbDetails, TmdbDetails, fetchTrendingMovies, fetchTrendingSeries, TmdbTrendingItem, cleanMediaTitle, fetchTmdbDetailsById, getStoredTmdbDetails, getStoredTmdbDetailsById, getLanguageTags, getLanguageBadge, TRENDING_REGIONS, TrendingRegion } from './lib/tmdb';
+import { fetchTmdbDetails, TmdbDetails, fetchTrendingMovies, fetchTrendingSeries, TmdbTrendingItem, cleanMediaTitle, fetchTmdbDetailsById, getStoredTmdbDetails, getStoredTmdbDetailsById, getLanguageTags, getLanguageBadge, TRENDING_REGIONS, TrendingRegion, OTT_PLATFORMS, OttPlatform, fetchPlatformMedia, searchTmdbItems } from './lib/tmdb';
 
 const RegionFlag = ({ code, className = "w-5 h-3.5" }: { code: string; className?: string }) => {
   if (code === 'ALL') {
@@ -710,6 +710,111 @@ export default function App() {
     return TRENDING_REGIONS.find(r => r.code === selectedTrendingRegion) || TRENDING_REGIONS[0];
   }, [selectedTrendingRegion]);
 
+  // Studios & OTT Platforms State
+  const [selectedPlatform, setSelectedPlatform] = useState<OttPlatform | null>(null);
+  const [platformMediaType, setPlatformMediaType] = useState<'all' | 'movie' | 'tv'>('all');
+  const [platformSortBy, setPlatformSortBy] = useState<string>('popularity.desc');
+  const [platformGenreId, setPlatformGenreId] = useState<number | null>(null);
+  const [platformSearchQuery, setPlatformSearchQuery] = useState<string>('');
+  const [platformItems, setPlatformItems] = useState<TmdbTrendingItem[]>([]);
+  const [loadingPlatformMedia, setLoadingPlatformMedia] = useState<boolean>(false);
+  const [platformPage, setPlatformPage] = useState<number>(1);
+  const [hasMorePlatformMedia, setHasMorePlatformMedia] = useState<boolean>(true);
+  const [loadingMorePlatformMedia, setLoadingMorePlatformMedia] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!selectedPlatform) return;
+    let isCancelled = false;
+    setLoadingPlatformMedia(true);
+    setPlatformPage(1);
+    setHasMorePlatformMedia(true);
+
+    // Fetch pages 1, 2, and 3 in parallel to return a rich initial catalog (~60+ titles)
+    Promise.all([
+      fetchPlatformMedia(selectedPlatform, platformMediaType, platformSortBy, platformGenreId || undefined, selectedTrendingRegion, 1),
+      fetchPlatformMedia(selectedPlatform, platformMediaType, platformSortBy, platformGenreId || undefined, selectedTrendingRegion, 2),
+      fetchPlatformMedia(selectedPlatform, platformMediaType, platformSortBy, platformGenreId || undefined, selectedTrendingRegion, 3),
+    ]).then(([p1, p2, p3]) => {
+      if (!isCancelled) {
+        const combined = [...p1, ...p2, ...p3];
+        const uniqueItems = Array.from(new Map(combined.map(item => [item.id, item])).values());
+        setPlatformItems(uniqueItems);
+        setLoadingPlatformMedia(false);
+        if (p1.length === 0 && p2.length === 0 && p3.length === 0) {
+          setHasMorePlatformMedia(false);
+        }
+      }
+    }).catch(err => {
+      console.error("Error loading platform items:", err);
+      if (!isCancelled) setLoadingPlatformMedia(false);
+    });
+
+    return () => { isCancelled = true; };
+  }, [selectedPlatform, platformMediaType, platformSortBy, platformGenreId, selectedTrendingRegion]);
+
+  const [searchedTmdbPlatformResults, setSearchedTmdbPlatformResults] = useState<TmdbTrendingItem[]>([]);
+  const [isSearchingPlatformTmdb, setIsSearchingPlatformTmdb] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!selectedPlatform || !platformSearchQuery.trim() || platformSearchQuery.trim().length < 2) {
+      setSearchedTmdbPlatformResults([]);
+      setIsSearchingPlatformTmdb(false);
+      return;
+    }
+
+    let isCancelled = false;
+    setIsSearchingPlatformTmdb(true);
+
+    const timer = setTimeout(() => {
+      searchTmdbItems(platformSearchQuery, platformMediaType)
+        .then(results => {
+          if (!isCancelled) {
+            setSearchedTmdbPlatformResults(results);
+            setIsSearchingPlatformTmdb(false);
+          }
+        })
+        .catch(err => {
+          console.error("Error searching platform TMDB:", err);
+          if (!isCancelled) setIsSearchingPlatformTmdb(false);
+        });
+    }, 300);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
+  }, [selectedPlatform, platformSearchQuery, platformMediaType]);
+
+  const handleLoadMorePlatformMedia = async () => {
+    if (!selectedPlatform || loadingMorePlatformMedia || !hasMorePlatformMedia) return;
+    setLoadingMorePlatformMedia(true);
+    const nextPageStart = platformPage + 3;
+
+    try {
+      const [p1, p2, p3] = await Promise.all([
+        fetchPlatformMedia(selectedPlatform, platformMediaType, platformSortBy, platformGenreId || undefined, selectedTrendingRegion, nextPageStart),
+        fetchPlatformMedia(selectedPlatform, platformMediaType, platformSortBy, platformGenreId || undefined, selectedTrendingRegion, nextPageStart + 1),
+        fetchPlatformMedia(selectedPlatform, platformMediaType, platformSortBy, platformGenreId || undefined, selectedTrendingRegion, nextPageStart + 2),
+      ]);
+
+      const newBatch = [...p1, ...p2, ...p3];
+      if (newBatch.length === 0) {
+        setHasMorePlatformMedia(false);
+      } else {
+        setPlatformItems((prev) => {
+          const map = new Map(prev.map(item => [item.id, item]));
+          newBatch.forEach(item => map.set(item.id, item));
+          return Array.from(map.values());
+        });
+        setPlatformPage(nextPageStart);
+      }
+    } catch (err) {
+      console.error("Error loading more platform media:", err);
+    } finally {
+      setLoadingMorePlatformMedia(false);
+    }
+  };
+
   const [trendingSelectorData, setTrendingSelectorData] = useState<{
     show: boolean;
     title: string;
@@ -1000,6 +1105,33 @@ export default function App() {
   const [webPlayTitle, setWebPlayTitle] = useState('');
   const [playingEpisode, setPlayingEpisode] = useState<any>(null);
 
+  const isAnyOverlayActive = Boolean(
+    selectedItem ||
+    selectedFreeMovie ||
+    selectedFreeSeries ||
+    selectedLiveEvent ||
+    showWebPlayer ||
+    playingTrailerUrl ||
+    showDownloadConfirm ||
+    showRegionModal ||
+    trendingSelectorData?.show ||
+    isSyncingDetails ||
+    passwordProtectedItem ||
+    showAdminLogin ||
+    showFreeDownloadModal
+  );
+
+  useEffect(() => {
+    if (isAnyOverlayActive) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isAnyOverlayActive]);
+
   const handleCloseWebPlayer = () => {
     setShowWebPlayer(false);
     setPlayingEpisode(null);
@@ -1089,6 +1221,7 @@ export default function App() {
     selectedFreeSeries || 
     selectedLiveEvent ||
     playingLiveEvent ||
+    selectedPlatform ||
     showWebPlayer ||
     showLoginModal ||
     showAdminLogin ||
@@ -3545,7 +3678,307 @@ export default function App() {
       </header>
 
       <main className="flex-1 p-4 md:p-6 space-y-6 md:space-y-8 pb-24 md:pb-8">
-        {activeTab === 'search' ? (
+        {selectedPlatform ? (
+          /* Standalone OTT Platform Catalog Page - High Performance Native Scroll */
+          <div className="space-y-6 min-h-screen gpu">
+            {/* Header Banner with Platform Styling */}
+            <div className={`p-4 sm:p-6 bg-gradient-to-r ${selectedPlatform.bg_gradient} rounded-3xl border border-white/10 shadow-xl flex flex-col gap-4 relative overflow-hidden`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
+                  <button
+                    onClick={() => setSelectedPlatform(null)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/70 hover:bg-black text-white/90 hover:text-white border border-white/20 transition-transform duration-200 hover:scale-105 active:scale-95 cursor-pointer shadow-lg text-xs sm:text-sm font-bold shrink-0"
+                  >
+                    <ArrowLeft size={16} />
+                    <span>Back to Home</span>
+                  </button>
+
+                  <div className="flex items-center gap-3">
+                    {selectedPlatform.logo_url ? (
+                      <img
+                        src={selectedPlatform.logo_url}
+                        alt={selectedPlatform.name}
+                        referrerPolicy="no-referrer"
+                        loading="eager"
+                        decoding="async"
+                        className="h-8 sm:h-11 max-w-[150px] sm:max-w-[200px] object-contain filter drop-shadow-md"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                          const parent = (e.target as HTMLElement).parentElement;
+                          if (parent) {
+                            const fallback = parent.querySelector('.platform-page-logo-fallback');
+                            if (fallback) fallback.classList.remove('hidden');
+                          }
+                        }}
+                      />
+                    ) : null}
+                    <h2 className={`platform-page-logo-fallback ${selectedPlatform.logo_url ? 'hidden' : ''} text-2xl sm:text-3xl font-display font-black ${selectedPlatform.text_color}`}>
+                      {selectedPlatform.name}
+                    </h2>
+                    <span className={`px-2.5 py-1 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-wider text-white ${selectedPlatform.badge_color} shadow-md`}>
+                      Official Catalog
+                    </span>
+                  </div>
+                </div>
+
+                {/* Filter Controls Bar */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Media Type Segmented Switch */}
+                  <div className="flex items-center p-1 rounded-xl bg-black/60 border border-white/10">
+                    {(['all', 'movie', 'tv'] as const).map((type) => (
+                      <button
+                        key={type}
+                        onClick={() => setPlatformMediaType(type)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-extrabold uppercase transition-colors duration-200 cursor-pointer ${
+                          platformMediaType === type
+                            ? `${selectedPlatform.badge_color} text-white shadow-md`
+                            : 'text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        {type === 'all' ? 'All Content' : type === 'movie' ? 'Movies' : 'Web Series'}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Sort Selector */}
+                  <select
+                    value={platformSortBy}
+                    onChange={(e) => setPlatformSortBy(e.target.value)}
+                    className="px-3 py-2 rounded-xl bg-black/70 border border-white/15 text-xs font-bold text-white focus:outline-none focus:border-cyan-400 cursor-pointer"
+                  >
+                    <option value="popularity.desc">Most Popular</option>
+                    <option value="vote_average.desc">Top Rated</option>
+                    <option value="primary_release_date.desc">New Releases</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Sub-header Filter & Search bar */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t border-white/10">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" size={15} />
+                  <input
+                    type="text"
+                    placeholder={`Search within ${selectedPlatform.name}...`}
+                    value={platformSearchQuery}
+                    onChange={(e) => setPlatformSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-8 py-2 rounded-xl bg-black/60 border border-white/15 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-400 font-medium"
+                  />
+                  {platformSearchQuery && (
+                    <button
+                      onClick={() => setPlatformSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Catalog Content Grid */}
+            <div className="space-y-6">
+              {loadingPlatformMedia ? (
+                <div className="flex flex-col items-center justify-center py-28 gap-4 bg-white/5 rounded-3xl border border-white/5">
+                  <Loader2 className="animate-spin text-cyan-400" size={38} />
+                  <p className="text-zinc-400 text-sm font-medium">Fetching {selectedPlatform.name} content...</p>
+                </div>
+              ) : (() => {
+                const searchQueryTrim = platformSearchQuery.trim().toLowerCase();
+                let filtered: any[] = [];
+
+                if (!searchQueryTrim) {
+                  filtered = platformItems.filter((item) => {
+                    if (platformMediaType === 'movie' && item.media_type !== 'movie') return false;
+                    if (platformMediaType === 'tv' && item.media_type !== 'tv') return false;
+                    return true;
+                  });
+                } else {
+                  // 1. Search across ALL IPTV Movies in user's playlist
+                  const iptvMoviesMatched = (platformMediaType === 'all' || platformMediaType === 'movie')
+                    ? movieItems
+                        .filter(m => m.name && m.name.toLowerCase().includes(searchQueryTrim))
+                        .slice(0, 50)
+                        .map(m => ({
+                          id: `iptv_movie_${m.stream_id}`,
+                          title: m.name,
+                          poster_url: m.stream_icon,
+                          rating: m.rating ? parseFloat(m.rating) : undefined,
+                          media_type: 'movie' as const,
+                          rawStream: m
+                        }))
+                    : [];
+
+                  // 2. Search across ALL IPTV Series in user's playlist
+                  const iptvSeriesMatched = (platformMediaType === 'all' || platformMediaType === 'tv')
+                    ? seriesItems
+                        .filter(s => s.name && s.name.toLowerCase().includes(searchQueryTrim))
+                        .slice(0, 50)
+                        .map(s => ({
+                          id: `iptv_series_${s.series_id}`,
+                          title: s.name,
+                          poster_url: s.cover,
+                          rating: s.rating ? parseFloat(s.rating) : undefined,
+                          media_type: 'tv' as const,
+                          rawSeries: s
+                        }))
+                    : [];
+
+                  // 3. Search across Free Movies
+                  const freeMoviesMatched = (platformMediaType === 'all' || platformMediaType === 'movie')
+                    ? (displayedFreeMovies || [])
+                        .filter((fm: any) => fm.name && fm.name.toLowerCase().includes(searchQueryTrim))
+                        .map((fm: any) => ({
+                          id: `free_movie_${fm.id}`,
+                          title: fm.name,
+                          poster_url: fm.poster_url,
+                          media_type: 'movie' as const,
+                          rawFreeMovie: fm
+                        }))
+                    : [];
+
+                  // 4. Search across Free Series
+                  const freeSeriesMatched = (platformMediaType === 'all' || platformMediaType === 'tv')
+                    ? (displayedFreeSeries || [])
+                        .filter((fs: any) => fs.name && fs.name.toLowerCase().includes(searchQueryTrim))
+                        .map((fs: any) => ({
+                          id: `free_series_${fs.id}`,
+                          title: fs.name,
+                          poster_url: fs.poster_url,
+                          media_type: 'tv' as const,
+                          rawFreeSeries: fs
+                        }))
+                    : [];
+
+                  // 5. Filter loaded platform items
+                  const platformItemsMatched = platformItems.filter(item => {
+                    if (platformMediaType === 'movie' && item.media_type !== 'movie') return false;
+                    if (platformMediaType === 'tv' && item.media_type !== 'tv') return false;
+                    return item.title.toLowerCase().includes(searchQueryTrim);
+                  });
+
+                  // 6. Live TMDB Search API results
+                  const tmdbApiMatched = searchedTmdbPlatformResults;
+
+                  const combined = [
+                    ...iptvMoviesMatched,
+                    ...iptvSeriesMatched,
+                    ...freeMoviesMatched,
+                    ...freeSeriesMatched,
+                    ...platformItemsMatched,
+                    ...tmdbApiMatched
+                  ];
+
+                  const seenTitles = new Set<string>();
+                  for (const item of combined) {
+                    const norm = (item.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                    if (norm && !seenTitles.has(norm)) {
+                      seenTitles.add(norm);
+                      filtered.push(item);
+                    }
+                  }
+                }
+
+                if (filtered.length === 0 && !isSearchingPlatformTmdb) {
+                  return (
+                    <div className="text-center py-20 bg-white/5 rounded-3xl border border-white/5 space-y-3">
+                      <Film size={40} className="mx-auto text-zinc-600" />
+                      <h4 className="text-lg font-bold text-white">No items found</h4>
+                      <p className="text-zinc-400 text-xs max-w-md mx-auto">
+                        No title matches "{platformSearchQuery}" on {selectedPlatform.name}.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-8">
+                    {/* High-performance GPU accelerated 4-column layout with content-visibility */}
+                    <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-4">
+                      {filtered.map((item, idx) => (
+                        <div
+                          key={`platform-item-${item.id}-${idx}`}
+                          onClick={() => {
+                            if (item.rawStream || item.rawSeries) {
+                              selectMedia(item.rawStream || item.rawSeries, 'selectedItem');
+                            } else if (item.rawFreeMovie) {
+                              selectMedia(item.rawFreeMovie, 'free_movie');
+                            } else if (item.rawFreeSeries) {
+                              selectMedia(item.rawFreeSeries, 'free_series');
+                            } else {
+                              handleTrendingClick(item, item.media_type === 'tv');
+                            }
+                          }}
+                          style={{ contentVisibility: 'auto', containIntrinsicSize: '0 200px' }}
+                          className="group cursor-pointer space-y-1 sm:space-y-1.5 transition-transform duration-200 hover:-translate-y-1 active:scale-95 gpu"
+                        >
+                          <div className="aspect-[2/3] bg-zinc-900 rounded-lg sm:rounded-2xl overflow-hidden border border-white/10 group-hover:border-cyan-400/80 shadow-md transition-colors duration-200 relative">
+                            <img
+                              src={item.poster_url || 'https://picsum.photos/seed/movie/400/600'}
+                              alt={item.title}
+                              loading="lazy"
+                              decoding="async"
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 gpu"
+                              onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/movie/400/600?blur=1'; }}
+                            />
+
+                            {/* Media Type Badge - Solid background for GPU performance */}
+                            <span className="absolute top-1 left-1 sm:top-2 sm:left-2 z-20 px-1 py-0.5 sm:px-2 sm:py-0.5 rounded-md sm:rounded-full bg-zinc-950/90 border border-white/10 text-[7px] sm:text-[9px] font-black uppercase text-cyan-300">
+                              {item.media_type === 'tv' ? 'Series' : 'Movie'}
+                            </span>
+
+                            {/* Rating Badge - Solid background for GPU performance */}
+                            {item.rating && (
+                              <span className="absolute top-1 right-1 sm:top-2 sm:right-2 z-20 px-1 py-0.5 sm:px-2 sm:py-0.5 rounded-md sm:rounded-full bg-zinc-950/90 border border-white/10 text-[7px] sm:text-[9px] font-bold text-yellow-400 flex items-center gap-0.5">
+                                ★ {item.rating}
+                              </span>
+                            )}
+
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col justify-end p-1.5 sm:p-4">
+                              <div className="flex items-center gap-1 sm:gap-2 bg-cyan-500 text-black px-2 py-1 sm:px-4 sm:py-2 rounded-full text-[9px] sm:text-xs font-bold mx-auto shadow-md transform translate-y-2 group-hover:translate-y-0 transition-transform duration-200">
+                                <Play size={10} fill="currentColor" className="sm:w-3 sm:h-3" /> Play
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="px-0.5">
+                            <h4 className="text-[10px] sm:text-xs font-bold line-clamp-2 leading-tight group-hover:text-cyan-400 transition-colors uppercase tracking-wide">
+                              {item.title}
+                            </h4>
+                            {item.year && (
+                              <p className="text-[8px] sm:text-[10px] text-zinc-500 font-semibold mt-0.5">{item.year}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Load More Button */}
+                    {hasMorePlatformMedia && !platformSearchQuery && (
+                      <div className="flex justify-center pt-6 pb-12">
+                        <button
+                          onClick={handleLoadMorePlatformMedia}
+                          disabled={loadingMorePlatformMedia}
+                          className="flex items-center gap-2 px-8 py-3 rounded-full bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold text-xs uppercase tracking-wider transition-all duration-200 hover:scale-105 active:scale-95 disabled:opacity-50 cursor-pointer shadow-lg shadow-cyan-500/20"
+                        >
+                          {loadingMorePlatformMedia ? (
+                            <>
+                              <Loader2 size={16} className="animate-spin" />
+                              <span>Loading More Content...</span>
+                            </>
+                          ) : (
+                            <span>Load More {selectedPlatform.name} Titles</span>
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        ) : activeTab === 'search' ? (
           <div className="space-y-8 animate-fadeIn">
             {/* Search Page Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 glass-dark rounded-3xl border border-white/10 shadow-2xl bg-gradient-to-r from-cyan-950/40 via-slate-900/60 to-purple-950/40">
@@ -3908,6 +4341,68 @@ export default function App() {
                   )}
                 </section>
 
+                {/* 2. Horizontal OTT & Studio Hub Section (Positioned Below Trending Movies) */}
+                <section className="space-y-3 pt-4">
+                  <div className="flex items-center justify-between px-2">
+                    <h3 className="text-xl md:text-2xl font-display font-bold flex items-center gap-3 tracking-tight">
+                      <span className="w-1.5 h-6 bg-cyan-500 rounded-full" />
+                      Streaming Platforms & Studios
+                    </h3>
+                    <span className="text-xs text-zinc-400 font-medium hidden sm:inline-block">
+                      Slide left/right to explore OTT catalogs
+                    </span>
+                  </div>
+
+                  <div className="relative group/ott">
+                    <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-3 pt-1 px-1 no-scrollbar scroll-smooth snap-x">
+                      {OTT_PLATFORMS.map((platform) => (
+                        <motion.div
+                          key={platform.id}
+                          whileHover={{ scale: 1.05, y: -2 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => {
+                            setSelectedPlatform(platform);
+                            setPlatformMediaType('all');
+                            setPlatformSortBy('popularity.desc');
+                            setPlatformGenreId(null);
+                            setPlatformSearchQuery('');
+                          }}
+                          className={`group cursor-pointer shrink-0 snap-start rounded-2xl p-3 bg-gradient-to-br ${platform.bg_gradient} border ${platform.border_color} shadow-lg transition-all duration-300 flex flex-col items-center justify-center gap-2 w-32 sm:w-40 h-20 sm:h-24 relative overflow-hidden select-none`}
+                        >
+                          {/* Glow effect */}
+                          <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+
+                          {platform.logo_url ? (
+                            <img
+                              src={platform.logo_url}
+                              alt={platform.name}
+                              referrerPolicy="no-referrer"
+                              className="h-6 sm:h-8 max-w-[85%] object-contain filter drop-shadow-md group-hover:scale-110 transition-transform duration-300"
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display = 'none';
+                                const parent = (e.target as HTMLElement).parentElement;
+                                if (parent) {
+                                  const fallback = parent.querySelector('.logo-fallback');
+                                  if (fallback) fallback.classList.remove('hidden');
+                                }
+                              }}
+                            />
+                          ) : null}
+
+                          <span className={`logo-fallback ${platform.logo_url ? 'hidden' : ''} text-xs sm:text-sm font-black ${platform.text_color} tracking-tight text-center leading-tight`}>
+                            {platform.name}
+                          </span>
+
+                          <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                            <span className={`w-1.5 h-1.5 rounded-full ${platform.badge_color}`} />
+                            <span className="text-[9px] sm:text-[10px] font-bold text-zinc-300 uppercase tracking-wider">Explore</span>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
                 {/* 2. Recently Added Movies Section (Exactly 8 Movies, 2 Rows x 4 Items) */}
                 <section className="space-y-5 pt-2">
                   <div className="flex items-center justify-between px-2">
@@ -3947,7 +4442,7 @@ export default function App() {
                         >
                           <div className="premium-card aspect-[2/3] rounded-2xl overflow-hidden border border-white/10 group-hover:border-cyan-400 group-hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] shadow-xl transition-all duration-300 relative">
                             <img 
-                              src={item.stream_icon || null} 
+                              src={item.stream_icon || 'https://picsum.photos/seed/movie/400/600'} 
                               alt={item.name}
                               referrerPolicy="no-referrer"
                               className="w-full h-full object-cover"
@@ -4099,7 +4594,7 @@ export default function App() {
                         >
                           <div className="premium-card aspect-[2/3] rounded-2xl overflow-hidden border border-white/10 group-hover:border-cyan-400 group-hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] shadow-xl transition-all duration-300 relative">
                             <img 
-                              src={item.cover || null} 
+                              src={item.cover || 'https://picsum.photos/seed/series/400/600'} 
                               alt={item.name}
                               referrerPolicy="no-referrer"
                               className="w-full h-full object-cover"
@@ -4596,7 +5091,7 @@ export default function App() {
                           >
                             <div className="aspect-[2/3] rounded-[2rem] overflow-hidden border border-white/10 bg-white/5 relative shadow-2xl">
                               <img 
-                                src={movie.poster_url || null} 
+                                src={movie.poster_url || 'https://picsum.photos/seed/movie/400/600'} 
                                 alt={movie.name} 
                                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
                                 referrerPolicy="no-referrer"
@@ -4653,7 +5148,7 @@ export default function App() {
                           >
                             <div className="aspect-[2/3] rounded-[2rem] overflow-hidden border border-white/10 bg-white/5 relative shadow-2xl">
                               <img 
-                                src={series.poster_url || null} 
+                                src={series.poster_url || 'https://picsum.photos/seed/series/400/600'} 
                                 alt={series.name} 
                                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
                                 referrerPolicy="no-referrer"
@@ -4713,7 +5208,7 @@ export default function App() {
                           >
                             <div className="aspect-[2/3] rounded-[2rem] overflow-hidden border border-white/10 bg-white/5 relative shadow-2xl">
                               <img 
-                                src={item.poster_url || null} 
+                                src={item.poster_url || 'https://picsum.photos/seed/live/400/600'} 
                                 alt={item.name} 
                                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
                                 referrerPolicy="no-referrer"
@@ -4886,7 +5381,7 @@ export default function App() {
                       >
                         <div className="relative aspect-[2/3] rounded-lg md:rounded-xl overflow-hidden shadow-2xl transition-transform group-hover:scale-105 border border-white/5 group-hover:border-cyan-500/50 gpu">
                           <img 
-                            src={('stream_icon' in item ? (item as any).stream_icon : (item as Series).cover) || null} 
+                            src={('stream_icon' in item ? (item as any).stream_icon : (item as Series).cover) || 'https://picsum.photos/seed/movie/400/600'} 
                             alt={item.name}
                             referrerPolicy="no-referrer"
                             loading="lazy"
@@ -4958,7 +5453,7 @@ export default function App() {
       {/* Dynamic Syncing details preloader with a modern cinematic loader */}
       <AnimatePresence>
         {isSyncingDetails && (
-          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 select-none">
+          <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 select-none">
             {/* Backdrop with heavy blur */}
             <motion.div
               initial={{ opacity: 0 }}
@@ -5035,7 +5530,7 @@ export default function App() {
       {/* Item Details Modal */}
       <AnimatePresence>
         {selectedItem && !isSyncingDetails && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6">
+          <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 sm:p-6">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -5630,7 +6125,7 @@ export default function App() {
       {/* Internal Web Player Modal */}
       <AnimatePresence>
         {showWebPlayer && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 md:p-8 lg:p-12 gpu overflow-hidden">
+          <div className="fixed inset-0 z-[180] flex items-center justify-center p-2 md:p-8 lg:p-12 gpu overflow-hidden">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -5703,7 +6198,7 @@ export default function App() {
             initial={{ opacity: 0, y: 50, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 50, scale: 0.95 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 border backdrop-blur-md max-w-md w-[calc(100%-2rem)] md:w-auto"
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 border backdrop-blur-md max-w-md w-[calc(100%-2rem)] md:w-auto"
             style={{
               backgroundColor: toastType === 'success' ? 'rgba(16, 185, 129, 0.95)' : toastType === 'error' ? 'rgba(239, 68, 68, 0.95)' : 'rgba(14, 116, 144, 0.95)',
               borderColor: toastType === 'success' ? '#10B981' : toastType === 'error' ? '#EF4444' : '#0E7490',
@@ -5718,7 +6213,7 @@ export default function App() {
       {/* Trending Language/Version Selector Modal */}
       <AnimatePresence>
         {trendingSelectorData && trendingSelectorData.show && (
-          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[175] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -6336,7 +6831,7 @@ export default function App() {
       {/* Download Confirmation Modal */}
       <AnimatePresence>
         {showDownloadConfirm && pendingDownload && (
-          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[185] flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -6568,7 +7063,7 @@ export default function App() {
       {/* Free Movie Details Modal */}
       <AnimatePresence>
         {selectedFreeMovie && !isSyncingDetails && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6">
+          <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 sm:p-6">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -7161,7 +7656,7 @@ export default function App() {
       {/* Free Series Details Modal */}
       <AnimatePresence>
         {selectedFreeSeries && !isSyncingDetails && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6">
+          <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 sm:p-6">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -7658,7 +8153,7 @@ export default function App() {
                 {playingFreeSeries.is_embed ? (
                   <div className="absolute inset-0 w-full h-full bg-black">
                     <iframe
-                      src={getAutoplayUrl(playingFreeSeries.play_url) || undefined}
+                      src={getAutoplayUrl(playingFreeSeries.play_url) || 'about:blank'}
                       className="w-full h-full border-0"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                       allowFullScreen
@@ -9520,7 +10015,7 @@ export default function App() {
       {/* Trailer Modal Player */}
       <AnimatePresence>
         {playingTrailerUrl && (
-          <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 md:p-8">
+          <div className="fixed inset-0 z-[190] flex items-center justify-center p-4 md:p-8">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}

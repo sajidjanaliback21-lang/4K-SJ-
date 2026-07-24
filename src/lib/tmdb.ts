@@ -616,3 +616,344 @@ export function getLanguageBadge(rawTitle?: string, categoryName?: string): Lang
 
   return null;
 }
+
+export interface OttPlatform {
+  id: string;
+  name: string;
+  provider_id: number;
+  provider_ids?: { [region: string]: number };
+  bg_gradient: string;
+  border_color: string;
+  text_color: string;
+  badge_color: string;
+  logo_url?: string;
+  keywords?: string[];
+}
+
+export const OTT_PLATFORMS: OttPlatform[] = [
+  {
+    id: 'netflix',
+    name: 'Netflix',
+    provider_id: 8,
+    provider_ids: { IN: 8, US: 8, GB: 8 },
+    bg_gradient: 'from-red-950/90 via-zinc-950 to-red-950/50',
+    border_color: 'border-red-600/50 hover:border-red-500 shadow-red-950/50',
+    text_color: 'text-red-500',
+    badge_color: 'bg-red-600',
+    logo_url: 'https://upload.wikimedia.org/wikipedia/commons/0/08/Netflix_2015_logo.svg',
+    keywords: ['netflix']
+  },
+  {
+    id: 'prime',
+    name: 'Amazon Prime Video',
+    provider_id: 119,
+    provider_ids: { IN: 119, US: 9, GB: 9 },
+    bg_gradient: 'from-cyan-950/90 via-zinc-950 to-blue-950/50',
+    border_color: 'border-cyan-500/50 hover:border-cyan-400 shadow-cyan-950/50',
+    text_color: 'text-cyan-400',
+    badge_color: 'bg-cyan-500',
+    logo_url: 'https://upload.wikimedia.org/wikipedia/commons/f/f1/Prime_Video.png',
+    keywords: ['prime', 'amazon']
+  },
+  {
+    id: 'disney',
+    name: 'Disney+ Hotstar',
+    provider_id: 122,
+    provider_ids: { IN: 122, US: 337, GB: 337 },
+    bg_gradient: 'from-blue-950/90 via-zinc-950 to-indigo-950/50',
+    border_color: 'border-blue-500/50 hover:border-blue-400 shadow-blue-950/50',
+    text_color: 'text-blue-400',
+    badge_color: 'bg-blue-600',
+    logo_url: 'https://upload.wikimedia.org/wikipedia/commons/3/3e/Disney%2B_logo.svg',
+    keywords: ['disney', 'hotstar']
+  },
+  {
+    id: 'jiocinema',
+    name: 'JioCinema',
+    provider_id: 220,
+    provider_ids: { IN: 220, US: 220 },
+    bg_gradient: 'from-pink-950/90 via-zinc-950 to-rose-950/50',
+    border_color: 'border-pink-500/50 hover:border-pink-400 shadow-pink-950/50',
+    text_color: 'text-pink-400',
+    badge_color: 'bg-pink-600',
+    logo_url: 'https://upload.wikimedia.org/wikipedia/commons/1/14/JioCinema_Logo.svg',
+    keywords: ['jiocinema', 'jio']
+  },
+  {
+    id: 'sonyliv',
+    name: 'Sony LIV',
+    provider_id: 237,
+    provider_ids: { IN: 237, US: 237 },
+    bg_gradient: 'from-orange-950/90 via-zinc-950 to-amber-950/50',
+    border_color: 'border-orange-500/50 hover:border-orange-400 shadow-orange-950/50',
+    text_color: 'text-orange-400',
+    badge_color: 'bg-orange-500',
+    logo_url: 'https://upload.wikimedia.org/wikipedia/commons/f/f0/SonyLIV_logo.svg',
+    keywords: ['sonyliv', 'sony']
+  },
+  {
+    id: 'zee5',
+    name: 'Zee5',
+    provider_id: 232,
+    provider_ids: { IN: 232, US: 232 },
+    bg_gradient: 'from-fuchsia-950/90 via-zinc-950 to-purple-950/50',
+    border_color: 'border-fuchsia-500/50 hover:border-fuchsia-400 shadow-fuchsia-950/50',
+    text_color: 'text-fuchsia-400',
+    badge_color: 'bg-fuchsia-600',
+    logo_url: 'https://upload.wikimedia.org/wikipedia/commons/5/5a/ZEE5_logo.svg',
+    keywords: ['zee5', 'zee']
+  },
+  {
+    id: 'appletv',
+    name: 'Apple TV+',
+    provider_id: 350,
+    provider_ids: { IN: 350, US: 2, GB: 2 },
+    bg_gradient: 'from-zinc-900 via-zinc-950 to-zinc-900',
+    border_color: 'border-white/30 hover:border-white shadow-zinc-800/40',
+    text_color: 'text-white',
+    badge_color: 'bg-white text-black',
+    logo_url: 'https://upload.wikimedia.org/wikipedia/commons/2/28/Apple_TV_Plus_Logo.svg',
+    keywords: ['apple', 'appletv']
+  },
+  {
+    id: 'aha',
+    name: 'Aha Video',
+    provider_id: 532,
+    provider_ids: { IN: 532, US: 532 },
+    bg_gradient: 'from-amber-950/90 via-zinc-950 to-orange-950/50',
+    border_color: 'border-amber-500/50 hover:border-amber-400 shadow-amber-950/50',
+    text_color: 'text-amber-400',
+    badge_color: 'bg-amber-500',
+    logo_url: 'https://upload.wikimedia.org/wikipedia/commons/7/7f/Aha_OTT_logo.svg',
+    keywords: ['aha']
+  },
+  {
+    id: 'lionsgate',
+    name: 'Lionsgate Play',
+    provider_id: 309,
+    provider_ids: { IN: 309, US: 309 },
+    bg_gradient: 'from-yellow-950/90 via-zinc-950 to-amber-950/50',
+    border_color: 'border-yellow-500/50 hover:border-yellow-400 shadow-yellow-950/50',
+    text_color: 'text-yellow-400',
+    badge_color: 'bg-yellow-500',
+    keywords: ['lionsgate']
+  },
+  {
+    id: 'mxplayer',
+    name: 'MX Player',
+    provider_id: 488,
+    provider_ids: { IN: 488, US: 488 },
+    bg_gradient: 'from-blue-950/90 via-zinc-950 to-cyan-950/50',
+    border_color: 'border-cyan-500/50 hover:border-cyan-400 shadow-cyan-950/50',
+    text_color: 'text-cyan-400',
+    badge_color: 'bg-cyan-500',
+    keywords: ['mxplayer']
+  },
+  {
+    id: 'hbomax',
+    name: 'HBO Max',
+    provider_id: 1899,
+    provider_ids: { IN: 220, US: 1899 },
+    bg_gradient: 'from-purple-950/90 via-zinc-950 to-indigo-950/50',
+    border_color: 'border-purple-500/50 hover:border-purple-400 shadow-purple-950/50',
+    text_color: 'text-purple-400',
+    badge_color: 'bg-purple-600',
+    logo_url: 'https://upload.wikimedia.org/wikipedia/commons/1/17/HBO_Max_Logo.svg',
+    keywords: ['hbo', 'max']
+  },
+  {
+    id: 'hulu',
+    name: 'Hulu',
+    provider_id: 15,
+    provider_ids: { IN: 122, US: 15 },
+    bg_gradient: 'from-emerald-950/90 via-zinc-950 to-green-950/50',
+    border_color: 'border-emerald-500/50 hover:border-emerald-400 shadow-emerald-950/50',
+    text_color: 'text-emerald-400',
+    badge_color: 'bg-emerald-500',
+    logo_url: 'https://upload.wikimedia.org/wikipedia/commons/e/e4/Hulu_Logo.svg',
+    keywords: ['hulu']
+  },
+  {
+    id: 'paramount',
+    name: 'Paramount+ Premium',
+    provider_id: 531,
+    provider_ids: { IN: 119, US: 531 },
+    bg_gradient: 'from-sky-950/90 via-zinc-950 to-blue-950/50',
+    border_color: 'border-sky-500/50 hover:border-sky-400 shadow-sky-950/50',
+    text_color: 'text-sky-400',
+    badge_color: 'bg-sky-500',
+    logo_url: 'https://upload.wikimedia.org/wikipedia/commons/a/a5/Paramount%2B_logo.svg',
+    keywords: ['paramount']
+  },
+  {
+    id: 'peacock',
+    name: 'Peacock Premium',
+    provider_id: 386,
+    provider_ids: { IN: 237, US: 386 },
+    bg_gradient: 'from-teal-950/90 via-zinc-950 to-cyan-950/50',
+    border_color: 'border-teal-500/50 hover:border-teal-400 shadow-teal-950/50',
+    text_color: 'text-teal-400',
+    badge_color: 'bg-teal-500',
+    logo_url: 'https://upload.wikimedia.org/wikipedia/commons/d/d3/NBCUniversal_Peacock_Logo.svg',
+    keywords: ['peacock']
+  }
+];
+
+export async function fetchPlatformMedia(
+  platform: OttPlatform,
+  mediaType: 'all' | 'movie' | 'tv' = 'all',
+  sortBy: string = 'popularity.desc',
+  genreId?: number,
+  regionCode: string = 'IN',
+  page: number = 1
+): Promise<TmdbTrendingItem[]> {
+  const targetRegion = (regionCode && regionCode !== 'ALL') ? regionCode : 'IN';
+  const targetProviderId = platform.provider_ids?.[targetRegion] || platform.provider_id;
+
+  const cacheKey = `platform_media_${platform.id}_${targetProviderId}_${mediaType}_${sortBy}_${genreId || ''}_${targetRegion}_${page}`;
+  const cached = getCachedItem(cacheKey);
+  if (cached && Array.isArray(cached) && cached.length > 0) return cached;
+
+  try {
+    const regionParam = `&watch_region=${targetRegion}`;
+    const genreParam = genreId ? `&with_genres=${genreId}` : '';
+    const providerParam = `&with_watch_providers=${targetProviderId}&with_watch_monetization_types=flatrate|rent|buy|free|ads`;
+
+    let movieResults: any[] = [];
+    let tvResults: any[] = [];
+
+    if (mediaType === 'movie' || mediaType === 'all') {
+      const url = `${BASE_URL}/3/discover/movie?api_key=${TMDB_API_KEY}&sort_by=${sortBy}${providerParam}${regionParam}${genreParam}&page=${page}`;
+      const data = await getTmdbJson(url);
+      movieResults = (data.results || []).map((item: any) => ({
+        id: item.id,
+        title: item.title || item.original_title || '',
+        poster_url: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : undefined,
+        backdrop_url: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : undefined,
+        rating: item.vote_average ? parseFloat(item.vote_average.toFixed(1)) : undefined,
+        plot: item.overview || undefined,
+        media_type: 'movie' as const,
+        year: item.release_date ? item.release_date.substring(0, 4) : undefined,
+      }));
+    }
+
+    if (mediaType === 'tv' || mediaType === 'all') {
+      const url = `${BASE_URL}/3/discover/tv?api_key=${TMDB_API_KEY}&sort_by=${sortBy}${providerParam}${regionParam}${genreParam}&page=${page}`;
+      const data = await getTmdbJson(url);
+      tvResults = (data.results || []).map((item: any) => ({
+        id: item.id,
+        title: item.name || item.original_name || item.title || '',
+        poster_url: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : undefined,
+        backdrop_url: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : undefined,
+        rating: item.vote_average ? parseFloat(item.vote_average.toFixed(1)) : undefined,
+        plot: item.overview || undefined,
+        media_type: 'tv' as const,
+        year: item.first_air_date ? item.first_air_date.substring(0, 4) : undefined,
+      }));
+    }
+
+    let combined: TmdbTrendingItem[] = [];
+    if (mediaType === 'all') {
+      const maxLen = Math.max(movieResults.length, tvResults.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (i < movieResults.length) combined.push(movieResults[i]);
+        if (i < tvResults.length) combined.push(tvResults[i]);
+      }
+    } else if (mediaType === 'movie') {
+      combined = movieResults;
+    } else {
+      combined = tvResults;
+    }
+
+    // Fallback if region returns 0 items and targetRegion is not US
+    if (combined.length === 0 && targetRegion !== 'US') {
+      const usProviderId = platform.provider_ids?.['US'] || platform.provider_id;
+      const usCacheKey = `platform_media_${platform.id}_${usProviderId}_${mediaType}_${sortBy}_${genreId || ''}_US_${page}`;
+      const usUrlMovie = `${BASE_URL}/3/discover/movie?api_key=${TMDB_API_KEY}&sort_by=${sortBy}&with_watch_providers=${usProviderId}&watch_region=US&with_watch_monetization_types=flatrate|rent|buy|free|ads${genreParam}&page=${page}`;
+      const usUrlTv = `${BASE_URL}/3/discover/tv?api_key=${TMDB_API_KEY}&sort_by=${sortBy}&with_watch_providers=${usProviderId}&watch_region=US&with_watch_monetization_types=flatrate|rent|buy|free|ads${genreParam}&page=${page}`;
+      
+      const [movieData, tvData] = await Promise.all([
+        mediaType !== 'tv' ? getTmdbJson(usUrlMovie) : Promise.resolve({ results: [] }),
+        mediaType !== 'movie' ? getTmdbJson(usUrlTv) : Promise.resolve({ results: [] }),
+      ]);
+
+      const fbMovie = (movieData.results || []).map((item: any) => ({
+        id: item.id,
+        title: item.title || item.original_title || '',
+        poster_url: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : undefined,
+        backdrop_url: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : undefined,
+        rating: item.vote_average ? parseFloat(item.vote_average.toFixed(1)) : undefined,
+        plot: item.overview || undefined,
+        media_type: 'movie' as const,
+        year: item.release_date ? item.release_date.substring(0, 4) : undefined,
+      }));
+
+      const fbTv = (tvData.results || []).map((item: any) => ({
+        id: item.id,
+        title: item.name || item.original_name || item.title || '',
+        poster_url: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : undefined,
+        backdrop_url: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : undefined,
+        rating: item.vote_average ? parseFloat(item.vote_average.toFixed(1)) : undefined,
+        plot: item.overview || undefined,
+        media_type: 'tv' as const,
+        year: item.first_air_date ? item.first_air_date.substring(0, 4) : undefined,
+      }));
+
+      if (mediaType === 'all') {
+        const maxLen = Math.max(fbMovie.length, fbTv.length);
+        for (let i = 0; i < maxLen; i++) {
+          if (i < fbMovie.length) combined.push(fbMovie[i]);
+          if (i < fbTv.length) combined.push(fbTv[i]);
+        }
+      } else if (mediaType === 'movie') {
+        combined = fbMovie;
+      } else {
+        combined = fbTv;
+      }
+    }
+
+    setCachedItem(cacheKey, combined);
+    return combined;
+  } catch (err) {
+    console.error('Error fetching platform media from TMDB:', err);
+    return [];
+  }
+}
+
+export async function searchTmdbItems(query: string, mediaType: 'all' | 'movie' | 'tv' = 'all'): Promise<TmdbTrendingItem[]> {
+  if (!query || !query.trim()) return [];
+  const q = query.trim();
+  const cacheKey = `search_tmdb_items_${mediaType}_${q.toLowerCase()}`;
+  const cached = getCachedItem(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const url = `${BASE_URL}/3/search/multi?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(q)}&include_adult=false&language=en-US`;
+    const data = await getTmdbJson(url);
+    const results = data.results || [];
+
+    const items: TmdbTrendingItem[] = results
+      .filter((item: any) => {
+        if (item.media_type !== 'movie' && item.media_type !== 'tv') return false;
+        if (mediaType === 'movie' && item.media_type !== 'movie') return false;
+        if (mediaType === 'tv' && item.media_type !== 'tv') return false;
+        return true;
+      })
+      .map((item: any) => ({
+        id: item.id,
+        title: item.title || item.original_title || item.name || item.original_name || '',
+        poster_url: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : undefined,
+        backdrop_url: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : undefined,
+        rating: item.vote_average ? parseFloat(item.vote_average.toFixed(1)) : undefined,
+        plot: item.overview || undefined,
+        media_type: item.media_type as 'movie' | 'tv',
+        year: (item.release_date || item.first_air_date) ? (item.release_date || item.first_air_date).substring(0, 4) : undefined,
+      }));
+
+    setCachedItem(cacheKey, items);
+    return items;
+  } catch (err) {
+    console.error('Error searching TMDB items:', err);
+    return [];
+  }
+}
