@@ -45,7 +45,17 @@ import {
   ChevronDown,
   MapPin,
   Sparkles,
-  Compass
+  Compass,
+  MessageSquarePlus,
+  Send,
+  CheckCircle2,
+  Clock3,
+  AlertTriangle,
+  ListPlus,
+  Inbox,
+  Eye,
+  RefreshCw,
+  HelpCircle
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -75,6 +85,45 @@ const RegionFlag = ({ code, className = "w-5 h-3.5" }: { code: string; className
       alt={code}
       className={`object-cover rounded-[3px] shadow-sm border border-white/25 shrink-0 ${className}`}
       loading="lazy"
+    />
+  );
+};
+
+const getMediaPosterUrl = (item: any): string => {
+  if (!item) return '';
+  if (typeof item === 'string') return item;
+  return item.posterUrl || item.poster_url || item.stream_icon || item.cover || item.poster_path || '';
+};
+
+const MediaPosterImage = ({ 
+  src, 
+  alt, 
+  className = "w-14 h-20 object-cover rounded-xl bg-slate-800 shrink-0 border border-white/10 shadow-md",
+  type = "movie"
+}: { 
+  src?: string; 
+  alt?: string; 
+  className?: string;
+  type?: string;
+}) => {
+  const [imgError, setImgError] = useState(false);
+  const posterSrc = src || '';
+  
+  if (!posterSrc || imgError || posterSrc.includes('photo-1489599849927-2ee91cede3ba')) {
+    return (
+      <div className={cn("flex flex-col items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-zinc-900 text-amber-400 p-2 text-center select-none border border-white/10 shadow-md shrink-0 overflow-hidden", className)}>
+        {type === 'tv' ? <Tv size={22} className="text-amber-400/80 mb-1 shrink-0" /> : <Film size={22} className="text-amber-400/80 mb-1 shrink-0" />}
+        <span className="text-[9px] font-extrabold uppercase text-white/70 line-clamp-2 leading-tight tracking-tighter">{alt || 'Poster'}</span>
+      </div>
+    );
+  }
+
+  return (
+    <img 
+      src={posterSrc} 
+      alt={alt || 'Poster'} 
+      className={className}
+      onError={() => setImgError(true)}
     />
   );
 };
@@ -1229,7 +1278,21 @@ export default function App() {
     showProfileModal ||
     isMobileCategoriesOpen
   );
-  const [activeAdminTab, setActiveAdminTab] = useState<'app' | 'free_movies' | 'free_series' | 'live_events' | 'analytics' | 'resellers'>('app');
+  const [activeAdminTab, setActiveAdminTab] = useState<'app' | 'free_movies' | 'free_series' | 'live_events' | 'analytics' | 'resellers' | 'requests'>('app');
+  
+  // Media Requests State
+  const [mediaRequests, setMediaRequests] = useState<any[]>([]);
+  const [showRequestModal, setShowRequestModal] = useState<boolean>(false);
+  const [requestTab, setRequestTab] = useState<'new' | 'my'>('new');
+  const [requestSearchQuery, setRequestSearchQuery] = useState<string>('');
+  const [requestMediaType, setRequestMediaType] = useState<'all' | 'movie' | 'tv'>('all');
+  const [requestTmdbResults, setRequestTmdbResults] = useState<TmdbTrendingItem[]>([]);
+  const [isSearchingRequestTmdb, setIsSearchingRequestTmdb] = useState<boolean>(false);
+  const [selectedRequestItem, setSelectedRequestItem] = useState<TmdbTrendingItem | null>(null);
+  const [requestLocalMatches, setRequestLocalMatches] = useState<any[]>([]);
+  const [requestCategoryNotice, setRequestCategoryNotice] = useState<{ message: string; suggestType: 'movie' | 'tv' } | null>(null);
+  const [requestSubmitting, setRequestSubmitting] = useState<boolean>(false);
+  const [requestSuccessMessage, setRequestSuccessMessage] = useState<string>('');
   
   // Analytics State Hooks
   const [userActivities, setUserActivities] = useState<any[]>([]);
@@ -1474,6 +1537,21 @@ export default function App() {
     }, (error) => {
       console.error("Firestore Error (Live Events):", error);
       setIsLiveEventsLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Real-time Firestore Sync for Media Requests
+  useEffect(() => {
+    const mediaRequestsRef = collection(db, 'media_requests');
+    const q = query(mediaRequestsRef, orderBy('createdAt', 'desc'));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setMediaRequests(docs);
+    }, (error) => {
+      console.error("Firestore Error (Media Requests):", error);
     });
 
     return () => unsubscribe();
@@ -2111,6 +2189,244 @@ export default function App() {
       }
     }
   }, [loadingInfo, loadingTmdb, isM3uLoading, selectedItem, selectedFreeMovie, selectedFreeSeries, isSyncingDetails, isMinLoadPassed]);
+
+  // Request Movies & Web Series Handlers
+  const handleClearRequestSearch = () => {
+    setRequestSearchQuery('');
+    setRequestLocalMatches([]);
+    setRequestTmdbResults([]);
+    setSelectedRequestItem(null);
+    setRequestCategoryNotice(null);
+    setRequestSuccessMessage('');
+  };
+
+  const handleSearchAndVerifyRequest = async () => {
+    if (!requestSearchQuery || !requestSearchQuery.trim()) return;
+    const q = requestSearchQuery.trim().toLowerCase();
+    setIsSearchingRequestTmdb(true);
+    setRequestLocalMatches([]);
+    setRequestCategoryNotice(null);
+    setSelectedRequestItem(null);
+    setRequestSuccessMessage('');
+
+    // Step 1: Collect ALL local matches across all collections
+    const localMovies: any[] = [];
+    const localSeries: any[] = [];
+
+    // Search in freeMovies & movieItems
+    freeMovies.forEach((fm: any) => {
+      if (fm.name && fm.name.toLowerCase().includes(q)) {
+        localMovies.push({ item: fm, type: 'free_movie', mediaType: 'movie' });
+      }
+    });
+    movieItems.forEach((m: any) => {
+      if (m.name && m.name.toLowerCase().includes(q)) {
+        localMovies.push({ item: m, type: 'iptv_movie', mediaType: 'movie' });
+      }
+    });
+
+    // Search in freeSeries & seriesItems
+    freeSeries.forEach((fs: any) => {
+      if (fs.name && fs.name.toLowerCase().includes(q)) {
+        localSeries.push({ item: fs, type: 'free_series', mediaType: 'tv' });
+      }
+    });
+    seriesItems.forEach((s: any) => {
+      if (s.name && s.name.toLowerCase().includes(q)) {
+        localSeries.push({ item: s, type: 'iptv_series', mediaType: 'tv' });
+      }
+    });
+
+    // Determine relevant local matches based on requested category
+    if (requestMediaType === 'movie') {
+      if (localMovies.length > 0) {
+        setRequestLocalMatches(localMovies);
+        setRequestTmdbResults([]);
+        setIsSearchingRequestTmdb(false);
+        return;
+      } else if (localSeries.length > 0) {
+        // Mismatch: User searched Movie, but Web Series exists locally
+        setRequestCategoryNotice({
+          message: `Is naam se koi Movie humare collection mein exist nahi karti, lekin is naam se ${localSeries.length} Web Series available hai!`,
+          suggestType: 'tv'
+        });
+        setRequestLocalMatches(localSeries);
+        setRequestTmdbResults([]);
+        setIsSearchingRequestTmdb(false);
+        return;
+      }
+    } else if (requestMediaType === 'tv') {
+      if (localSeries.length > 0) {
+        setRequestLocalMatches(localSeries);
+        setRequestTmdbResults([]);
+        setIsSearchingRequestTmdb(false);
+        return;
+      } else if (localMovies.length > 0) {
+        // Mismatch: User searched Web Series, but Movie exists locally
+        setRequestCategoryNotice({
+          message: `Is naam se koi Web Series humare collection mein exist nahi karti, lekin is naam se ${localMovies.length} Movie available hai!`,
+          suggestType: 'movie'
+        });
+        setRequestLocalMatches(localMovies);
+        setRequestTmdbResults([]);
+        setIsSearchingRequestTmdb(false);
+        return;
+      }
+    } else {
+      // 'all'
+      const combined = [...localMovies, ...localSeries];
+      if (combined.length > 0) {
+        setRequestLocalMatches(combined);
+        setRequestTmdbResults([]);
+        setIsSearchingRequestTmdb(false);
+        return;
+      }
+    }
+
+    // Step 2: Search Global System Directory if no local matches
+    try {
+      const results = await searchTmdbItems(q, requestMediaType);
+
+      if (results.length > 0) {
+        setRequestTmdbResults(results);
+        setSelectedRequestItem(results[0]);
+      } else {
+        // Check if title exists under the opposite category globally
+        if (requestMediaType === 'movie') {
+          const oppositeResults = await searchTmdbItems(q, 'tv');
+          if (oppositeResults.length > 0) {
+            setRequestCategoryNotice({
+              message: `Is naam se koi Movie exist nahi karti hai. Is naam se Web Series directory mein available hai.`,
+              suggestType: 'tv'
+            });
+            setRequestTmdbResults(oppositeResults);
+            setSelectedRequestItem(oppositeResults[0]);
+          } else {
+            setRequestTmdbResults([]);
+          }
+        } else if (requestMediaType === 'tv') {
+          const oppositeResults = await searchTmdbItems(q, 'movie');
+          if (oppositeResults.length > 0) {
+            setRequestCategoryNotice({
+              message: `Is naam se koi Web Series exist nahi karti hai. Is naam se Movie directory mein available hai.`,
+              suggestType: 'movie'
+            });
+            setRequestTmdbResults(oppositeResults);
+            setSelectedRequestItem(oppositeResults[0]);
+          } else {
+            setRequestTmdbResults([]);
+          }
+        } else {
+          setRequestTmdbResults([]);
+        }
+      }
+    } catch (err) {
+      console.error("Error searching system directory for request:", err);
+    } finally {
+      setIsSearchingRequestTmdb(false);
+    }
+  };
+
+  const handleSubmitRequest = async () => {
+    if (!selectedRequestItem) return;
+    setRequestSubmitting(true);
+    setRequestSuccessMessage('');
+
+    try {
+      const uname = creds?.username || getResellerKey() || 'User';
+      await addDoc(collection(db, 'media_requests'), {
+        username: uname,
+        tmdbId: selectedRequestItem.id,
+        title: selectedRequestItem.title,
+        mediaType: selectedRequestItem.media_type || 'movie',
+        posterUrl: selectedRequestItem.poster_url || '',
+        year: selectedRequestItem.year || '',
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+
+      setRequestSuccessMessage('Aapki request successfully submit ho chuki hai! Hamari team ise jald hi add karegi.');
+      setSelectedRequestItem(null);
+      setRequestSearchQuery('');
+      setRequestTmdbResults([]);
+      setTimeout(() => {
+        setRequestTab('my');
+      }, 1500);
+    } catch (err) {
+      console.error('Error submitting media request:', err);
+      alert('Failed to submit request. Please try again.');
+    } finally {
+      setRequestSubmitting(false);
+    }
+  };
+
+  const handleReportPlaybackIssue = async (local: any) => {
+    try {
+      const uname = creds?.username || getResellerKey() || 'User';
+      const itemTitle = local.item.name || local.item.title || requestSearchQuery || 'Unknown Title';
+      await addDoc(collection(db, 'media_requests'), {
+        username: uname,
+        tmdbId: local.item.tmdb_id || local.item.stream_id || local.item.series_id || '',
+        title: itemTitle,
+        mediaType: local.mediaType || 'movie',
+        posterUrl: getMediaPosterUrl(local.item),
+        year: local.item.year || '',
+        requestType: 'playback_issue',
+        issueReported: 'Available in collection but failed to play (Broken Stream Link)',
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+
+      setRequestSuccessMessage(`"${itemTitle}" ki play na hone ki complaint submit ho gayi hai! Team ise check karke fix karegi.`);
+    } catch (err) {
+      console.error('Error reporting playback issue:', err);
+      alert('Report submit karne mein error aaya. Kripya punah try karein.');
+    }
+  };
+
+  const handleFulfillRequest = async (requestId: string) => {
+    try {
+      const docRef = doc(db, 'media_requests', requestId);
+      await updateDoc(docRef, {
+        status: 'fulfilled',
+        updatedAt: new Date().toISOString()
+      });
+    } catch (err) {
+      console.error("Error fulfilling request:", err);
+      alert("Failed to update status.");
+    }
+  };
+
+  const handleDeleteRequest = async (requestId: string) => {
+    if (!window.confirm("Are you sure you want to delete this request?")) return;
+    try {
+      await deleteDoc(doc(db, 'media_requests', requestId));
+    } catch (err) {
+      console.error("Error deleting request:", err);
+    }
+  };
+
+  const handleQuickAddRequest = (req: any) => {
+    if (req.mediaType === 'tv') {
+      setActiveAdminTab('free_series');
+      setNewFreeSeries(prev => ({
+        ...prev,
+        tmdb_id: req.tmdbId ? String(req.tmdbId) : '',
+        name: req.title || '',
+        poster_url: req.posterUrl || ''
+      }));
+    } else {
+      setActiveAdminTab('free_movies');
+      setNewFreeMovie(prev => ({
+        ...prev,
+        tmdb_id: req.tmdbId ? String(req.tmdbId) : '',
+        name: req.title || '',
+        poster_url: req.posterUrl || ''
+      }));
+    }
+  };
 
   const isItemFavorite = (item: any) => {
     if (!item) return false;
@@ -3373,14 +3689,9 @@ export default function App() {
       return;
     }
 
-    // Force Live TV channels strictly use .m3u8 format, Movies and Series use standard extensions from sever API
+    // Force Live TV channels strictly use .m3u8 format, Movies and Series use standard extensions from sever API (e.g. mp4, mkv, etc.)
     let ext = isLive ? 'm3u8' : (episodeExt || (item as any).container_extension || 'mp4');
     const type = isLive ? 'live' : (isSeries ? 'series' : 'movie');
-
-    // For Download ONLY: strictly enforce the .mkv extension
-    if (action === 'download' && !isLive) {
-      ext = 'mkv';
-    }
     
     // Correct Xtream URL format: http://host:port/type/user/pass/id.ext
     const url = `${host}/${type}/${creds.username}/${creds.password}/${streamId}.${ext}`;
@@ -3575,10 +3886,29 @@ export default function App() {
                Watch Free
             </button>
 
+            {isLoggedIn && (
+              <button 
+                onClick={() => setShowRequestModal(true)}
+                className="flex items-center gap-2 text-xs md:text-sm font-bold transition-all hover:scale-105 cursor-pointer text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-3.5 py-1.5 rounded-full border border-amber-500/30 shadow-sm shadow-amber-500/10"
+                title="Request Movies or Web Series"
+              >
+                <MessageSquarePlus size={16} className="text-amber-400 animate-pulse" /> Request Movie/Series
+              </button>
+            )}
+
           </nav>
         </div>
 
         <div className="flex items-center gap-2 md:gap-3.5 shrink-0 min-w-0">
+          {isLoggedIn && (
+            <button 
+              onClick={() => setShowRequestModal(true)}
+              className="md:hidden flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-400 hover:bg-amber-500/25 transition-all cursor-pointer shrink-0"
+              title="Request Movie or Series"
+            >
+              <MessageSquarePlus size={16} />
+            </button>
+          )}
           <AnimatePresence initial={false} mode="wait">
             {!isSearchOpen ? (
               <motion.button 
@@ -6464,6 +6794,526 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Full-Page Request Movies & Web Series Hub */}
+      <AnimatePresence>
+        {showRequestModal && (
+          <motion.div 
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 30 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+            className="fixed inset-0 z-[200] bg-[#070b14] text-white flex flex-col overflow-y-auto min-h-screen"
+          >
+            {/* Top Navigation Bar */}
+            <div className="sticky top-0 z-30 bg-[#0b1120]/95 backdrop-blur-2xl border-b border-white/10 px-4 sm:px-8 py-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 sm:gap-4">
+                <button 
+                  onClick={() => setShowRequestModal(false)}
+                  className="p-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 hover:text-white transition-all cursor-pointer flex items-center gap-2 group"
+                >
+                  <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" />
+                  <span className="hidden sm:inline text-xs font-extrabold uppercase tracking-wider">Back to App</span>
+                </button>
+
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-black font-black shadow-lg shadow-amber-500/20 shrink-0">
+                    <MessageSquarePlus size={22} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-base sm:text-xl font-black text-white tracking-wide">
+                        Request Center
+                      </h2>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-gradient-to-r from-amber-500 to-orange-500 text-black shadow-sm">
+                        VIP Hub
+                      </span>
+                    </div>
+                    <p className="text-[11px] sm:text-xs text-white/60">Search, request missing titles or report playback issues</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="hidden md:flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold">
+                  <Sparkles size={14} className="text-amber-400" />
+                  <span>Fast Fulfillment (1-6 Hours)</span>
+                </div>
+
+                <button 
+                  onClick={() => setShowRequestModal(false)}
+                  className="p-2.5 hover:bg-white/10 rounded-2xl text-white/60 hover:text-white transition-all cursor-pointer border border-white/10"
+                  title="Close Request Center"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Main Page Container */}
+            <div className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-8 py-6 space-y-6">
+
+              {/* Hero Banner & Step Guide */}
+              <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-amber-950/40 to-slate-900 border border-amber-500/30 p-6 sm:p-8 shadow-2xl space-y-4">
+                <div className="absolute top-0 right-0 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+                
+                <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                  <div className="space-y-2 max-w-2xl">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-black uppercase tracking-widest border border-amber-500/30">
+                      <HelpCircle size={14} /> How Request System Works
+                    </div>
+                    <h3 className="text-xl sm:text-2xl font-black text-white">
+                      Koi bhi Movie ya Web Series easily request karein!
+                    </h3>
+                    <p className="text-xs sm:text-sm text-white/70 leading-relaxed">
+                      Humare directory mein apni pasand ki Movie ya Web Series search karein. Agar pehle se available hai to abhi dekhein ya issue report karein. Agar missing hai to 1-click mein Request submit karein!
+                    </p>
+                  </div>
+
+                  {/* Step Pills */}
+                  <div className="grid grid-cols-3 gap-2 sm:gap-3 w-full md:w-auto shrink-0">
+                    <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center space-y-1">
+                      <div className="w-7 h-7 mx-auto rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-black text-xs">1</div>
+                      <p className="text-[11px] font-bold text-white">Title Search</p>
+                    </div>
+                    <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center space-y-1">
+                      <div className="w-7 h-7 mx-auto rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-black text-xs">2</div>
+                      <p className="text-[11px] font-bold text-white">Verify Status</p>
+                    </div>
+                    <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center space-y-1">
+                      <div className="w-7 h-7 mx-auto rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-black text-xs">3</div>
+                      <p className="text-[11px] font-bold text-white">1-Click Request</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Main Hub Tabs */}
+              <div className="flex border-b border-white/10 bg-slate-900/80 p-2 rounded-2xl gap-2 backdrop-blur-xl">
+                <button 
+                  onClick={() => setRequestTab('new')}
+                  className={cn(
+                    "flex-1 py-3 sm:py-3.5 rounded-xl text-xs sm:text-sm font-extrabold uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer",
+                    requestTab === 'new' 
+                      ? "bg-gradient-to-r from-amber-500 to-orange-500 text-black shadow-lg shadow-amber-500/20" 
+                      : "text-white/60 hover:text-white hover:bg-white/5"
+                  )}
+                >
+                  <Search size={18} /> Search & Submit New Request
+                </button>
+                <button 
+                  onClick={() => setRequestTab('my')}
+                  className={cn(
+                    "flex-1 py-3 sm:py-3.5 rounded-xl text-xs sm:text-sm font-extrabold uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer relative",
+                    requestTab === 'my' 
+                      ? "bg-gradient-to-r from-amber-500 to-orange-500 text-black shadow-lg shadow-amber-500/20" 
+                      : "text-white/60 hover:text-white hover:bg-white/5"
+                  )}
+                >
+                  <Clock3 size={18} /> My Requests & Status Tracker
+                  {mediaRequests.length > 0 && (
+                    <span className="px-2.5 py-0.5 rounded-full text-xs bg-black text-amber-400 font-black border border-amber-500/30">
+                      {mediaRequests.filter(r => r.username === (creds?.username || getResellerKey() || 'User')).length}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {/* Tab 1: New Search & Submit Request */}
+              {requestTab === 'new' ? (
+                <div className="space-y-6">
+                  {/* Search Section Box */}
+                  <div className="p-6 sm:p-8 bg-slate-900/90 border border-white/10 rounded-3xl space-y-5 shadow-xl">
+                    <div className="space-y-2">
+                      <label className="text-xs font-black text-amber-400 uppercase tracking-widest flex items-center gap-2">
+                        <Search size={16} /> Enter Movie or Web Series Name
+                      </label>
+                      <div className="flex flex-col sm:flex-row gap-3">
+                        <div className="relative flex-1">
+                          <input 
+                            type="text"
+                            placeholder="Type name (e.g. Pushpa 2, Stree 2, Mirzapur 3, Chhaava)..."
+                            value={requestSearchQuery}
+                            onChange={(e) => setRequestSearchQuery(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleSearchAndVerifyRequest(); }}
+                            className="w-full bg-black/60 border border-white/20 focus:border-amber-400 rounded-2xl pl-5 pr-12 py-4 text-sm sm:text-base text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-amber-500/40 transition-all"
+                          />
+                          {requestSearchQuery && (
+                            <button
+                              onClick={handleClearRequestSearch}
+                              className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition-all cursor-pointer"
+                              title="Clear search input"
+                            >
+                              <X size={16} />
+                            </button>
+                          )}
+                        </div>
+
+                        <button
+                          onClick={handleSearchAndVerifyRequest}
+                          disabled={isSearchingRequestTmdb || !requestSearchQuery.trim()}
+                          className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 disabled:opacity-50 text-black font-extrabold px-8 py-4 rounded-2xl text-xs sm:text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-500/20 shrink-0"
+                        >
+                          {isSearchingRequestTmdb ? <Loader2 className="animate-spin" size={18} /> : <Search size={18} />}
+                          Search System
+                        </button>
+
+                        {(requestLocalMatches.length > 0 || requestTmdbResults.length > 0 || requestCategoryNotice || requestSearchQuery.trim().length > 0) && (
+                          <button
+                            onClick={handleClearRequestSearch}
+                            className="px-5 py-4 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/15 text-white/80 hover:text-white text-xs sm:text-sm font-extrabold uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                            title="Close results and reset search"
+                          >
+                            <X size={18} />
+                            <span>Close Results</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Category Filter Pills */}
+                    <div className="flex items-center gap-2 pt-2 border-t border-white/10">
+                      <span className="text-xs text-white/60 font-bold uppercase tracking-wider">Category Filter:</span>
+                      {(['all', 'movie', 'tv'] as const).map(type => (
+                        <button
+                          key={type}
+                          onClick={() => setRequestMediaType(type)}
+                          className={cn(
+                            "px-4 py-1.5 rounded-xl text-xs font-bold capitalize transition-all cursor-pointer",
+                            requestMediaType === type 
+                              ? "bg-amber-500/20 text-amber-300 border border-amber-500/50 shadow-sm" 
+                              : "bg-white/5 text-white/60 hover:text-white"
+                          )}
+                        >
+                          {type === 'all' ? 'All Types' : type === 'movie' ? 'Movie Only' : 'Web Series Only'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Feedback Banners & Messages */}
+                  {requestSuccessMessage && (
+                    <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="p-5 bg-emerald-500/20 border border-emerald-500/50 rounded-2xl flex items-center gap-3 text-emerald-300 text-sm font-semibold shadow-xl">
+                      <CheckCircle2 size={24} className="shrink-0 text-emerald-400" />
+                      <span>{requestSuccessMessage}</span>
+                    </motion.div>
+                  )}
+
+                  {/* Category Mismatch Notice */}
+                  {requestCategoryNotice && (
+                    <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="p-5 bg-amber-500/15 border border-amber-500/40 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-amber-300 text-xs sm:text-sm">
+                      <div className="flex items-center gap-3 font-semibold">
+                        <AlertTriangle size={22} className="shrink-0 text-amber-400" />
+                        <span>{requestCategoryNotice.message}</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const newType = requestCategoryNotice.suggestType;
+                          setRequestMediaType(newType);
+                          setRequestCategoryNotice(null);
+                        }}
+                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-extrabold uppercase text-xs cursor-pointer shrink-0 transition-all shadow-md shadow-amber-500/20"
+                      >
+                        Switch to {requestCategoryNotice.suggestType === 'tv' ? 'Web Series' : 'Movie'}
+                      </button>
+                    </motion.div>
+                  )}
+
+                  {/* Local Availability Box: Matching Items In Collection */}
+                  {requestLocalMatches.length > 0 && (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="p-6 sm:p-8 bg-gradient-to-r from-emerald-950/90 via-slate-900 to-teal-950/90 border border-emerald-500/50 rounded-3xl space-y-5 shadow-2xl">
+                      <div className="flex items-center justify-between gap-4 flex-wrap">
+                        <div className="flex items-center gap-3 text-emerald-400 font-black text-base sm:text-lg">
+                          <CheckCircle2 size={24} />
+                          <span>Yeh Movie/Web Series humare collection mein pehle se available hai ({requestLocalMatches.length} Variants)!</span>
+                        </div>
+                        <button
+                          onClick={handleClearRequestSearch}
+                          className="px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+                        >
+                          <X size={14} /> Close
+                        </button>
+                      </div>
+
+                      <p className="text-xs sm:text-sm text-emerald-200/80 leading-relaxed">
+                        Aapki search se matching niche diye gaye variants humare active collection mein maujood hain. Aap inhe directly play kar sakte hain. Agar play karne mein koi problem ho, to "Play Nahi Ho Raha?" par click karke report karein:
+                      </p>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {requestLocalMatches.map((local, idx) => (
+                          <div key={idx} className="p-4 bg-white/5 border border-emerald-500/30 rounded-2xl flex flex-col gap-3 hover:bg-white/10 transition-all">
+                            <div className="flex items-center gap-4 min-w-0">
+                              <MediaPosterImage 
+                                src={getMediaPosterUrl(local.item)} 
+                                alt={local.item.name || local.item.title} 
+                                type={local.mediaType}
+                                className="w-14 h-20 object-cover rounded-xl bg-slate-800 shrink-0 border border-white/10 shadow-md"
+                              />
+                              <div className="min-w-0 space-y-1.5 flex-1">
+                                <h5 className="text-sm font-extrabold text-white truncate">{local.item.name || local.item.title}</h5>
+                                <div className="flex items-center gap-2">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                    {local.mediaType === 'tv' ? 'Web Series' : 'Movie'}
+                                  </span>
+                                  <span className="text-[11px] text-white/50">Active Collection</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-2 pt-3 border-t border-white/10">
+                              <button 
+                                onClick={() => handleReportPlaybackIssue(local)}
+                                className="px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                                title="Play nahi ho raha? Issue Report Karein"
+                              >
+                                <AlertTriangle size={14} className="text-rose-400" /> Play Nahi Ho Raha?
+                              </button>
+
+                              <button 
+                                onClick={() => {
+                                  setShowRequestModal(false);
+                                  if (local.type === 'free_movie') {
+                                    selectMedia(local.item, 'free_movie');
+                                  } else if (local.type === 'free_series') {
+                                    selectMedia(local.item, 'free_series');
+                                  } else {
+                                    selectMedia(local.item, 'selectedItem');
+                                  }
+                                }}
+                                className="bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold px-4 py-2 rounded-xl text-xs uppercase flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/20 transition-all shrink-0"
+                              >
+                                <Play size={16} fill="black" /> Abhi Dekhein
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Request Anyway Option */}
+                      <div className="pt-4 border-t border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-black/40 p-4 rounded-2xl border border-white/10">
+                        <div className="space-y-1 text-left">
+                          <p className="text-sm font-bold text-amber-300 flex items-center gap-2">
+                            <MessageSquarePlus size={16} /> Phir bhi Nayi Request Submit karna chahte hain?
+                          </p>
+                          <p className="text-xs text-white/60">
+                            Agar aapko koi alag print (4K, Uncut, Dual Audio) ya koi specific version request karna hai, to Online Directory search karein:
+                          </p>
+                        </div>
+                        <button
+                          onClick={async () => {
+                            setIsSearchingRequestTmdb(true);
+                            setRequestLocalMatches([]);
+                            try {
+                              const results = await searchTmdbItems(requestSearchQuery.trim(), requestMediaType);
+                              setRequestTmdbResults(results);
+                              if (results.length > 0) setSelectedRequestItem(results[0]);
+                            } catch (e) {
+                              console.error(e);
+                            } finally {
+                              setIsSearchingRequestTmdb(false);
+                            }
+                          }}
+                          className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black text-xs font-extrabold uppercase shrink-0 transition-all shadow-md shadow-amber-500/20 cursor-pointer flex items-center gap-2"
+                        >
+                          <Send size={14} /> Request Anyway
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Online Directory Search Results Grid */}
+                  {requestLocalMatches.length === 0 && requestTmdbResults.length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between px-1">
+                        <p className="text-sm font-bold text-amber-400 uppercase tracking-wider flex items-center gap-2">
+                          <Sparkles size={16} /> Online Directory Results ({requestTmdbResults.length})
+                        </p>
+                        <button
+                          onClick={handleClearRequestSearch}
+                          className="text-xs text-white/60 hover:text-white flex items-center gap-1 cursor-pointer"
+                        >
+                          <X size={14} /> Clear Search
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {requestTmdbResults.map(item => (
+                          <div 
+                            key={item.id}
+                            onClick={() => setSelectedRequestItem(item)}
+                            className={cn(
+                              "p-4 rounded-2xl border flex items-center gap-4 cursor-pointer transition-all relative overflow-hidden group",
+                              selectedRequestItem?.id === item.id 
+                                ? "bg-amber-500/20 border-amber-400 ring-2 ring-amber-500/50 shadow-xl" 
+                                : "bg-slate-900/90 border-white/10 hover:bg-white/10"
+                            )}
+                          >
+                            <MediaPosterImage 
+                              src={item.poster_url} 
+                              alt={item.title} 
+                              type={item.media_type}
+                              className="w-16 h-24 object-cover rounded-xl shrink-0 bg-slate-800 border border-white/10 shadow-md group-hover:scale-105 transition-transform"
+                            />
+                            <div className="min-w-0 flex-1 space-y-2">
+                              <h4 className="text-sm font-extrabold text-white line-clamp-2">{item.title}</h4>
+                              <div className="flex items-center gap-2 text-xs text-white/60">
+                                <span className="uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-extrabold text-[10px] border border-amber-500/30">
+                                  {item.media_type === 'tv' ? 'Web Series' : 'Movie'}
+                                </span>
+                                {item.year && <span>{item.year}</span>}
+                              </div>
+                              {item.overview && (
+                                <p className="text-[11px] text-white/40 line-clamp-2">{item.overview}</p>
+                              )}
+                            </div>
+                            {selectedRequestItem?.id === item.id && (
+                              <div className="w-7 h-7 rounded-full bg-amber-500 text-black flex items-center justify-center shrink-0 font-black text-xs shadow-md">
+                                ✓
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Selected Item Request Button */}
+                      {selectedRequestItem && (
+                        <div className="p-6 bg-slate-900 border border-amber-500/40 rounded-3xl space-y-4 shadow-2xl">
+                          <div className="flex items-center gap-4">
+                            <MediaPosterImage 
+                              src={selectedRequestItem.poster_url} 
+                              alt={selectedRequestItem.title} 
+                              type={selectedRequestItem.media_type}
+                              className="w-14 h-20 object-cover rounded-xl shrink-0 bg-slate-800"
+                            />
+                            <div className="space-y-1 min-w-0 flex-1">
+                              <span className="text-[10px] uppercase font-extrabold text-amber-400 tracking-wider">Ready to submit</span>
+                              <h4 className="text-lg font-black text-white truncate">{selectedRequestItem.title}</h4>
+                              <p className="text-xs text-white/60">Type: {selectedRequestItem.media_type === 'tv' ? 'Web Series' : 'Movie'} • Year: {selectedRequestItem.year || 'N/A'}</p>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={handleSubmitRequest}
+                            disabled={requestSubmitting}
+                            className="w-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:to-orange-400 text-black font-black py-4 rounded-2xl text-sm sm:text-base uppercase tracking-wider transition-all shadow-xl shadow-amber-500/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                          >
+                            {requestSubmitting ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
+                            Submit Request for "{selectedRequestItem.title}"
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!isSearchingRequestTmdb && requestLocalMatches.length === 0 && requestTmdbResults.length === 0 && requestSearchQuery.trim() && (
+                    <div className="text-center py-12 bg-slate-900/60 rounded-3xl border border-white/10 space-y-3">
+                      <AlertCircle size={40} className="mx-auto text-amber-400" />
+                      <p className="text-base font-bold text-white/80">
+                        {requestMediaType === 'movie' ? `Is naam ("${requestSearchQuery}") se koi Movie exist nahi karti.` : requestMediaType === 'tv' ? `Is naam ("${requestSearchQuery}") se koi Web Series exist nahi karti.` : `No titles found for "${requestSearchQuery}"`}
+                      </p>
+                      <p className="text-xs text-white/50">Full name ya sahi spelling ke sath dobara search karein.</p>
+                      <button
+                        onClick={handleClearRequestSearch}
+                        className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white uppercase cursor-pointer transition-all"
+                      >
+                        Clear Search
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Tab 2: My Submitted Requests & Live Tracker */
+                <div className="space-y-6">
+                  <div className="p-6 bg-slate-900/80 border border-white/10 rounded-3xl space-y-2">
+                    <h3 className="text-lg font-black text-white flex items-center gap-2">
+                      <Clock3 className="text-amber-400" size={20} /> My Submitted Requests
+                    </h3>
+                    <p className="text-xs text-white/60">
+                      Yahan aapki dwara submit ki gayi sabhi requests aur unka live status dekha ja sakta hai:
+                    </p>
+                  </div>
+
+                  <div className="space-y-4">
+                    {(() => {
+                      const myName = creds?.username || getResellerKey() || 'User';
+                      const myRequests = mediaRequests.filter(r => r.username === myName || myName === 'Sajidjanali1@gmail.com' || myName === 'sajid122');
+                      if (myRequests.length === 0) {
+                        return (
+                          <div className="text-center py-16 bg-slate-900/50 rounded-3xl border border-white/10 space-y-4">
+                            <Inbox size={48} className="mx-auto text-white/30" />
+                            <div className="space-y-1">
+                              <p className="text-base font-bold text-white/70">Aapne abhi tak koi request submit nahi ki hai.</p>
+                              <p className="text-xs text-white/40">Nayi request submit karne ke liye "Search & Submit New Request" tab par jayein.</p>
+                            </div>
+                            <button
+                              onClick={() => setRequestTab('new')}
+                              className="px-6 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs uppercase cursor-pointer transition-all shadow-md shadow-amber-500/20"
+                            >
+                              Submit Your First Request
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      return myRequests.map((req) => (
+                        <div key={req.id} className="p-5 bg-slate-900/90 border border-white/10 rounded-3xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:border-white/20 transition-all shadow-lg">
+                          <div className="flex items-center gap-4 min-w-0">
+                            <MediaPosterImage 
+                              src={req.posterUrl} 
+                              alt={req.title} 
+                              type={req.mediaType}
+                              className="w-14 h-20 object-cover rounded-2xl bg-slate-800 shrink-0 border border-white/10 shadow-md"
+                            />
+                            <div className="min-w-0 space-y-1.5">
+                              {req.requestType === 'playback_issue' && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-500/20 border border-rose-500/40 text-rose-300 text-[10px] font-black uppercase">
+                                  <AlertTriangle size={12} className="text-rose-400" /> Complaint: Playback Issue
+                                </span>
+                              )}
+                              <h4 className="text-base font-black text-white truncate">{req.title}</h4>
+                              <div className="flex items-center gap-2.5 text-xs text-white/50">
+                                <span className="uppercase font-extrabold text-amber-400">{req.mediaType === 'tv' ? 'Web Series' : 'Movie'}</span>
+                                {req.year && <span>• {req.year}</span>}
+                                {req.createdAt && <span>• {new Date(req.createdAt).toLocaleDateString()}</span>}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="shrink-0 text-right w-full sm:w-auto pt-3 sm:pt-0 border-t sm:border-t-0 border-white/10 flex items-center justify-between sm:justify-end gap-3">
+                            {req.status === 'fulfilled' ? (
+                              <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 text-xs font-black shadow-sm">
+                                <CheckCircle2 size={16} /> Added / Implement Ho Chuka Hai!
+                              </span>
+                            ) : req.status === 'rejected' ? (
+                              <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-red-500/20 border border-red-500/50 text-red-300 text-xs font-bold">
+                                Not Available
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-amber-500/20 border border-amber-500/50 text-amber-300 text-xs font-bold animate-pulse">
+                                <Clock3 size={16} /> Pending Review
+                              </span>
+                            )}
+
+                            <button
+                              onClick={() => handleDeleteRequest(req.id)}
+                              className="p-2.5 rounded-2xl bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/30 text-rose-400 hover:text-rose-300 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+                              title="Delete this request"
+                            >
+                              <Trash2 size={16} />
+                              <span className="hidden sm:inline">Delete</span>
+                            </button>
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                </div>
+              )}
+
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Profile Modal */}
       <AnimatePresence>
         {showProfileModal && (
@@ -8518,7 +9368,7 @@ export default function App() {
 
               <div className="p-6 bg-black/40 border-b border-white/5">
                 <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 overflow-x-auto no-scrollbar">
-                  {(['app', 'free_movies', 'free_series', 'live_events', 'analytics', 'resellers'] as const).map((tab) => (
+                  {(['app', 'free_movies', 'free_series', 'live_events', 'analytics', 'resellers', 'requests'] as const).map((tab) => (
                     <button 
                       key={tab}
                       onClick={() => setActiveAdminTab(tab)}
@@ -8528,7 +9378,7 @@ export default function App() {
                           : 'text-white/40 hover:text-white hover:bg-white/5'
                       }`}
                     >
-                      {tab === 'app' ? 'General' : tab === 'analytics' ? 'STATS & ANALYTICS' : tab === 'resellers' ? 'RESELLERS' : tab.replace('free_', '').replace('_', ' ').toUpperCase()}
+                      {tab === 'app' ? 'General' : tab === 'analytics' ? 'STATS & ANALYTICS' : tab === 'resellers' ? 'RESELLERS' : tab === 'requests' ? `REQUESTS (${mediaRequests.filter(r => r.status === 'pending').length})` : tab.replace('free_', '').replace('_', ' ').toUpperCase()}
                     </button>
                   ))}
                 </div>
@@ -9872,6 +10722,108 @@ export default function App() {
                           </div>
                         )}
                       </div>
+                    </div>
+                  )}
+
+                  {activeAdminTab === 'requests' && (
+                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-sm font-bold text-amber-400 uppercase tracking-widest flex items-center gap-2">
+                            <MessageSquarePlus size={18} /> User Requests For Movies & Web Series
+                          </h4>
+                          <p className="text-xs text-white/50">Manage user submitted requests and mark them as added when fulfilled.</p>
+                        </div>
+                        <div className="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold">
+                          Total Requests: {mediaRequests.length}
+                        </div>
+                      </div>
+
+                      {mediaRequests.length === 0 ? (
+                        <div className="text-center py-12 bg-white/5 rounded-2xl border border-white/5 space-y-2">
+                          <Inbox size={40} className="mx-auto text-white/20" />
+                          <p className="text-sm text-white/50">Abhi tak kisi user ne request submit nahi ki hai.</p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {mediaRequests.map((req) => (
+                            <div key={req.id} className="p-4 bg-white/5 border border-white/10 rounded-2xl space-y-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <MediaPosterImage 
+                                    src={req.posterUrl} 
+                                    alt={req.title} 
+                                    type={req.mediaType}
+                                    className="w-14 h-20 object-cover rounded-xl bg-slate-800 shrink-0 border border-white/10"
+                                  />
+                                  <div className="min-w-0 space-y-1">
+                                    {req.requestType === 'playback_issue' && (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-rose-300 text-[10px] font-black uppercase">
+                                        <AlertTriangle size={12} className="text-rose-400" /> Playback Issue (Link Broken)
+                                      </span>
+                                    )}
+                                    <h5 className="text-sm font-extrabold text-white truncate">{req.title}</h5>
+                                    <div className="flex items-center gap-2 text-[11px] text-white/60">
+                                      <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-extrabold uppercase text-[10px]">
+                                        {req.mediaType === 'tv' ? 'Web Series' : 'Movie'}
+                                      </span>
+                                      {req.year && <span>{req.year}</span>}
+                                      {req.tmdbId && <span className="font-mono text-white/40">ID: {req.tmdbId}</span>}
+                                    </div>
+                                    <div className="text-[11px] text-amber-300/90 font-medium truncate">
+                                      👤 User: <span className="text-white font-bold">{req.username || 'User'}</span>
+                                    </div>
+                                    <div className="text-[10px] text-white/40">
+                                      📅 Date: {req.createdAt ? new Date(req.createdAt).toLocaleString() : 'N/A'}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <button
+                                  onClick={() => handleDeleteRequest(req.id)}
+                                  className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-all cursor-pointer shrink-0"
+                                  title="Delete Request"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+
+                              <div className="pt-3 border-t border-white/5 flex items-center justify-between gap-2 flex-wrap">
+                                <div>
+                                  {req.status === 'fulfilled' ? (
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 text-xs font-bold">
+                                      <CheckCircle2 size={14} /> Added & Ready
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/50 text-amber-300 text-xs font-bold animate-pulse">
+                                      <Clock3 size={14} /> Pending Action
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  {req.status !== 'fulfilled' && (
+                                    <button
+                                      onClick={() => handleFulfillRequest(req.id)}
+                                      className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-extrabold flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
+                                    >
+                                      <Check size={14} /> Mark as Added
+                                    </button>
+                                  )}
+
+                                  <button
+                                    onClick={() => handleQuickAddRequest(req)}
+                                    className="px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                                    title="Quick auto-fill into Free Content publishing form"
+                                  >
+                                    <Plus size={14} /> Auto-Fill to Publish
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 

@@ -200,9 +200,30 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["subdomain", "brand_name"]
+    },
+    "media_requests": {
+      "title": "Media Requests",
+      "description": "Movie and web series requests submitted by users",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "tmdbId": { "type": "number" },
+        "title": { "type": "string" },
+        "mediaType": { "type": "string", "enum": ["movie", "tv"] },
+        "posterUrl": { "type": "string" },
+        "year": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "fulfilled", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["username", "title", "mediaType", "status"]
     }
   },
   "firestore": {
+    "/media_requests/{requestId}": {
+      "schema": "media_requests",
+      "description": "User requests for movies and series"
+    },
     "/resellers/{resellerId}": {
       "schema": "resellers",
       "description": "Collection of resellers configurations"

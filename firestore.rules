@@ -72,6 +72,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Media Requests Collection
+    match /media_requests/{requestId} {
+      allow read, write: if true;
+    }
+
     // Default Deny
     match /{document=**} {
       allow read, write: if false;
