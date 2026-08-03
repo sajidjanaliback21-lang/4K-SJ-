@@ -190,7 +190,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const hasCompletedInitialLoad = useRef<boolean>(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingText, setLoadingText] = useState('LOADING VIDEO...');
-  const [isOPlayerConnecting, setIsOPlayerConnecting] = useState(false);
   const [showEqPanel, setShowEqPanel] = useState(false);
   const [showEpisodesPanel, setShowEpisodesPanel] = useState(false);
   const [showSpeedPanel, setShowSpeedPanel] = useState(false);
@@ -534,20 +533,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return !!(options.isLive || isHls || isTs || isMpd || originalUrl?.includes('/live/'));
   }, [originalUrl, options.isLive, source]);
 
-  const showOPlayerFallback = React.useMemo(() => {
-    if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const isLiveTV = !!(options.isLive || originalUrl.toLowerCase().includes('/live/'));
-    return isIOS && !isLiveTV;
-  }, [options.isLive, originalUrl]);
-
-  useEffect(() => {
-    if (showOPlayerFallback) {
-      setIsLoading(false);
-    }
-  }, [showOPlayerFallback]);
-
   const isEmbeddable = (url: string) => {
     if (isEmbed) return true;
     const lowerUrl = url.toLowerCase();
@@ -656,7 +641,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   });
 
   useEffect(() => {
-    if (!artRef.current || !sourceUrl || isEmbeddable(originalUrl) || options.is_webpage || showOPlayerFallback) return;
+    if (!artRef.current || !sourceUrl || isEmbeddable(originalUrl) || options.is_webpage) return;
 
     let dropTime = 0;
 
@@ -2358,7 +2343,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
       <AnimatePresence>
-        {isLoading && !isEmbeddable(originalUrl) && !options.is_webpage && !showOPlayerFallback && (
+        {isLoading && !isEmbeddable(originalUrl) && !options.is_webpage && (
           <motion.div 
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -2482,78 +2467,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
               </button>
             </div>
           )}
-        </div>
-      ) : showOPlayerFallback ? (
-        <div className="absolute inset-0 w-full h-full bg-[#080808] flex flex-col items-center justify-center p-4 text-center select-none">
-          {/* Ambient Glow */}
-          <div className="absolute inset-0 pointer-events-none overflow-hidden">
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full max-w-[400px] max-h-[400px] bg-[#00D1FF]/10 blur-[100px] rounded-full" />
-          </div>
-
-          <div className="relative z-10 flex flex-col items-center max-w-sm w-full gap-6 px-6 py-8 rounded-3xl bg-[#0d0d0d]/90 border border-white/10 backdrop-blur-xl shadow-[0_15px_40px_rgba(0,0,0,0.8)]">
-            {/* Logo / Icon */}
-            <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-[#00D1FF]/20 to-indigo-500/20 flex items-center justify-center border border-[#00D1FF]/30 shadow-[0_0_20px_rgba(0,209,255,0.2)]">
-              <ExternalLink className="w-8 h-8 text-[#00D1FF] drop-shadow-[0_0_8px_rgba(0,209,255,0.5)]" />
-            </div>
-
-            {/* Header */}
-            <div className="flex flex-col gap-2">
-              <h2 className="text-lg md:text-xl font-bold text-white tracking-widest uppercase italic">
-                Play in OPlayer Lite
-              </h2>
-              <p className="text-xs text-white/60 max-w-[280px] mx-auto leading-relaxed">
-                Enjoy stable high-speed VOD playback, rich subtitles, and full audio controls via OPlayer on iOS.
-              </p>
-            </div>
-
-            {/* Actions / Loading state */}
-            <div className="flex flex-col w-full gap-3.5 mt-2 min-h-[100px] justify-center items-center">
-              {isOPlayerConnecting ? (
-                <div className="flex flex-col items-center gap-4">
-                  {/* Custom CSS Loading Spinner */}
-                  <div className="relative flex items-center justify-center w-12 h-12">
-                    <div className="absolute inset-0 rounded-full border-4 border-white/10" />
-                    <div className="absolute inset-0 rounded-full border-4 border-t-[#00D1FF] border-r-transparent border-b-transparent border-l-transparent animate-spin" />
-                  </div>
-                  <span className="text-xs font-black text-[#00D1FF] uppercase tracking-widest italic animate-pulse">
-                    Connecting to Secure 4K Server...
-                  </span>
-                </div>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsOPlayerConnecting(true);
-                      setTimeout(() => {
-                        const deepLink = 'oplayerlite://' + originalUrl;
-                        console.log('[OPlayer Fallback] Launching OPlayer Deep Link:', deepLink);
-                        window.location.href = deepLink;
-                        // Auto reset connecting state after 5 seconds in case they return back to screen
-                        setTimeout(() => {
-                          setIsOPlayerConnecting(false);
-                        }, 5000);
-                      }, 2500);
-                    }}
-                    className="w-full py-3 px-4 bg-[#00D1FF] hover:bg-cyan-400 text-black font-extrabold text-xs uppercase tracking-widest rounded-xl transition-all duration-300 transform active:scale-[0.98] shadow-lg shadow-[#00D1FF]/20 border border-[#00D1FF]/20 flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Tv className="w-4 h-4 fill-black" />
-                    Play in OPlayer (Recommended)
-                  </button>
-
-                  <a
-                    href="https://apps.apple.com/app/oplayer-lite-media-player/id385907472"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-white/40 hover:text-[#00D1FF] font-medium transition-colors py-1 flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    Don't have OPlayer? Install it first
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                </>
-              )}
-            </div>
-          </div>
         </div>
       ) : (
         <div 
