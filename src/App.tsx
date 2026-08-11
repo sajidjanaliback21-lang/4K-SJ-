@@ -54,8 +54,13 @@ import {
   ListPlus,
   Inbox,
   Eye,
+  EyeOff,
+  Phone,
+  ShieldCheck,
   RefreshCw,
-  HelpCircle
+  HelpCircle,
+  Upload,
+  FileText
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -637,6 +642,7 @@ export default function App() {
     tagline: '',
     whatsapp_number: '',
     whatsapp_group_link: '',
+    whatsapp_channel_link: '',
     logo_url: '',
     server_url: '',
     download_url: '',
@@ -651,6 +657,7 @@ export default function App() {
     tagline: '',
     whatsapp_number: '',
     whatsapp_group_link: '',
+    whatsapp_channel_link: '',
     server_url: '',
     download_url: '',
     app_link: '',
@@ -689,6 +696,8 @@ export default function App() {
     return localStorage.getItem('iptv_logged_in') === 'true';
   });
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [userInfo, setUserInfo] = useState<any>(null);
   const [serverInfo, setServerInfo] = useState<any>(() => {
@@ -941,6 +950,7 @@ export default function App() {
   const [playingFreeEpisode, setPlayingFreeEpisode] = useState<any>(null);
   const [freeSeriesActiveUrl, setFreeSeriesActiveUrl] = useState<string>('');
   const [isM3uLoading, setIsM3uLoading] = useState(false);
+  const [m3uUploadSuccessMsg, setM3uUploadSuccessMsg] = useState<string | null>(null);
   const [showFreeDownloadModal, setShowFreeDownloadModal] = useState(false);
   const [freeDownloadModalEpisodes, setFreeDownloadModalEpisodes] = useState<any[]>([]);
   const [isFreeDownloadLoading, setIsFreeDownloadLoading] = useState(false);
@@ -958,7 +968,9 @@ export default function App() {
     live_events_title: 'LIVE EVENTS',
     default_server_url: '',
     default_download_url: '',
-    default_app_download_url: ''
+    default_app_download_url: '',
+    whatsapp_group_link: 'https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE',
+    whatsapp_channel_link: 'https://whatsapp.com/channel/0029Vb31L8R1CYoUoJAC8A28'
   });
   const [newAppSettings, setNewAppSettings] = useState(appSettings);
   const [isAntiPopupActive, setIsAntiPopupActive] = useState(() => {
@@ -1011,8 +1023,12 @@ export default function App() {
 
   // If an active reseller is matched, we keep it empty if the reseller hasn't specified their whatsapp_group_link or set it to 'N/A'.
   const currentWhatsappGroupLink = activeReseller
-    ? (activeReseller.whatsapp_group_link && activeReseller.whatsapp_group_link !== 'N/A' ? activeReseller.whatsapp_group_link : '')
-    : "https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE";
+    ? (activeReseller.whatsapp_group_link && activeReseller.whatsapp_group_link.trim() !== '' && activeReseller.whatsapp_group_link !== 'N/A' ? activeReseller.whatsapp_group_link : '')
+    : (appSettings.whatsapp_group_link && appSettings.whatsapp_group_link.trim() !== '' && appSettings.whatsapp_group_link !== 'N/A' ? appSettings.whatsapp_group_link : "https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE");
+
+  const currentWhatsappChannelLink = activeReseller
+    ? (activeReseller.whatsapp_channel_link && activeReseller.whatsapp_channel_link.trim() !== '' && activeReseller.whatsapp_channel_link !== 'N/A' ? activeReseller.whatsapp_channel_link : '')
+    : (appSettings.whatsapp_channel_link && appSettings.whatsapp_channel_link.trim() !== '' && appSettings.whatsapp_channel_link !== 'N/A' ? appSettings.whatsapp_channel_link : "https://whatsapp.com/channel/0029Vb31L8R1CYoUoJAC8A28");
 
   const getResellerAdjustedUrl = (url: string, action: string = 'play') => {
     if (!url) return '';
@@ -1479,7 +1495,9 @@ export default function App() {
           live_events_title: data.live_events_title || 'LIVE EVENTS',
           default_server_url: data.default_server_url || '',
           default_download_url: data.default_download_url || '',
-          default_app_download_url: data.default_app_download_url || ''
+          default_app_download_url: data.default_app_download_url || '',
+          whatsapp_group_link: data.whatsapp_group_link !== undefined ? data.whatsapp_group_link : 'https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE',
+          whatsapp_channel_link: data.whatsapp_channel_link !== undefined ? data.whatsapp_channel_link : 'https://whatsapp.com/channel/0029Vb31L8R1CYoUoJAC8A28'
         };
         setAppSettings(updated);
         setNewAppSettings(updated);
@@ -2812,6 +2830,7 @@ export default function App() {
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setIsLoggingIn(true);
     setLoginError('');
     const formData = new FormData(e.currentTarget);
     const username = ((formData.get('username') as string) || '').trim();
@@ -2896,6 +2915,8 @@ export default function App() {
       } else {
         setLoginError('Failed to connect to server. Please check your internet and credentials.');
       }
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -3008,6 +3029,7 @@ export default function App() {
         tagline: '',
         whatsapp_number: '',
         whatsapp_group_link: '',
+        whatsapp_channel_link: '',
         logo_url: '',
         server_url: '',
         download_url: '',
@@ -3038,6 +3060,7 @@ export default function App() {
         tagline: tempResellerSettings.tagline,
         whatsapp_number: tempResellerSettings.whatsapp_number,
         whatsapp_group_link: tempResellerSettings.whatsapp_group_link,
+        whatsapp_channel_link: tempResellerSettings.whatsapp_channel_link,
         server_url: tempResellerSettings.server_url,
         download_url: tempResellerSettings.download_url,
         app_link: tempResellerSettings.app_link,
@@ -3049,6 +3072,7 @@ export default function App() {
         tagline: tempResellerSettings.tagline,
         whatsapp_number: tempResellerSettings.whatsapp_number,
         whatsapp_group_link: tempResellerSettings.whatsapp_group_link,
+        whatsapp_channel_link: tempResellerSettings.whatsapp_channel_link,
         server_url: tempResellerSettings.server_url,
         download_url: tempResellerSettings.download_url,
         app_link: tempResellerSettings.app_link,
@@ -3242,6 +3266,96 @@ export default function App() {
     });
     
     return sortedMap;
+  };
+
+  const handleM3uFileUpload = (e: React.ChangeEvent<HTMLInputElement>, isSeries: boolean) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (!text || text.trim() === '') {
+        alert("Selected M3U file is empty.");
+        return;
+      }
+
+      // Format filename into clean title fallback
+      const cleanFileName = file.name
+        .replace(/\.[^/.]+$/, "")
+        .replace(/[-_]/g, " ")
+        .replace(/\b\w/g, l => l.toUpperCase());
+
+      if (isSeries) {
+        const seriesName = newFreeSeries.name || cleanFileName;
+        const parsedMap = parseM3uPlaylist(text, seriesName);
+        
+        const allEpisodes: any[] = [];
+        Object.keys(parsedMap).forEach((seasonNum) => {
+          const seasonEpisodes = parsedMap[seasonNum];
+          seasonEpisodes.forEach((ep: any) => {
+            allEpisodes.push({
+              id: ep.id || `${seasonNum}-${ep.episode_num}-${Math.random().toString(36).substring(2, 7)}`,
+              season: String(seasonNum),
+              episode_num: String(ep.episode_num),
+              title: ep.title || `Episode ${ep.episode_num}`,
+              play_url: ep.play_url,
+              container_extension: ep.container_extension || 'mp4'
+            });
+          });
+        });
+
+        if (allEpisodes.length === 0) {
+          alert("Could not find any valid episode streams in this M3U file. Please ensure it contains #EXTINF tags and valid http/https stream URLs.");
+          return;
+        }
+
+        setNewFreeSeries(prev => ({
+          ...prev,
+          name: prev.name && prev.name.trim() !== '' ? prev.name : cleanFileName,
+          episodes: allEpisodes,
+          playlist_url: '' // Clear remote M3U URL so local uploaded episodes take priority!
+        }));
+
+        const totalSeasons = Object.keys(parsedMap).length;
+        setM3uUploadSuccessMsg(`🎉 Successfully imported "${file.name}"! Loaded ${allEpisodes.length} episodes across ${totalSeasons} season(s).`);
+      } else {
+        // Free Movies M3U file upload
+        const lines = text.split('\n');
+        let movieTitle = cleanFileName;
+        let movieUrl = '';
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (line.toUpperCase().startsWith('#EXTINF:')) {
+            const commaIdx = line.indexOf(',');
+            if (commaIdx !== -1) {
+              const extractedTitle = line.substring(commaIdx + 1).trim();
+              if (extractedTitle) movieTitle = extractedTitle;
+            }
+          } else if (line.startsWith('http')) {
+            movieUrl = line;
+            break;
+          }
+        }
+
+        if (!movieUrl) {
+          alert("No valid streaming URL (http/https) found in the uploaded M3U file.");
+          return;
+        }
+
+        setNewFreeMovie(prev => ({
+          ...prev,
+          name: prev.name || movieTitle,
+          play_url: movieUrl
+        }));
+
+        setM3uUploadSuccessMsg(`🎉 Successfully loaded movie stream from "${file.name}"!`);
+      }
+    };
+
+    reader.readAsText(file);
+    e.target.value = '';
   };
 
   const handleSelectFreeMovieWithPass = (movie: any) => {
@@ -3580,6 +3694,7 @@ export default function App() {
         available_for_resellers: true,
         episodes: [] 
       });
+      setM3uUploadSuccessMsg(null);
     } catch (error) {
       console.error("Error saving free series:", error);
     }
@@ -6514,6 +6629,7 @@ export default function App() {
                   onPlayNext={handlePlayNextEpisode}
                   episodesMap={seriesInfo?.episodes}
                   onSelectEpisode={handleSelectEpisode}
+                  isFree={false}
                 />
               </div>
             </motion.div>
@@ -6691,107 +6807,264 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Login Modal */}
+      {/* Standalone Full-Page Premium Login Screen (Netflix / Prime Video Style) */}
       <AnimatePresence>
-        {showLoginModal && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+        {showLoginModal && (() => {
+          const cleanPhone = (currentWhatsappNumber || '').replace(/[^0-9]/g, '');
+          const displayWhatsappNumber = cleanPhone
+            ? (cleanPhone.startsWith('92') ? `+92 ${cleanPhone.slice(2, 5)} ${cleanPhone.slice(5)}` : `+${cleanPhone}`)
+            : (currentWhatsappNumber || '');
+          const whatsappLoginUrl = cleanPhone 
+            ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(`Hello! I need a login account for ${currentBrandName}`)}`
+            : `https://wa.me/923161611304?text=${encodeURIComponent(`Hello! I need a login account for ${currentBrandName}`)}`;
+
+          return (
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowLoginModal(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-xl"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8, y: 30 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.8, y: 30 }}
-              transition={{ 
-                type: "spring",
-                damping: 20,
-                stiffness: 250
-              }}
-              className="relative w-full max-md glass rounded-3xl p-8 shadow-2xl border border-white/20"
+              className="fixed inset-0 z-[200] min-h-screen w-full bg-[#060913] text-white flex flex-col justify-between overflow-y-auto selection:bg-red-500 selection:text-white"
             >
-              <button 
-                onClick={() => setShowLoginModal(false)}
-                className="absolute top-4 right-4 p-2 hover:bg-white/10 rounded-full transition-colors"
-              >
-                <X size={20} />
-              </button>
-
-              <div className="text-center mb-8">
-                <h2 className="text-2xl font-display font-bold mb-2 text-gradient">{currentBrandName} Login</h2>
-                <p className="text-white/40 text-sm">Login is required to play or download premium content. You can browse all titles for free.</p>
+              {/* Background ambient poster wallpaper & glow effects */}
+              <div className="fixed inset-0 pointer-events-none z-0">
+                <div 
+                  className="absolute inset-0 opacity-25 bg-cover bg-center mix-blend-overlay"
+                  style={{
+                    backgroundImage: `url('https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?q=80&w=1920&auto=format&fit=crop')`
+                  }}
+                />
+                <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-[#060913]/85 to-[#060913]" />
+                <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-red-600/15 rounded-full blur-[160px]" />
+                <div className="absolute bottom-0 right-1/4 w-[600px] h-[600px] bg-cyan-600/15 rounded-full blur-[160px]" />
               </div>
 
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-white/40 ml-1">Username</label>
-                  <input 
-                    name="username"
-                    type="text"
-                    required
-                    placeholder="Your username"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-white/40 ml-1">Password</label>
-                  <input 
-                    name="password"
-                    type="password"
-                    required
-                    placeholder="Your password"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-all"
-                  />
-                </div>
-
-                {loginError && (
-                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex flex-col gap-2 text-red-400 text-xs">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle size={14} /> 
-                      <span>{loginError.includes('Click here') ? loginError.split('Click here')[0] : loginError}</span>
-                    </div>
-                    {loginError.includes('Click here') && currentWhatsappNumber && (
-                      <a 
-                        href={`https://wa.me/${currentWhatsappNumber}`} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-cyan-400 font-bold underline hover:text-cyan-300 ml-6"
-                      >
-                        Click here to register new account
-                      </a>
-                    )}
+              {/* Full Page Header Bar */}
+              <header className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-8 py-5 flex items-center justify-between border-b border-white/10 bg-black/40 backdrop-blur-md">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-600 to-amber-500 flex items-center justify-center shadow-[0_0_20px_rgba(225,29,72,0.5)]">
+                    <Tv className="text-white fill-white/20" size={22} />
                   </div>
-                )}
-
-                <button 
-                  type="submit"
-                  className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-4 rounded-xl font-bold text-lg transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] mt-4"
-                >
-                  Login to {currentBrandName}
-                </button>
-              </form>
-
-              {currentWhatsappNumber && (
-                <div className="mt-8 pt-6 border-t border-white/10 text-center">
-                  <p className="text-white/40 text-xs mb-4 uppercase tracking-widest font-bold">Don't have an account?</p>
-                  <a 
-                    href={`https://wa.me/${currentWhatsappNumber}`} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-3 bg-green-500/10 hover:bg-green-500/20 text-green-400 px-6 py-3 rounded-xl font-bold transition-all border border-green-500/20 w-full justify-center"
-                  >
-                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                    Register New Account
-                  </a>
-                  <p className="mt-4 text-[10px] text-white/20 uppercase tracking-tighter">Contact us on WhatsApp to get your premium credentials</p>
+                  <div>
+                    <h1 className="text-xl sm:text-2xl font-display font-black tracking-wider bg-gradient-to-r from-white via-slate-100 to-cyan-300 bg-clip-text text-transparent">
+                      {currentBrandName}
+                    </h1>
+                    <p className="text-[10px] text-white/40 uppercase tracking-widest font-extrabold -mt-1">
+                      Official Portal
+                    </p>
+                  </div>
                 </div>
-              )}
+
+                {/* Back / Browse Button */}
+                <button 
+                  onClick={() => setShowLoginModal(false)}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white/90 hover:text-white font-bold text-xs sm:text-sm transition-all duration-300 cursor-pointer shadow-lg active:scale-95 group"
+                >
+                  <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
+                  <span>Back to Browse</span>
+                </button>
+              </header>
+
+              {/* Main Login Card Section */}
+              <main className="relative z-10 my-auto py-10 px-4 sm:px-6 flex items-center justify-center">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  transition={{ type: "spring", damping: 25, stiffness: 280 }}
+                  className="relative w-full max-w-lg bg-[#0a0f1d]/90 backdrop-blur-3xl rounded-3xl p-6 sm:p-10 shadow-[0_30px_100px_rgba(0,0,0,0.95)] border border-white/15 overflow-hidden"
+                >
+                  {/* Top Glowing Accent Bar */}
+                  <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-red-600 via-rose-500 to-amber-500" />
+
+                  {/* Header Branding */}
+                  <div className="text-center mb-6 pt-1">
+                    <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-gradient-to-r from-red-500/20 via-rose-500/20 to-amber-500/20 border border-red-500/30 text-rose-300 text-[10px] font-black uppercase tracking-widest mb-3 shadow-[0_0_15px_rgba(225,29,72,0.3)]">
+                      <Sparkles size={12} className="text-amber-400 animate-pulse" />
+                      <span>PREMIUM 4K PLAYER LOGIN</span>
+                    </div>
+                    
+                    <h2 className="text-2xl sm:text-3xl font-display font-black tracking-tight text-white mb-2">
+                      <span className="bg-gradient-to-r from-white via-slate-100 to-cyan-300 bg-clip-text text-transparent">
+                        Sign In
+                      </span>
+                    </h2>
+                    <p className="text-white/60 text-xs sm:text-sm max-w-md mx-auto leading-relaxed">
+                      Enter your account credentials to unlock Live Channels, Movies & Series in Ultra HD.
+                    </p>
+                  </div>
+
+                  {/* Login Form */}
+                  <form onSubmit={handleLogin} className="space-y-4">
+                    {/* Username Input */}
+                    <div className="space-y-1.5 text-left">
+                      <label className="text-[11px] font-extrabold uppercase tracking-widest text-white/70 flex items-center gap-1.5 ml-1">
+                        <User size={13} className="text-cyan-400" />
+                        <span>Username / ID</span>
+                      </label>
+                      <div className="relative">
+                        <input 
+                          name="username"
+                          type="text"
+                          required
+                          placeholder="Enter your username"
+                          className="w-full bg-black/60 border border-white/15 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/30 rounded-2xl px-4 py-3.5 text-sm text-white placeholder-white/30 focus:outline-none font-semibold transition-all shadow-inner"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Password Input */}
+                    <div className="space-y-1.5 text-left">
+                      <label className="text-[11px] font-extrabold uppercase tracking-widest text-white/70 flex items-center justify-between ml-1">
+                        <span className="flex items-center gap-1.5">
+                          <Lock size={13} className="text-rose-400" />
+                          <span>Password</span>
+                        </span>
+                      </label>
+                      <div className="relative">
+                        <input 
+                          name="password"
+                          type={showLoginPassword ? "text" : "password"}
+                          required
+                          placeholder="Enter your password"
+                          className="w-full bg-black/60 border border-white/15 focus:border-rose-400 focus:ring-2 focus:ring-rose-500/30 rounded-2xl pl-4 pr-12 py-3.5 text-sm text-white placeholder-white/30 focus:outline-none font-semibold transition-all shadow-inner"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowLoginPassword(!showLoginPassword)}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/90 transition-colors p-1"
+                        >
+                          {showLoginPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Error Banner */}
+                    {loginError && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="p-3.5 bg-red-500/15 border border-red-500/30 rounded-2xl flex flex-col gap-2 text-red-300 text-xs text-left backdrop-blur-md"
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <AlertCircle size={16} className="text-red-400 shrink-0 mt-0.5" /> 
+                          <span className="font-medium leading-relaxed">
+                            {loginError.includes('Click here') ? loginError.split('Click here')[0] : loginError}
+                          </span>
+                        </div>
+                        {loginError.includes('Click here') && currentWhatsappNumber && (
+                          <a 
+                            href={whatsappLoginUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-cyan-300 font-bold underline hover:text-white text-xs ml-6 transition-colors"
+                          >
+                            <MessageCircle size={13} />
+                            <span>Click here to contact support on WhatsApp for a new account</span>
+                          </a>
+                        )}
+                      </motion.div>
+                    )}
+
+                    {/* Submit Button */}
+                    <button 
+                      type="submit"
+                      disabled={isLoggingIn}
+                      className="w-full bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 hover:from-red-500 hover:to-amber-400 text-white font-black py-4 rounded-2xl text-base tracking-wide transition-all duration-300 shadow-[0_8px_30px_rgba(225,29,72,0.4)] hover:shadow-[0_12px_40px_rgba(225,29,72,0.6)] active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer mt-3"
+                    >
+                      {isLoggingIn ? (
+                        <>
+                          <Loader2 size={20} className="animate-spin text-white" />
+                          <span>Authenticating...</span>
+                        </>
+                      ) : (
+                        <>
+                          <LogIn size={20} />
+                          <span>Sign In to {currentBrandName}</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+
+                  {/* Support Phone & WhatsApp Contact Box (PROMINENT & DIRECTLY CLICKABLE) */}
+                  {currentWhatsappNumber && (
+                    <div className="mt-6 pt-5 border-t border-white/10 text-center">
+                      <div className="bg-gradient-to-br from-emerald-950/80 via-black/80 to-green-950/60 border border-emerald-500/40 rounded-2xl p-4 sm:p-5 relative overflow-hidden shadow-xl text-left">
+                        <div className="absolute top-0 right-0 translate-x-6 -translate-y-6 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
+                        
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full animate-ping" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400">
+                              Support & Account Order
+                            </span>
+                          </div>
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase">
+                            Instant
+                          </span>
+                        </div>
+
+                        <p className="text-white/80 text-xs mb-3 font-medium">
+                          Don't have an account yet? Contact support directly on WhatsApp to get your 1-Year or Trial login:
+                        </p>
+
+                        {/* Highly Visible Clickable Phone Number Button */}
+                        <a 
+                          href={whatsappLoginUrl} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="group flex flex-col sm:flex-row items-center justify-between gap-3 bg-gradient-to-r from-emerald-600 via-emerald-500 to-green-500 hover:from-emerald-500 hover:to-green-400 text-white p-3.5 sm:px-5 sm:py-3.5 rounded-xl font-extrabold transition-all duration-300 shadow-[0_6px_25px_rgba(16,185,129,0.35)] border border-emerald-300/40 cursor-pointer w-full"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center shrink-0 text-white group-hover:scale-110 transition-transform">
+                              <MessageCircle size={20} className="fill-white stroke-none" />
+                            </div>
+                            <div className="text-left">
+                              <div className="text-[10px] uppercase font-black text-emerald-100 tracking-wider">
+                                Tap to Contact / Get Account
+                              </div>
+                              <div className="text-sm sm:text-base font-black tracking-wider font-mono text-white flex items-center gap-1.5">
+                                <Phone size={14} className="text-emerald-200" />
+                                <span>{displayWhatsappNumber || currentWhatsappNumber}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 text-xs font-black uppercase bg-black/20 px-3 py-1.5 rounded-lg border border-white/20 text-emerald-100 group-hover:bg-black/30 transition-colors shrink-0">
+                            <span>Chat on WhatsApp</span>
+                            <ChevronRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                          </div>
+                        </a>
+
+                        <p className="mt-2.5 text-[10px] text-emerald-400/80 text-center font-semibold">
+                          Click the number above to connect on WhatsApp directly
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Streaming Features Footprint */}
+                  <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-[10px] font-bold text-white/50">
+                    <div className="p-2 rounded-xl bg-white/5 border border-white/5">🎬 4K Ultra HD</div>
+                    <div className="p-2 rounded-xl bg-white/5 border border-white/5">📺 TV Channels</div>
+                    <div className="p-2 rounded-xl bg-white/5 border border-white/5">🍿 VOD & Series</div>
+                    <div className="p-2 rounded-xl bg-white/5 border border-white/5">⚡ Fast Servers</div>
+                  </div>
+                </motion.div>
+              </main>
+
+              {/* Full Page Footer */}
+              <footer className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-8 py-6 text-center border-t border-white/10 text-xs text-white/40 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <p>© {new Date().getFullYear()} {currentBrandName}. All rights reserved.</p>
+                <div className="flex items-center gap-4 text-[11px]">
+                  <span>4K Streaming Player</span>
+                  <span>•</span>
+                  <span>Ultra HD Content</span>
+                  <span>•</span>
+                  <span>24/7 WhatsApp Support</span>
+                </div>
+              </footer>
             </motion.div>
-          </div>
-        )}
+          );
+        })()}
       </AnimatePresence>
 
       {/* Full-Page Request Movies & Web Series Hub */}
@@ -7912,7 +8185,7 @@ export default function App() {
 
       {/* Free Movie Details Modal */}
       <AnimatePresence>
-        {selectedFreeMovie && !isSyncingDetails && (
+        {selectedFreeMovie && !playingFreeMovie && !isSyncingDetails && (
           <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 sm:p-6">
             <motion.div 
               initial={{ opacity: 0 }}
@@ -8080,6 +8353,7 @@ export default function App() {
                   <button 
                     onClick={() => {
                       setPlayingFreeMovie(selectedFreeMovie);
+                      setSelectedFreeMovie(null);
                       trackMediaPlayback(selectedFreeMovie, 'movie');
                     }}
                     className="w-full flex items-center justify-center gap-2 md:gap-3 bg-[#00D1FF] text-black hover:bg-cyan-300 px-4 py-3 md:px-6 md:py-4 rounded-xl font-black transition-all transform hover:scale-[1.02] text-sm md:text-base shadow-[0_0_25px_rgba(0,209,255,0.4)] uppercase tracking-widest cursor-pointer"
@@ -8136,7 +8410,7 @@ export default function App() {
       {/* Free Movie Player Modal */}
       <AnimatePresence>
         {playingFreeMovie && (
-          <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 gpu">
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 gpu">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -8204,6 +8478,7 @@ export default function App() {
                               'video/mp4' // Fallback
                       }]
                     }} 
+                    isFree={true}
                   />
                 </div>
               </div>
@@ -8286,6 +8561,7 @@ export default function App() {
                                 : 'video/mp4'
                           }]
                         }} 
+                        isFree={true}
                       />
                     );
                   })()
@@ -8505,7 +8781,7 @@ export default function App() {
 
       {/* Free Series Details Modal */}
       <AnimatePresence>
-        {selectedFreeSeries && !isSyncingDetails && (
+        {selectedFreeSeries && !playingFreeSeries && !isSyncingDetails && (
           <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 sm:p-6">
             <motion.div 
               initial={{ opacity: 0 }}
@@ -8692,6 +8968,7 @@ export default function App() {
                     <button 
                       onClick={() => {
                         setPlayingFreeSeries(selectedFreeSeries);
+                        setSelectedFreeSeries(null);
                         trackMediaPlayback(selectedFreeSeries, 'series');
                       }}
                       className="w-full flex items-center justify-center gap-2 md:gap-3 bg-[#00D1FF] text-black hover:bg-cyan-300 px-4 py-3 md:px-6 md:py-4 rounded-xl font-black transition-all transform hover:scale-[1.03] text-sm md:text-base shadow-[0_0_25px_rgba(0,209,255,0.4)] uppercase tracking-widest cursor-pointer"
@@ -8774,6 +9051,7 @@ export default function App() {
                                 <button 
                                   onClick={() => {
                                     setPlayingFreeSeries(selectedFreeSeries);
+                                    setSelectedFreeSeries(null);
                                     handleSelectFreeEpisode(episode, selectedFreeSeason || '');
                                     trackMediaPlayback(selectedFreeSeries, 'series', `S${selectedFreeSeason || '1'} E${episode.episode_num || '1'}: ${episode.title || ''}`);
                                   }}
@@ -8952,7 +9230,7 @@ export default function App() {
       {/* Free Series Player Modal */}
       <AnimatePresence>
         {playingFreeSeries && (
-          <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 gpu">
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 gpu">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -9052,6 +9330,7 @@ export default function App() {
                       episodesMap={freeSeriesEpisodesMap || undefined}
                       onSelectEpisode={handleSelectFreeEpisode}
                       onDownloadEpisode={handleDownloadFreeEpisode}
+                      isFree={true}
                     />
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center text-white/45 bg-black gap-2">
@@ -9172,6 +9451,7 @@ export default function App() {
                             tagline: loggedInReseller.tagline || '',
                             whatsapp_number: loggedInReseller.whatsapp_number || '',
                             whatsapp_group_link: loggedInReseller.whatsapp_group_link || '',
+                            whatsapp_channel_link: loggedInReseller.whatsapp_channel_link || '',
                             server_url: loggedInReseller.server_url || '',
                             download_url: loggedInReseller.download_url || '',
                             app_link: loggedInReseller.app_link || '',
@@ -9207,6 +9487,10 @@ export default function App() {
                       <div className="flex justify-between py-1.5 border-b border-white/5">
                         <span className="text-white/50">Group Link:</span>
                         <span className="text-white font-bold truncate max-w-[200px] text-cyan-400">{loggedInReseller.whatsapp_group_link || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between py-1.5 border-b border-white/5">
+                        <span className="text-white/50">Channel Link:</span>
+                        <span className="text-white font-bold truncate max-w-[200px] text-emerald-400">{loggedInReseller.whatsapp_channel_link || 'N/A'}</span>
                       </div>
                       <div className="flex justify-between py-1.5 border-b border-white/5">
                         <span className="text-white/50">Custom IPTV Server URL:</span>
@@ -9260,6 +9544,17 @@ export default function App() {
                               className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
                             />
                           </div>
+                        </div>
+
+                        <div>
+                          <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-1">Custom WhatsApp Channel Link</label>
+                          <input 
+                            type="url"
+                            value={tempResellerSettings.whatsapp_channel_link}
+                            onChange={(e) => setTempResellerSettings(prev => ({ ...prev, whatsapp_channel_link: e.target.value }))}
+                            placeholder="https://whatsapp.com/channel/..."
+                            className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 font-bold"
+                          />
                         </div>
 
                         <div>
@@ -9509,6 +9804,30 @@ export default function App() {
                             />
                             <p className="text-[9px] text-white/30">Provides a default "Download App" button on the home screen when no reseller is active.</p>
                           </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:col-span-3 border-t border-white/5 pt-3">
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest block px-1">Default WhatsApp Group Link</label>
+                              <input 
+                                type="url" 
+                                value={newAppSettings.whatsapp_group_link !== undefined ? newAppSettings.whatsapp_group_link : ''}
+                                onChange={(e) => setNewAppSettings(prev => ({ ...prev, whatsapp_group_link: e.target.value }))}
+                                placeholder="e.g. https://chat.whatsapp.com/..."
+                                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-cyan-500/50 font-bold font-mono"
+                              />
+                              <p className="text-[9px] text-white/30">Used for "Join our WhatsApp Group" on the website.</p>
+                            </div>
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest block px-1">Default WhatsApp Channel Link</label>
+                              <input 
+                                type="url" 
+                                value={newAppSettings.whatsapp_channel_link !== undefined ? newAppSettings.whatsapp_channel_link : ''}
+                                onChange={(e) => setNewAppSettings(prev => ({ ...prev, whatsapp_channel_link: e.target.value }))}
+                                placeholder="e.g. https://whatsapp.com/channel/..."
+                                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-emerald-500/50 font-bold font-mono"
+                              />
+                              <p className="text-[9px] text-white/30">Used for the floating "WhatsApp Channel" badge on the website.</p>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -9601,9 +9920,91 @@ export default function App() {
                         />
                       </div>
 
+                      {/* Upload M3U File Feature Block */}
+                      <div className="bg-gradient-to-br from-purple-900/30 via-purple-950/20 to-black border border-purple-500/30 rounded-3xl p-5 space-y-4 shadow-[0_8px_30px_rgba(168,85,247,0.12)]">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="p-2.5 rounded-2xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                              <Upload size={18} />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
+                                <span>Upload M3U File ({activeAdminTab === 'free_series' ? 'Web Series' : 'Movie'})</span>
+                                <span className="px-2 py-0.5 rounded-full text-[8px] bg-purple-500/30 text-purple-200 border border-purple-400/30 font-bold">
+                                  AUTO PARSER
+                                </span>
+                              </h4>
+                              <p className="text-[10px] text-white/50 leading-tight mt-0.5">
+                                Select an .m3u / .m3u8 file from your computer to extract all episodes and seasons automatically.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
+                          {/* Choose file drop zone button */}
+                          <label className="group flex flex-col items-center justify-center border-2 border-dashed border-purple-500/40 hover:border-purple-400 bg-purple-500/5 hover:bg-purple-500/10 rounded-2xl p-4 transition-all cursor-pointer text-center min-h-[110px]">
+                            <input 
+                              type="file" 
+                              accept=".m3u,.m3u8,.txt,.m3u_plus" 
+                              onChange={(e) => handleM3uFileUpload(e, activeAdminTab === 'free_series')}
+                              className="hidden" 
+                            />
+                            <FileText size={26} className="text-purple-400 group-hover:scale-110 transition-transform mb-1.5" />
+                            <span className="text-xs font-black text-purple-300 uppercase tracking-wider">
+                              Choose .M3U File
+                            </span>
+                            <span className="text-[9px] text-white/40 mt-1">
+                              Supports .m3u, .m3u8 series files
+                            </span>
+                          </label>
+
+                          {/* Parsed status box */}
+                          <div className="bg-black/40 border border-white/10 rounded-2xl p-4 flex flex-col justify-center min-h-[110px]">
+                            {m3uUploadSuccessMsg ? (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-1.5 text-emerald-400 font-extrabold text-xs">
+                                  <CheckCircle2 size={15} />
+                                  <span>M3U Extracted</span>
+                                </div>
+                                <p className="text-xs text-white/90 leading-relaxed font-medium">
+                                  {m3uUploadSuccessMsg}
+                                </p>
+                                <div className="flex items-center gap-3 pt-1">
+                                  {activeAdminTab === 'free_series' && (
+                                    <span className="text-[10px] font-black px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                      {newFreeSeries.episodes?.length || 0} Episodes Loaded
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (activeAdminTab === 'free_series') {
+                                        setNewFreeSeries(prev => ({ ...prev, episodes: [] }));
+                                      }
+                                      setM3uUploadSuccessMsg(null);
+                                    }}
+                                    className="text-[10px] font-bold text-red-400 hover:text-red-300 underline cursor-pointer"
+                                  >
+                                    Reset Upload
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-center text-white/40 space-y-1">
+                                <p className="text-xs font-bold text-white/60">No file uploaded</p>
+                                <p className="text-[9px] leading-normal text-white/40">
+                                  Select an .m3u file to parse all episodes without typing them manually.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
                       {activeAdminTab === 'free_series' && (
                         <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Playlist M3U URL (Optional)</label>
+                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Or Playlist M3U URL (Optional Online Link)</label>
                           <input 
                             type="text" 
                             value={newFreeSeries.playlist_url || ''}
@@ -10504,8 +10905,11 @@ export default function App() {
                                   tagline: '',
                                   whatsapp_number: '',
                                   whatsapp_group_link: '',
+                                  whatsapp_channel_link: '',
                                   logo_url: '',
                                   server_url: '',
+                                  download_url: '',
+                                  app_link: '',
                                   password: '',
                                   license_type: '1 Year'
                                 });
@@ -10562,7 +10966,7 @@ export default function App() {
                             />
                           </div>
 
-                          <div className="sm:col-span-2">
+                          <div>
                             <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom WhatsApp Group Link</label>
                             <input
                               type="url"
@@ -10570,6 +10974,17 @@ export default function App() {
                               value={newReseller.whatsapp_group_link}
                               onChange={(e) => setNewReseller({ ...newReseller, whatsapp_group_link: e.target.value })}
                               className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom WhatsApp Channel Link</label>
+                            <input
+                              type="url"
+                              placeholder="https://whatsapp.com/channel/..."
+                              value={newReseller.whatsapp_channel_link}
+                              onChange={(e) => setNewReseller({ ...newReseller, whatsapp_channel_link: e.target.value })}
+                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 font-bold"
                             />
                           </div>
 
@@ -10680,6 +11095,7 @@ export default function App() {
                                             tagline: item.tagline || '',
                                             whatsapp_number: item.whatsapp_number || '',
                                             whatsapp_group_link: item.whatsapp_group_link || '',
+                                            whatsapp_channel_link: item.whatsapp_channel_link || '',
                                             logo_url: item.logo_url || '',
                                             server_url: item.server_url || '',
                                             download_url: item.download_url || '',
@@ -10709,6 +11125,7 @@ export default function App() {
                                 <div className="pt-2 border-t border-white/5 space-y-1 text-[10px] text-white/60">
                                   <div>📱 WA No: <span className="font-mono text-white">{item.whatsapp_number || 'N/A'}</span></div>
                                   <div className="truncate">🔗 Group: <a href={item.whatsapp_group_link} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline font-bold">{item.whatsapp_group_link || 'N/A'}</a></div>
+                                  <div className="truncate">📢 Channel: <a href={item.whatsapp_channel_link} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline font-bold">{item.whatsapp_channel_link || 'N/A'}</a></div>
                                   <div className="truncate">🖥️ Play Server: <span className="font-mono text-cyan-400">{item.server_url || 'Default'}</span></div>
                                   <div className="truncate">💾 Download Host: <span className="font-mono text-purple-400">{item.download_url || 'Default'}</span></div>
                                   <div className="truncate">📥 App Link: <span className="font-mono text-emerald-400 font-bold truncate max-w-[200px]" title={item.app_link || 'N/A'}>{item.app_link || 'N/A'}</span></div>
@@ -11007,6 +11424,36 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Floating WhatsApp Channel Overlay */}
+      {currentWhatsappChannelLink && currentWhatsappChannelLink.trim() !== '' && currentWhatsappChannelLink !== 'N/A' && (
+        <motion.a
+          href={currentWhatsappChannelLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          initial={{ scale: 0.8, opacity: 0, y: 15 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="fixed bottom-[130px] right-3 sm:bottom-10 sm:right-6 z-[100] group flex items-center gap-2 bg-gradient-to-r from-emerald-600 via-emerald-500 to-green-500 hover:from-emerald-500 hover:to-green-400 text-white pl-2 pr-3 py-1 sm:py-1.5 rounded-full shadow-[0_6px_20px_rgba(16,185,129,0.4)] border border-emerald-300/40 backdrop-blur-md transition-all duration-300 cursor-pointer"
+          title="For more updates follow WhatsApp channel"
+        >
+          <div className="relative flex items-center justify-center w-5 h-5 rounded-full bg-white/20 text-white shrink-0">
+            <MessageCircle size={12} className="fill-white stroke-none" />
+            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-green-300 rounded-full animate-ping" />
+            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-green-200 rounded-full" />
+          </div>
+
+          <div className="flex flex-col text-left">
+            <span className="text-[7px] uppercase font-black tracking-wider text-emerald-100 opacity-90 leading-none">
+              For More Updates
+            </span>
+            <span className="text-[9px] sm:text-[11px] font-extrabold tracking-tight text-white leading-tight mt-0.5">
+              WhatsApp Channel
+            </span>
+          </div>
+        </motion.a>
+      )}
 
       {/* Footer */}
       <footer className="p-8 pb-24 md:pb-8 text-center border-t border-white/5 bg-black/20">
