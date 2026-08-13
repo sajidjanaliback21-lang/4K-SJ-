@@ -552,7 +552,7 @@ const getResellerKey = () => {
   let urlParams = new URLSearchParams(window.location.search);
   let ref = urlParams.get('ref') || urlParams.get('reseller');
   if (ref) {
-    const key = ref.toLowerCase();
+    const key = ref.toLowerCase().trim();
     if (key !== 'sj' && key !== 'www') return key;
   }
 
@@ -563,7 +563,7 @@ const getResellerKey = () => {
     urlParams = new URLSearchParams(hashSearch);
     ref = urlParams.get('ref') || urlParams.get('reseller');
     if (ref) {
-      const key = ref.toLowerCase();
+      const key = ref.toLowerCase().trim();
       if (key !== 'sj' && key !== 'www') return key;
     }
   }
@@ -574,7 +574,7 @@ const getResellerKey = () => {
       const refUrl = new URL(document.referrer);
       const refFromReferrer = refUrl.searchParams.get('ref') || refUrl.searchParams.get('reseller');
       if (refFromReferrer) {
-        const key = refFromReferrer.toLowerCase();
+        const key = refFromReferrer.toLowerCase().trim();
         if (key !== 'sj' && key !== 'www') return key;
       }
     }
@@ -582,10 +582,9 @@ const getResellerKey = () => {
     // Ignore URL parse errors
   }
 
-  // 4. Try hostname subdomain for custom domains
-  const hostname = window.location.hostname;
+  // 4. Try hostname for custom domains
+  const hostname = window.location.hostname ? window.location.hostname.toLowerCase().trim() : '';
   if (!hostname) return '';
-  const parts = hostname.split('.');
   
   if (
     hostname.includes('run.app') || 
@@ -602,22 +601,89 @@ const getResellerKey = () => {
     return '';
   }
 
-  if (parts.length > 2) {
-    const key = parts[0].toLowerCase();
-    if (key !== 'sj' && key !== 'www') {
-      return key;
-    }
-  }
-  return '';
+  const cleanHost = hostname.startsWith('www.') ? hostname.slice(4) : hostname;
+  return cleanHost;
 };
 
 const guessBrandNameFromKey = (key: string): string => {
   if (!key) return "4K•SJ";
-  let guessed = key.replace(/[-_]/g, ' ').toUpperCase();
+  let mainKey = key;
+  if (mainKey.includes('.')) {
+    mainKey = mainKey.split('.')[0];
+  }
+  let guessed = mainKey.replace(/[-_]/g, ' ').toUpperCase();
   if (guessed.endsWith("STORE") && guessed.length > 5 && !guessed.includes(" ")) {
     guessed = guessed.replace("STORE", " STORE");
   }
   return guessed;
+};
+
+const findActiveReseller = (list: any[]) => {
+  if (!list || list.length === 0) return null;
+  if (typeof window === 'undefined') return null;
+
+  const key = getResellerKey();
+  const currentHost = window.location.hostname ? window.location.hostname.toLowerCase().trim() : '';
+  const cleanHost = currentHost.startsWith('www.') ? currentHost.slice(4) : currentHost;
+  const hostFirstPart = cleanHost ? cleanHost.split('.')[0] : '';
+
+  let referrerHost = '';
+  try {
+    if (document.referrer) {
+      referrerHost = new URL(document.referrer).hostname.toLowerCase().trim();
+      if (referrerHost.startsWith('www.')) referrerHost = referrerHost.slice(4);
+    }
+  } catch (e) {
+    // Ignore URL parse error
+  }
+
+  const normalizedList = list.filter(r => r && r.subdomain).map(r => ({
+    ...r,
+    cleanSubdomain: String(r.subdomain).toLowerCase().trim()
+  }));
+
+  // PRIORITY 1: Exact Match on full domain / ref parameter / clean host / referrer
+  let matched = normalizedList.find(r => 
+    (key && r.cleanSubdomain === key) ||
+    (cleanHost && r.cleanSubdomain === cleanHost) ||
+    (referrerHost && r.cleanSubdomain === referrerHost)
+  );
+  if (matched) return matched;
+
+  // PRIORITY 2: Exact Domain Suffix / Parent Domain Match
+  const suffixMatches = normalizedList.filter(r => 
+    r.cleanSubdomain.includes('.') && (
+      (cleanHost && (cleanHost === r.cleanSubdomain || cleanHost.endsWith('.' + r.cleanSubdomain))) ||
+      (key && (key === r.cleanSubdomain || key.endsWith('.' + r.cleanSubdomain)))
+    )
+  );
+  if (suffixMatches.length > 0) {
+    suffixMatches.sort((a, b) => b.cleanSubdomain.length - a.cleanSubdomain.length);
+    return suffixMatches[0];
+  }
+
+  // PRIORITY 3: First Subdomain Label Exact Match
+  if (hostFirstPart && hostFirstPart !== 'sj' && hostFirstPart !== 'www') {
+    matched = normalizedList.find(r => r.cleanSubdomain === hostFirstPart);
+    if (matched) return matched;
+  }
+  if (key && key.includes('.')) {
+    const keyFirstPart = key.split('.')[0];
+    if (keyFirstPart && keyFirstPart !== 'sj' && keyFirstPart !== 'www') {
+      matched = normalizedList.find(r => r.cleanSubdomain === keyFirstPart);
+      if (matched) return matched;
+    }
+  }
+
+  // PRIORITY 4: Partial Substring Inclusion (Sorted by longest subdomain keyword first)
+  const sortedList = [...normalizedList].sort((a, b) => b.cleanSubdomain.length - a.cleanSubdomain.length);
+  matched = sortedList.find(r => {
+    if (key && (key.includes(r.cleanSubdomain) || r.cleanSubdomain.includes(key))) return true;
+    if (cleanHost && (cleanHost.includes(r.cleanSubdomain) || r.cleanSubdomain.includes(cleanHost))) return true;
+    return false;
+  });
+
+  return matched || null;
 };
 
 export default function App() {
@@ -1111,17 +1177,8 @@ export default function App() {
       setIsResellersLoading(false);
 
       // Determine the active reseller
+      const matched = findActiveReseller(list);
       const resellerKey = getResellerKey();
-      const currentHost = window.location.hostname.toLowerCase();
-      
-      const matched = list.find(r => {
-        if (!r.subdomain) return false;
-        const sub = r.subdomain.toLowerCase().trim();
-        return sub === resellerKey || 
-               sub === currentHost || 
-               (resellerKey && (sub.includes(resellerKey) || resellerKey.includes(sub))) ||
-               (currentHost && currentHost.includes(sub));
-      });
       
       if (matched) {
         setActiveReseller(matched);
