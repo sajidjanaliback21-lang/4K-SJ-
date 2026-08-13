@@ -548,12 +548,18 @@ const renderBrandName = (name: string) => {
 const getResellerKey = () => {
   if (typeof window === 'undefined') return '';
   
+  // Helper to check if a key is the main platform default
+  const isMainPlatformKey = (k: string) => {
+    const clean = k.toLowerCase().trim();
+    return clean === 'sj' || clean === 'www' || clean === '4kott' || clean === 'sj.4kott.online' || clean === '4kott.online';
+  };
+
   // 1. Try standard URL query params
   let urlParams = new URLSearchParams(window.location.search);
   let ref = urlParams.get('ref') || urlParams.get('reseller');
   if (ref) {
     const key = ref.toLowerCase().trim();
-    if (key !== 'sj' && key !== 'www') return key;
+    if (!isMainPlatformKey(key)) return key;
   }
 
   // 2. Try hash query params
@@ -564,7 +570,7 @@ const getResellerKey = () => {
     ref = urlParams.get('ref') || urlParams.get('reseller');
     if (ref) {
       const key = ref.toLowerCase().trim();
-      if (key !== 'sj' && key !== 'www') return key;
+      if (!isMainPlatformKey(key)) return key;
     }
   }
 
@@ -575,7 +581,7 @@ const getResellerKey = () => {
       const refFromReferrer = refUrl.searchParams.get('ref') || refUrl.searchParams.get('reseller');
       if (refFromReferrer) {
         const key = refFromReferrer.toLowerCase().trim();
-        if (key !== 'sj' && key !== 'www') return key;
+        if (!isMainPlatformKey(key)) return key;
       }
     }
   } catch (e) {
@@ -602,15 +608,29 @@ const getResellerKey = () => {
   }
 
   const cleanHost = hostname.startsWith('www.') ? hostname.slice(4) : hostname;
+  if (isMainPlatformKey(cleanHost)) {
+    return '';
+  }
+
   return cleanHost;
 };
 
 const guessBrandNameFromKey = (key: string): string => {
   if (!key) return "4K•SJ";
+  const lowerKey = key.toLowerCase().trim();
+  if (lowerKey === 'sj' || lowerKey === '4kott' || lowerKey === 'sj.4kott.online' || lowerKey === '4kott.online') {
+    return "4K•SJ";
+  }
+
   let mainKey = key;
   if (mainKey.includes('.')) {
     mainKey = mainKey.split('.')[0];
   }
+
+  if (mainKey.toLowerCase() === 'sj' || mainKey.toLowerCase() === '4kott') {
+    return "4K•SJ";
+  }
+
   let guessed = mainKey.replace(/[-_]/g, ' ').toUpperCase();
   if (guessed.endsWith("STORE") && guessed.length > 5 && !guessed.includes(" ")) {
     guessed = guessed.replace("STORE", " STORE");
@@ -623,6 +643,8 @@ const findActiveReseller = (list: any[]) => {
   if (typeof window === 'undefined') return null;
 
   const key = getResellerKey();
+  if (!key) return null;
+
   const currentHost = window.location.hostname ? window.location.hostname.toLowerCase().trim() : '';
   const cleanHost = currentHost.startsWith('www.') ? currentHost.slice(4) : currentHost;
   const hostFirstPart = cleanHost ? cleanHost.split('.')[0] : '';
@@ -7644,367 +7666,322 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Profile Modal */}
+      {/* Account Info Dedicated Full Page View */}
       <AnimatePresence>
         {showProfileModal && (
-          <div className="fixed inset-0 z-[75] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowProfileModal(false)}
-              className="absolute inset-0 bg-black/85 backdrop-blur-xl"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 30 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 30 }}
-              transition={{ 
-                type: "spring",
-                damping: 20,
-                stiffness: 240
-              }}
-              className="relative w-full max-w-md bg-[#141414]/95 border border-white/10 rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)] z-[76]"
-              id="profile-modal"
-            >
-              {/* Profile Background Banner with Premium Cinematic Cover Photo Illustration */}
-              <div className="h-32 relative overflow-hidden select-none border-b border-white/5">
-                <svg className="absolute inset-0 w-full h-full object-cover" viewBox="0 0 400 120" preserveAspectRatio="none" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  {/* Dark cinematic background */}
-                  <rect width="400" height="120" fill="url(#cover-bg-grad)" />
-                  
-                  {/* Glowing spotlight beams (Retro Hollywood opening night!) */}
-                  <path d="M-80 120 L80 -20 L160 -20 Z" fill="url(#spotlight-glow)" opacity="0.15" />
-                  <path d="M480 120 L320 -20 L240 -20 Z" fill="url(#spotlight-glow)" opacity="0.12" />
-                  
-                  {/* Stylized Retro Cinema Film Roll strip along the bottom */}
-                  <path d="M0 80 H400 V95 H0 Z" fill="#111" opacity="0.8" />
-                  {/* Film Sprocket holes */}
-                  <rect x="5" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="25" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="45" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="65" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="85" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="105" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="125" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="145" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="165" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="185" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="205" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="225" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="245" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="265" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="285" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="305" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="325" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="345" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="365" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
-                  <rect x="385" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ duration: 0.25, ease: "easeOut" }}
+            className="fixed inset-0 z-[200] bg-[#070b14] text-white flex flex-col overflow-y-auto min-h-screen w-full"
+            id="profile-modal"
+          >
+            {/* Top Navigation Sticky Header */}
+            <div className="sticky top-0 z-30 bg-[#070b14]/95 backdrop-blur-xl border-b border-white/10 px-4 sm:px-8 py-3.5 flex items-center justify-between shadow-2xl">
+              <button 
+                onClick={() => setShowProfileModal(false)}
+                className="flex items-center gap-2.5 px-4 py-2 bg-white/5 hover:bg-white/10 text-white hover:text-[#00D1FF] rounded-xl text-xs sm:text-sm font-black border border-white/10 transition-all cursor-pointer active:scale-95 shadow-md"
+              >
+                <ArrowLeft size={18} />
+                <span>BACK TO HOME</span>
+              </button>
 
-                  <rect x="5" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="25" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="45" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="65" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="85" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="105" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="125" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="145" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="165" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="185" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="205" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="225" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="245" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="265" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="285" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="305" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="325" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="345" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="365" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-                  <rect x="385" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
-
-                  {/* Floating cinema camera vector icon on the right side */}
-                  <g transform="translate(320, 15)" stroke="#00D1FF" strokeWidth="1.5" fill="none" opacity="0.75" className="animate-pulse">
-                    <rect x="5" y="15" width="22" height="15" rx="3" stroke="#00D1FF" strokeWidth="2" />
-                    <circle cx="10" cy="8" r="7" stroke="#00D1FF" strokeWidth="1.5" />
-                    <circle cx="10" cy="8" r="2" fill="#00D1FF" />
-                    <line x1="10" y1="1" x2="10" y2="15" stroke="#00D1FF" strokeWidth="1" />
-                    
-                    <circle cx="22" cy="8" r="7" stroke="#00D1FF" strokeWidth="1.5" />
-                    <circle cx="22" cy="8" r="2" fill="#00D1FF" />
-                    <line x1="22" y1="1" x2="22" y2="15" stroke="#00D1FF" strokeWidth="1" />
-                    
-                    <path d="M27 20 L35 15 V25 Z" fill="#00D1FF" opacity="0.3" />
-                    <path d="M27 20 L35 15 V25 Z" stroke="#00D1FF" strokeWidth="1.5" />
-                  </g>
-
-                  {/* High-contrast Cinema Tickets on the left side */}
-                  <g transform="translate(30, 12) rotate(-15)" stroke="#F43F5E" strokeWidth="1.5" fill="none" opacity="0.75">
-                    <rect x="0" y="0" width="36" height="20" rx="2" fill="#F43F5E" fillOpacity="0.1" strokeWidth="2" />
-                    <circle cx="0" cy="10" r="3" fill="#0E131F" />
-                    <circle cx="36" cy="10" r="3" fill="#0E131F" />
-                    <line x1="8" y1="4" x2="8" y2="16" stroke="#F43F5E" strokeWidth="1" strokeDasharray="2 2" />
-                    <line x1="28" y1="4" x2="28" y2="16" stroke="#F43F5E" strokeWidth="1" strokeDasharray="2 2" />
-                    <circle cx="18" cy="10" r="2.5" fill="#F43F5E" />
-                  </g>
-
-                  {/* A nice overlapping popcorn bucket in the middle-right */}
-                  <g transform="translate(195, 8)" opacity="0.7">
-                    <path d="M5 26 L10 50 H24 L29 26 Z" fill="#EF4444" />
-                    <path d="M9 26 L12 50 H15 L12 26 Z" fill="#FFF" />
-                    <path d="M17 26 L18 50 H21 L20 26 Z" fill="#FFF" />
-                    <circle cx="10" cy="24" r="5" fill="#FEF08A" />
-                    <circle cx="16" cy="22" r="6" fill="#FEF08A" />
-                    <circle cx="23" cy="24" r="5" fill="#FEF08A" />
-                    <circle cx="13" cy="19" r="4.5" fill="#FDE047" />
-                    <circle cx="19" cy="19" r="5" fill="#FDE047" />
-                  </g>
-                  
-                  {/* Star sparkles in the dark night */}
-                  <g opacity="0.5">
-                    <path d="M120 15 L122 22 L129 24 L122 26 L120 33 L118 26 L111 24 L118 22 Z" fill="#FFE082" />
-                    <path d="M260 40 L261 44 L265 45 L261 46 L260 50 L259 46 L255 45 L259 44 Z" fill="#00D1FF" />
-                  </g>
-
-                  {/* Big glowing "ENTERTAINMENT" lettering background ambient mask */}
-                  <text x="50%" y="112" textAnchor="middle" fill="#FFFFFF" fillOpacity="0.04" fontSize="32" fontWeight="900" letterSpacing="4">VIP CINEMA</text>
-
-                  {/* Modern fading dark vignette gradients */}
-                  <rect width="400" height="120" fill="url(#vignette-grad)" />
-
-                  <defs>
-                    <linearGradient id="cover-bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#0B1528" />
-                      <stop offset="50%" stopColor="#122540" />
-                      <stop offset="100%" stopColor="#1E1E2F" />
-                    </linearGradient>
-                    
-                    <linearGradient id="spotlight-glow" x1="50%" y1="0%" x2="50%" y2="100%">
-                      <stop offset="0%" stopColor="#00D1FF" stopOpacity="0.8" />
-                      <stop offset="100%" stopColor="#000" stopOpacity="0" />
-                    </linearGradient>
-
-                    <linearGradient id="vignette-grad" x1="50%" y1="0%" x2="50%" y2="100%">
-                      <stop offset="0%" stopColor="#000" stopOpacity="0" />
-                      <stop offset="60%" stopColor="#141414" stopOpacity="0.3" />
-                      <stop offset="100%" stopColor="#141414" stopOpacity="1" />
-                    </linearGradient>
-                  </defs>
-                </svg>
-
+              <div className="flex items-center gap-3">
+                <span className="text-xs sm:text-sm font-black tracking-widest text-[#00D1FF] uppercase flex items-center gap-1.5 bg-[#00D1FF]/10 border border-[#00D1FF]/25 px-3 py-1 rounded-full">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#00D1FF] animate-pulse" />
+                  Account & Profile
+                </span>
                 <button 
                   onClick={() => setShowProfileModal(false)}
-                  className="absolute top-4 right-4 p-2 bg-black/60 hover:bg-black/90 text-white hover:text-[#00D1FF] rounded-full transition-all border border-white/5 cursor-pointer z-[10]"
+                  className="p-2 bg-white/5 hover:bg-red-500/20 text-white/70 hover:text-red-400 rounded-xl transition-all border border-white/10 cursor-pointer active:scale-95"
                   id="profile-close-btn"
+                  title="Close Page"
                 >
-                  <X size={16} />
+                  <X size={20} />
                 </button>
               </div>
+            </div>
 
-              <div className="px-6 pb-6 pt-0 relative">
-                {/* Netflix-Style Square Profile Avatar Overlap - Custom Animated Cartoon Character */}
-                <div className="h-16 flex items-end mb-4 -translate-y-8 select-none">
-                  <div className="w-16 h-16 rounded-2xl bg-[#083344] p-1 shadow-[0_4px_25px_rgba(0,209,255,0.4)] border border-[#00D1FF]/40 overflow-hidden shrink-0 flex items-center justify-center select-none">
-                    {renderAvatar(profileData.avatarId, profileData.customAvatar)}
-                  </div>
-                  <div className="ml-4 pb-0.5">
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#00D1FF]/10 text-[#00D1FF] border border-[#00D1FF]/30 text-[9px] font-black uppercase tracking-widest leading-none mb-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#00D1FF] animate-pulse" />
-                      Premium Account
-                    </span>
-                    <h2 className="text-xl font-black text-white leading-tight">{creds.username}</h2>
-                  </div>
-                </div>
-
-                {/* Beautiful Avatar Choice Row */}
-                <div className="-mt-4 mb-5 space-y-2.5">
-                  <h3 className="text-[11px] font-black uppercase tracking-widest text-[#00D1FF] flex justify-between items-center">
-                    <span>Choose Avatar / Profile Picture</span>
-                    {profileData.customAvatar && (
-                      <button 
-                        onClick={() => updateProfile('cinephile', null)}
-                        className="text-[10px] text-red-500 hover:text-red-300 transition-colors font-bold cursor-pointer uppercase font-sans"
-                      >
-                        Reset
-                      </button>
-                    )}
-                  </h3>
-                  <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-3 flex flex-col gap-3">
-                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-                      {AVATARS.map((avatar) => {
-                        const isSelected = !profileData.customAvatar && profileData.avatarId === avatar.id;
-                        return (
-                          <button
-                            key={avatar.id}
-                            onClick={() => updateProfile(avatar.id, null)}
-                            className={cn(
-                              "w-11 h-11 rounded-full p-0.5 transition-all relative shrink-0 active:scale-95 cursor-pointer hover:scale-105",
-                              isSelected 
-                                ? "ring-2 ring-[#00D1FF] ring-offset-2 ring-offset-[#141414] scale-105" 
-                                : "opacity-60 hover:opacity-100"
-                            )}
-                            title={avatar.name}
-                          >
-                            {avatar.render()}
-                          </button>
-                        );
-                      })}
-
-                      {/* Custom Upload Button */}
-                      <label 
-                        className={cn(
-                          "w-11 h-11 rounded-full flex flex-col items-center justify-center border-2 border-dashed transition-all relative shrink-0 cursor-pointer active:scale-95 hover:scale-105",
-                          profileData.customAvatar 
-                            ? "border-[#00D1FF] bg-[#00D1FF]/10 ring-2 ring-[#00D1FF] ring-offset-2 ring-offset-[#141414]" 
-                            : "border-white/20 hover:border-white/45 bg-white/[0.02] hover:bg-white/[0.05]"
-                        )}
-                        title="Upload Custom Image"
-                      >
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          onChange={handleCustomAvatarUpload}
-                          className="hidden" 
-                        />
-                        {profileData.customAvatar ? (
-                          <div className="w-full h-full rounded-full overflow-hidden">
-                            <img 
-                              src={profileData.customAvatar} 
-                              alt="Custom" 
-                              className="w-full h-full object-cover"
-                              referrerPolicy="no-referrer"
-                            />
-                          </div>
-                        ) : (
-                          <Plus size={18} className="text-white/60" />
-                        )}
-                      </label>
-                    </div>
-                    <p className="text-[10px] text-white/40 leading-relaxed font-medium">
-                      Select one of the 5 built-in cartoon avatars or click the <span className="text-[#00D1FF] font-bold">+</span> to upload your own custom photo. Your choice is saved instantly to your account & synced across devices!
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-5">
-                  <div className="space-y-3.5">
-                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#00D1FF]">Subscription Settings</h3>
+            {/* Page Content Area */}
+            <div className="flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-24">
+              <div className="bg-[#141414]/95 border border-white/10 rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.8)]">
+                {/* Profile Background Banner with Premium Cinematic Cover Photo Illustration */}
+                <div className="h-36 sm:h-44 relative overflow-hidden select-none border-b border-white/5">
+                  <svg className="absolute inset-0 w-full h-full object-cover" viewBox="0 0 400 120" preserveAspectRatio="none" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    {/* Dark cinematic background */}
+                    <rect width="400" height="120" fill="url(#cover-bg-grad)" />
                     
-                    {/* Detail Widgets */}
-                    <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 space-y-3.5">
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-white/40 font-medium">Account Status</span>
-                        <div className="flex items-center gap-1.5 font-bold text-emerald-400">
-                          <Check size={14} className="stroke-[3]" />
-                          <span>Active / VIP</span>
-                        </div>
-                      </div>
-
-                      <div className="h-[1px] bg-white/5" />
-
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-white/40 font-medium">Expiry Date</span>
-                        <span className="text-white/90 font-bold tracking-wide">
-                          {userInfo ? formatExpiryDate(userInfo.exp_date) : 'Unlimited / Lifetime'}
-                        </span>
-                      </div>
-
-                      <div className="h-[1px] bg-white/5" />
-
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-white/40 font-medium">Max Connections</span>
-                        <span className="text-white/90 font-mono font-bold">
-                          {userInfo ? `${userInfo.active_cons || '0'} / ${userInfo.max_connections || '1'}` : '1 Connection'}
-                        </span>
-                      </div>
-
-                      <div className="h-[1px] bg-white/5" />
-
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-white/40 font-medium">Creation Date</span>
-                        <span className="text-white/80 font-medium">
-                          {userInfo ? formatCreationDate(userInfo.created_at) : 'N/A'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3.5 mt-4">
-                    <h3 className="text-[11px] font-black uppercase tracking-widest text-[#00D1FF]">Streaming Route</h3>
+                    {/* Glowing spotlight beams (Retro Hollywood opening night!) */}
+                    <path d="M-80 120 L80 -20 L160 -20 Z" fill="url(#spotlight-glow)" opacity="0.15" />
+                    <path d="M480 120 L320 -20 L240 -20 Z" fill="url(#spotlight-glow)" opacity="0.12" />
                     
-                    <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 space-y-3">
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-white/40 font-medium">Connection Type</span>
-                        <span className="text-white/90 font-bold">
-                          {streamingMode === 'B' ? 'Direct (No Proxy)' : 'Proxy / Load Balancer'}
-                        </span>
-                      </div>
+                    {/* Stylized Retro Cinema Film Roll strip along the bottom */}
+                    <path d="M0 80 H400 V95 H0 Z" fill="#111" opacity="0.8" />
+                    {/* Film Sprocket holes */}
+                    <rect x="5" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="25" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="45" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="65" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="85" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="105" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="125" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="145" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="165" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="185" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="205" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="225" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="245" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="265" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="285" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="305" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="325" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="345" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="365" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+                    <rect x="385" y="83" width="6" height="4" rx="1" fill="#FFF" opacity="0.3" />
+
+                    <rect x="5" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="25" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="45" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="65" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="85" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="105" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="125" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="145" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="165" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="185" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="205" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="225" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="245" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="265" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="285" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="305" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="325" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="345" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="365" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+                    <rect x="385" y="90" width="6" height="3" rx="0.5" fill="#FFF" opacity="0.3" />
+
+                    {/* Floating cinema camera vector icon on the right side */}
+                    <g transform="translate(320, 15)" stroke="#00D1FF" strokeWidth="1.5" fill="none" opacity="0.75" className="animate-pulse">
+                      <rect x="5" y="15" width="22" height="15" rx="3" stroke="#00D1FF" strokeWidth="2" />
+                      <circle cx="10" cy="8" r="7" stroke="#00D1FF" strokeWidth="1.5" />
+                      <circle cx="10" cy="8" r="2" fill="#00D1FF" />
+                      <line x1="10" y1="1" x2="10" y2="15" stroke="#00D1FF" strokeWidth="1" />
                       
-                      <div className="grid grid-cols-2 gap-2 mt-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setStreamingMode('A');
-                            localStorage.setItem('iptv_streaming_mode', 'A');
-                          }}
-                          className={`py-2 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 ${
-                            streamingMode === 'A'
-                              ? 'bg-cyan-500 text-black border-cyan-500 shadow-md shadow-cyan-500/10'
-                              : 'bg-white/[0.02] hover:bg-white/[0.05] text-white/60 border-white/5'
-                          }`}
+                      <circle cx="22" cy="8" r="7" stroke="#00D1FF" strokeWidth="1.5" />
+                      <circle cx="22" cy="8" r="2" fill="#00D1FF" />
+                      <line x1="22" y1="1" x2="22" y2="15" stroke="#00D1FF" strokeWidth="1" />
+                      
+                      <path d="M27 20 L35 15 V25 Z" fill="#00D1FF" opacity="0.3" />
+                      <path d="M27 20 L35 15 V25 Z" stroke="#00D1FF" strokeWidth="1.5" />
+                    </g>
+
+                    {/* High-contrast Cinema Tickets on the left side */}
+                    <g transform="translate(30, 12) rotate(-15)" stroke="#F43F5E" strokeWidth="1.5" fill="none" opacity="0.75">
+                      <rect x="0" y="0" width="36" height="20" rx="2" fill="#F43F5E" fillOpacity="0.1" strokeWidth="2" />
+                      <circle cx="0" cy="10" r="3" fill="#0E131F" />
+                      <circle cx="36" cy="10" r="3" fill="#0E131F" />
+                      <line x1="8" y1="4" x2="8" y2="16" stroke="#F43F5E" strokeWidth="1" strokeDasharray="2 2" />
+                      <line x1="28" y1="4" x2="28" y2="16" stroke="#F43F5E" strokeWidth="1" strokeDasharray="2 2" />
+                      <circle cx="18" cy="10" r="2.5" fill="#F43F5E" />
+                    </g>
+
+                    {/* A nice overlapping popcorn bucket in the middle-right */}
+                    <g transform="translate(195, 8)" opacity="0.7">
+                      <path d="M5 26 L10 50 H24 L29 26 Z" fill="#EF4444" />
+                      <path d="M9 26 L12 50 H15 L12 26 Z" fill="#FFF" />
+                      <path d="M17 26 L18 50 H21 L20 26 Z" fill="#FFF" />
+                      <circle cx="10" cy="24" r="5" fill="#FEF08A" />
+                      <circle cx="16" cy="22" r="6" fill="#FEF08A" />
+                      <circle cx="23" cy="24" r="5" fill="#FEF08A" />
+                      <circle cx="13" cy="19" r="4.5" fill="#FDE047" />
+                      <circle cx="19" cy="19" r="5" fill="#FDE047" />
+                    </g>
+                    
+                    {/* Star sparkles in the dark night */}
+                    <g opacity="0.5">
+                      <path d="M120 15 L122 22 L129 24 L122 26 L120 33 L118 26 L111 24 L118 22 Z" fill="#FFE082" />
+                      <path d="M260 40 L261 44 L265 45 L261 46 L260 50 L259 46 L255 45 L259 44 Z" fill="#00D1FF" />
+                    </g>
+
+                    {/* Big glowing "ENTERTAINMENT" lettering background ambient mask */}
+                    <text x="50%" y="112" textAnchor="middle" fill="#FFFFFF" fillOpacity="0.04" fontSize="32" fontWeight="900" letterSpacing="4">VIP CINEMA</text>
+
+                    {/* Modern fading dark vignette gradients */}
+                    <rect width="400" height="120" fill="url(#cover-bg-grad)" />
+
+                    <defs>
+                      <linearGradient id="cover-bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#0B1528" />
+                        <stop offset="50%" stopColor="#122540" />
+                        <stop offset="100%" stopColor="#1E1E2F" />
+                      </linearGradient>
+                      
+                      <linearGradient id="spotlight-glow" x1="50%" y1="0%" x2="50%" y2="100%">
+                        <stop offset="0%" stopColor="#00D1FF" stopOpacity="0.8" />
+                        <stop offset="100%" stopColor="#000" stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                </div>
+
+                <div className="px-6 sm:px-8 pb-8 pt-0 relative">
+                  {/* Profile Avatar Header */}
+                  <div className="h-16 flex items-end mb-6 -translate-y-8 select-none">
+                    <div className="w-20 h-20 rounded-2xl bg-[#083344] p-1 shadow-[0_4px_30px_rgba(0,209,255,0.4)] border-2 border-[#00D1FF] overflow-hidden shrink-0 flex items-center justify-center select-none">
+                      {renderAvatar(profileData.avatarId, profileData.customAvatar)}
+                    </div>
+                    <div className="ml-4 sm:ml-5 pb-0.5">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#00D1FF]/10 text-[#00D1FF] border border-[#00D1FF]/30 text-[10px] sm:text-xs font-black uppercase tracking-widest leading-none mb-1.5">
+                        <span className="w-2 h-2 rounded-full bg-[#00D1FF] animate-pulse" />
+                        Premium Account
+                      </span>
+                      <h2 className="text-2xl sm:text-3xl font-black text-white leading-tight">{creds.username}</h2>
+                    </div>
+                  </div>
+
+                  {/* Choose Avatar Section */}
+                  <div className="-mt-4 mb-6 space-y-3">
+                    <h3 className="text-xs font-black uppercase tracking-widest text-[#00D1FF] flex justify-between items-center">
+                      <span>Choose Avatar / Profile Picture</span>
+                      {profileData.customAvatar && (
+                        <button 
+                          onClick={() => updateProfile('cinephile', null)}
+                          className="text-[10px] text-red-500 hover:text-red-300 transition-colors font-bold cursor-pointer uppercase font-sans"
                         >
-                          Option A (Proxy)
+                          Reset
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setStreamingMode('B');
-                            localStorage.setItem('iptv_streaming_mode', 'B');
-                          }}
-                          className={`py-2 px-3 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all duration-300 cursor-pointer flex items-center justify-center gap-1.5 ${
-                            streamingMode === 'B'
-                              ? 'bg-[#00D1FF] text-black border-[#00D1FF] shadow-md shadow-cyan-500/20'
-                              : 'bg-white/[0.02] hover:bg-white/[0.05] text-white/60 border-white/5'
-                          }`}
+                      )}
+                    </h3>
+                    <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 flex flex-col gap-3">
+                      <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-1">
+                        {AVATARS.map((avatar) => {
+                          const isSelected = !profileData.customAvatar && profileData.avatarId === avatar.id;
+                          return (
+                            <button
+                              key={avatar.id}
+                              onClick={() => updateProfile(avatar.id, null)}
+                              className={cn(
+                                "w-12 h-12 rounded-full p-0.5 transition-all relative shrink-0 active:scale-95 cursor-pointer hover:scale-105",
+                                isSelected 
+                                  ? "ring-2 ring-[#00D1FF] ring-offset-2 ring-offset-[#141414] scale-105" 
+                                  : "opacity-60 hover:opacity-100"
+                              )}
+                              title={avatar.name}
+                            >
+                              {avatar.render()}
+                            </button>
+                          );
+                        })}
+
+                        {/* Custom Upload Button */}
+                        <label 
+                          className={cn(
+                            "w-12 h-12 rounded-full flex flex-col items-center justify-center border-2 border-dashed transition-all relative shrink-0 cursor-pointer active:scale-95 hover:scale-105",
+                            profileData.customAvatar 
+                              ? "border-[#00D1FF] bg-[#00D1FF]/10 ring-2 ring-[#00D1FF] ring-offset-2 ring-offset-[#141414]" 
+                              : "border-white/20 hover:border-white/45 bg-white/[0.02] hover:bg-white/[0.05]"
+                          )}
+                          title="Upload Custom Image"
                         >
-                          Option B (Direct)
-                        </button>
+                          <input 
+                            type="file" 
+                            accept="image/*" 
+                            onChange={handleCustomAvatarUpload}
+                            className="hidden" 
+                          />
+                          {profileData.customAvatar ? (
+                            <div className="w-full h-full rounded-full overflow-hidden">
+                              <img 
+                                src={profileData.customAvatar} 
+                                alt="Custom" 
+                                className="w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                            </div>
+                          ) : (
+                            <Plus size={20} className="text-white/60" />
+                          )}
+                        </label>
                       </div>
-                      <p className="text-[9px] text-white/40 leading-relaxed font-medium">
-                        {streamingMode === 'B' 
-                          ? "🟢 Option B Streams directly from the secure IPTV server. Bypasses the load-balancer proxy, resulting in faster startup speeds and showing your real original IP on the IPTV admin panel." 
-                          : "🔵 Option A Routes video traffic through the USA-based cloud load-balancer. Use this if Direct playback fails on your network."
-                        }
+                      <p className="text-xs text-white/40 leading-relaxed font-medium">
+                        Select one of the 5 built-in cartoon avatars or click the <span className="text-[#00D1FF] font-bold">+</span> to upload your own custom photo. Your choice is saved instantly to your account & synced across devices!
                       </p>
                     </div>
                   </div>
 
-                   <div className="pt-2 flex flex-col gap-3">
-                    {currentWhatsappNumber && (
-                      <a 
-                        href={`https://wa.me/${currentWhatsappNumber}`} 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
-                        className="w-full h-11 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98] shadow-lg shadow-emerald-500/10"
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-black animate-ping" />
-                        Renew / Upgrade Subscription
-                      </a>
-                    )}
+                  <div className="space-y-6">
+                    {/* Subscription Settings */}
+                    <div className="space-y-3.5">
+                      <h3 className="text-xs font-black uppercase tracking-widest text-[#00D1FF]">Subscription Settings</h3>
+                      
+                      <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-5 space-y-4">
+                        <div className="flex justify-between items-center text-xs sm:text-sm">
+                          <span className="text-white/50 font-medium">Account Status</span>
+                          <div className="flex items-center gap-1.5 font-bold text-emerald-400">
+                            <Check size={16} className="stroke-[3]" />
+                            <span>Active / VIP</span>
+                          </div>
+                        </div>
 
-                    <button 
-                      onClick={() => {
-                        setShowProfileModal(false);
-                        handleLogout();
-                      }}
-                      className="w-full h-11 bg-white/5 hover:bg-red-500/15 border border-white/10 hover:border-red-500/35 text-white/70 hover:text-red-400 rounded-xl font-bold text-xs flex items-center justify-center transition-all cursor-pointer active:scale-[0.98]"
-                    >
-                      Sign Out from this Device
-                    </button>
+                        <div className="h-[1px] bg-white/5" />
+
+                        <div className="flex justify-between items-center text-xs sm:text-sm">
+                          <span className="text-white/50 font-medium">Expiry Date</span>
+                          <span className="text-white font-bold tracking-wide">
+                            {userInfo ? formatExpiryDate(userInfo.exp_date) : 'Unlimited / Lifetime'}
+                          </span>
+                        </div>
+
+                        <div className="h-[1px] bg-white/5" />
+
+                        <div className="flex justify-between items-center text-xs sm:text-sm">
+                          <span className="text-white/50 font-medium">Max Connections</span>
+                          <span className="text-white font-mono font-bold">
+                            {userInfo ? `${userInfo.active_cons || '0'} / ${userInfo.max_connections || '1'}` : '1 Connection'}
+                          </span>
+                        </div>
+
+                        <div className="h-[1px] bg-white/5" />
+
+                        <div className="flex justify-between items-center text-xs sm:text-sm">
+                          <span className="text-white/50 font-medium">Creation Date</span>
+                          <span className="text-white/80 font-medium">
+                            {userInfo ? formatCreationDate(userInfo.created_at) : 'N/A'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="pt-2 flex flex-col gap-3.5">
+                      {currentWhatsappNumber && (
+                        <a 
+                          href={`https://wa.me/${currentWhatsappNumber}`} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="w-full h-12 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98] shadow-lg shadow-emerald-500/20 uppercase tracking-wider"
+                        >
+                          <span className="w-2 h-2 rounded-full bg-black animate-ping" />
+                          Renew / Upgrade Subscription
+                        </a>
+                      )}
+
+                      <button 
+                        onClick={() => {
+                          setShowProfileModal(false);
+                          handleLogout();
+                        }}
+                        className="w-full h-12 bg-white/5 hover:bg-red-500/15 border border-white/10 hover:border-red-500/35 text-white/80 hover:text-red-400 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center transition-all cursor-pointer active:scale-[0.98] uppercase tracking-wider"
+                      >
+                        Sign Out from this Device
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </motion.div>
-          </div>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
