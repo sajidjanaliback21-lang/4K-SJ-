@@ -659,9 +659,19 @@ const findActiveReseller = (list: any[]) => {
     // Ignore URL parse error
   }
 
+  const cleanSubdomainStr = (s: any) => {
+    if (!s) return '';
+    return String(s)
+      .toLowerCase()
+      .trim()
+      .replace(/^https?:\/\//, '')
+      .replace(/\/.*$/, '')
+      .replace(/^www\./, '');
+  };
+
   const normalizedList = list.filter(r => r && r.subdomain).map(r => ({
     ...r,
-    cleanSubdomain: String(r.subdomain).toLowerCase().trim()
+    cleanSubdomain: cleanSubdomainStr(r.subdomain)
   }));
 
   // PRIORITY 1: Exact Match on full domain / ref parameter / clean host / referrer
@@ -685,13 +695,13 @@ const findActiveReseller = (list: any[]) => {
   }
 
   // PRIORITY 3: First Subdomain Label Exact Match
-  if (hostFirstPart && hostFirstPart !== 'sj' && hostFirstPart !== 'www') {
+  if (hostFirstPart && hostFirstPart !== 'sj' && hostFirstPart !== 'www' && hostFirstPart !== '4kott') {
     matched = normalizedList.find(r => r.cleanSubdomain === hostFirstPart);
     if (matched) return matched;
   }
   if (key && key.includes('.')) {
     const keyFirstPart = key.split('.')[0];
-    if (keyFirstPart && keyFirstPart !== 'sj' && keyFirstPart !== 'www') {
+    if (keyFirstPart && keyFirstPart !== 'sj' && keyFirstPart !== 'www' && keyFirstPart !== '4kott') {
       matched = normalizedList.find(r => r.cleanSubdomain === keyFirstPart);
       if (matched) return matched;
     }
@@ -1103,20 +1113,29 @@ export default function App() {
 
   const currentServerHost = getStreamingHost();
   
-  // If an active reseller is matched, we MUST NOT fall back to the main admin's details.
-  // We keep it empty if the reseller hasn't specified their whatsapp_number or set it to 'N/A'.
-  const currentWhatsappNumber = activeReseller
-    ? (activeReseller.whatsapp_number && activeReseller.whatsapp_number !== 'N/A' ? activeReseller.whatsapp_number : '')
-    : "923161611304";
+  const resellerKey = getResellerKey();
+  const isResellerDomain = Boolean(resellerKey);
 
-  // If an active reseller is matched, we keep it empty if the reseller hasn't specified their whatsapp_group_link or set it to 'N/A'.
-  const currentWhatsappGroupLink = activeReseller
-    ? (activeReseller.whatsapp_group_link && activeReseller.whatsapp_group_link.trim() !== '' && activeReseller.whatsapp_group_link !== 'N/A' ? activeReseller.whatsapp_group_link : '')
-    : (appSettings.whatsapp_group_link && appSettings.whatsapp_group_link.trim() !== '' && appSettings.whatsapp_group_link !== 'N/A' ? appSettings.whatsapp_group_link : "https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE");
+  // If visiting a reseller domain/subdomain/ref:
+  // 1. WhatsApp Number: ONLY use activeReseller.whatsapp_number if set and not 'N/A'. Otherwise strictly empty '' (NEVER show admin number 923161611304).
+  // 2. WhatsApp Group: ONLY use activeReseller.whatsapp_group_link if set and not 'N/A'. Otherwise strictly empty '' (NEVER show admin group link).
+  // 3. WhatsApp Channel: ONLY use activeReseller.whatsapp_channel_link if set and not 'N/A'. Otherwise strictly empty '' (NEVER show admin channel link).
+  // 4. App Link: ONLY use activeReseller.app_link if set. Otherwise strictly empty ''.
+  const currentWhatsappNumber = (activeReseller && activeReseller.whatsapp_number && activeReseller.whatsapp_number.trim() !== '' && activeReseller.whatsapp_number !== 'N/A')
+    ? activeReseller.whatsapp_number.trim()
+    : (isResellerDomain ? '' : "923161611304");
 
-  const currentWhatsappChannelLink = activeReseller
-    ? (activeReseller.whatsapp_channel_link && activeReseller.whatsapp_channel_link.trim() !== '' && activeReseller.whatsapp_channel_link !== 'N/A' ? activeReseller.whatsapp_channel_link : '')
-    : (appSettings.whatsapp_channel_link && appSettings.whatsapp_channel_link.trim() !== '' && appSettings.whatsapp_channel_link !== 'N/A' ? appSettings.whatsapp_channel_link : "https://whatsapp.com/channel/0029Vb31L8R1CYoUoJAC8A28");
+  const currentWhatsappGroupLink = (activeReseller && activeReseller.whatsapp_group_link && activeReseller.whatsapp_group_link.trim() !== '' && activeReseller.whatsapp_group_link !== 'N/A')
+    ? activeReseller.whatsapp_group_link.trim()
+    : (isResellerDomain ? '' : (appSettings.whatsapp_group_link && appSettings.whatsapp_group_link.trim() !== '' && appSettings.whatsapp_group_link !== 'N/A' ? appSettings.whatsapp_group_link : "https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE"));
+
+  const currentWhatsappChannelLink = (activeReseller && activeReseller.whatsapp_channel_link && activeReseller.whatsapp_channel_link.trim() !== '' && activeReseller.whatsapp_channel_link !== 'N/A')
+    ? activeReseller.whatsapp_channel_link.trim()
+    : (isResellerDomain ? '' : (appSettings.whatsapp_channel_link && appSettings.whatsapp_channel_link.trim() !== '' && appSettings.whatsapp_channel_link !== 'N/A' ? appSettings.whatsapp_channel_link : "https://whatsapp.com/channel/0029Vb31L8R1CYoUoJAC8A28"));
+
+  const currentAppLink = activeReseller
+    ? (activeReseller.app_link && activeReseller.app_link.trim() !== '' ? activeReseller.app_link.trim() : '')
+    : (isResellerDomain ? '' : (appSettings.default_app_download_url || ''));
 
   const getResellerAdjustedUrl = (url: string, action: string = 'play') => {
     if (!url) return '';
@@ -4781,9 +4800,9 @@ export default function App() {
                         <ChevronDown size={14} className="text-white/60 group-hover:translate-y-0.5 transition-transform" />
                       </button>
 
-                      {(activeReseller?.app_link || appSettings.default_app_download_url) && (
+                      {currentAppLink && (
                         <motion.a
-                          href={activeReseller?.app_link || appSettings.default_app_download_url}
+                          href={currentAppLink}
                           target="_blank"
                           rel="noopener noreferrer"
                           initial={{ opacity: 0, scale: 0.92 }}
@@ -6895,7 +6914,7 @@ export default function App() {
             : (currentWhatsappNumber || '');
           const whatsappLoginUrl = cleanPhone 
             ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(`Hello! I need a login account for ${currentBrandName}`)}`
-            : `https://wa.me/923161611304?text=${encodeURIComponent(`Hello! I need a login account for ${currentBrandName}`)}`;
+            : (isResellerDomain ? '' : `https://wa.me/923161611304?text=${encodeURIComponent(`Hello! I need a login account for ${currentBrandName}`)}`);
 
           return (
             <motion.div 
