@@ -64,11 +64,21 @@ async function getTmdbJson(url: string): Promise<any> {
     const finalUrl = isBrowser ? `/api/proxy?url=${encodeURIComponent(url)}` : url;
     const response = await axios.get(finalUrl);
     return response.data;
-  } catch (err) {
+  } catch (err: any) {
+    // If 404 (Resource Not Found on TMDB), return null cleanly without noisy warnings
+    if (err?.response?.status === 404 || err?.status === 404) {
+      return null;
+    }
     if (typeof window !== 'undefined') {
-      console.warn('Proxy request failed, trying direct fallback for URL:', url, err);
-      const response = await axios.get(url);
-      return response.data;
+      try {
+        const response = await axios.get(url);
+        return response.data;
+      } catch (fallbackErr: any) {
+        if (fallbackErr?.response?.status === 404 || fallbackErr?.status === 404) {
+          return null;
+        }
+        throw fallbackErr;
+      }
     }
     throw err;
   }
@@ -80,7 +90,19 @@ export interface TmdbCastMember {
   character?: string;
 }
 
+export interface TmdbEpisodeInfo {
+  episode_number: number;
+  name: string;
+  overview?: string;
+  still_url?: string;
+  runtime?: number;
+  vote_average?: number;
+  air_date?: string;
+  season_number?: number;
+}
+
 export interface TmdbDetails {
+  id?: number;
   backdrop_url?: string;
   poster_url?: string;
   rating?: number;
@@ -88,8 +110,12 @@ export interface TmdbDetails {
   plot?: string;
   trailer_url?: string;
   title?: string;
+  name?: string;
   logo_url?: string;
   runtime?: number;
+  number_of_seasons?: number;
+  number_of_episodes?: number;
+  seasons?: any[];
 }
 
 export interface TmdbTrendingItem {
@@ -331,7 +357,9 @@ export async function fetchTmdbDetails(rawTitle: string, isSeries: boolean): Pro
       : undefined;
 
     const result: TmdbDetails = {
+      id: mediaId,
       title: isSeries ? (fullDetails.name || fullDetails.original_name || '') : (fullDetails.title || fullDetails.original_title || ''),
+      name: isSeries ? (fullDetails.name || fullDetails.original_name || '') : (fullDetails.title || fullDetails.original_title || ''),
       backdrop_url: fullDetails.backdrop_path ? `https://image.tmdb.org/t/p/w1280${fullDetails.backdrop_path}` : undefined,
       poster_url: fullDetails.poster_path ? `https://image.tmdb.org/t/p/w500${fullDetails.poster_path}` : undefined,
       rating: fullDetails.vote_average ? parseFloat(fullDetails.vote_average.toFixed(1)) : undefined,
@@ -340,6 +368,9 @@ export async function fetchTmdbDetails(rawTitle: string, isSeries: boolean): Pro
       trailer_url: trailerUrl,
       logo_url: logoUrl,
       runtime: isSeries ? (fullDetails.episode_run_time && fullDetails.episode_run_time.length > 0 ? fullDetails.episode_run_time[0] : undefined) : (fullDetails.runtime || undefined),
+      number_of_seasons: fullDetails.number_of_seasons,
+      number_of_episodes: fullDetails.number_of_episodes,
+      seasons: fullDetails.seasons,
     };
 
     setCachedItem(cacheKey, result);
@@ -380,6 +411,7 @@ export async function fetchTmdbDetailsById(id: string | number, isSeries: boolea
       : undefined;
 
     const result = {
+      id: Number(id) || fullDetails.id,
       name: isSeries ? (fullDetails.name || fullDetails.original_name || '') : (fullDetails.title || fullDetails.original_title || ''),
       title: isSeries ? (fullDetails.name || fullDetails.original_name || '') : (fullDetails.title || fullDetails.original_title || ''),
       backdrop_url: fullDetails.backdrop_path ? `https://image.tmdb.org/t/p/w1280${fullDetails.backdrop_path}` : undefined,
@@ -390,6 +422,9 @@ export async function fetchTmdbDetailsById(id: string | number, isSeries: boolea
       trailer_url: trailerUrl,
       logo_url: logoUrl,
       runtime: isSeries ? (fullDetails.episode_run_time && fullDetails.episode_run_time.length > 0 ? fullDetails.episode_run_time[0] : undefined) : (fullDetails.runtime || undefined),
+      number_of_seasons: fullDetails.number_of_seasons,
+      number_of_episodes: fullDetails.number_of_episodes,
+      seasons: fullDetails.seasons,
     };
 
     setCachedItem(cacheKey, result);
@@ -398,6 +433,249 @@ export async function fetchTmdbDetailsById(id: string | number, isSeries: boolea
     console.error('Error fetching TMDB details by ID:', err);
     return null;
   }
+}
+
+/**
+ * Fetch episode details for a specific TV Season from TMDB API
+ */
+export async function fetchTmdbSeasonEpisodes(
+  tvId: number | string,
+  seasonNumber: number | string
+): Promise<Record<number, TmdbEpisodeInfo> | null> {
+  if (!tvId) return null;
+  const parsedSeason = parseInt(String(seasonNumber).replace(/\D/g, ''), 10);
+  const cleanSeason = (!isNaN(parsedSeason) && parsedSeason >= 0) ? String(parsedSeason) : '1';
+  const cacheKey = `tv_season_episodes_${tvId}_s${cleanSeason}`;
+  const cached = getCachedItem(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const url = `${BASE_URL}/3/tv/${tvId}/season/${cleanSeason}?api_key=${TMDB_API_KEY}`;
+    const data = await getTmdbJson(url);
+    if (!data || !Array.isArray(data.episodes)) {
+      setCachedItem(cacheKey, {});
+      return null;
+    }
+
+    const episodesMap: Record<number, TmdbEpisodeInfo> = {};
+    for (const ep of data.episodes) {
+      if (ep && typeof ep.episode_number === 'number') {
+        episodesMap[ep.episode_number] = {
+          episode_number: ep.episode_number,
+          name: ep.name ? ep.name.trim() : `Episode ${ep.episode_number}`,
+          overview: ep.overview || undefined,
+          still_url: ep.still_path ? `https://image.tmdb.org/t/p/w300${ep.still_path}` : undefined,
+          runtime: ep.runtime || undefined,
+          vote_average: ep.vote_average ? parseFloat(ep.vote_average.toFixed(1)) : undefined,
+          air_date: ep.air_date || undefined,
+          season_number: Number(cleanSeason) || 1,
+        };
+      }
+    }
+
+    setCachedItem(cacheKey, episodesMap);
+    return episodesMap;
+  } catch (err: any) {
+    // Gracefully cache empty on 404
+    setCachedItem(cacheKey, {});
+    return null;
+  }
+}
+
+/**
+ * Synchronous cache lookup for TMDB season episodes
+ */
+export function getStoredTmdbSeasonEpisodes(
+  tvId: number | string,
+  seasonNumber: number | string
+): Record<number, TmdbEpisodeInfo> | null {
+  if (!tvId) return null;
+  const parsedSeason = parseInt(String(seasonNumber).replace(/\D/g, ''), 10);
+  const cleanSeason = (!isNaN(parsedSeason) && parsedSeason >= 0) ? String(parsedSeason) : '1';
+  const cacheKey = `tv_season_episodes_${tvId}_s${cleanSeason}`;
+  return getCachedItem(cacheKey);
+}
+
+/**
+ * Fetch episode details for multiple seasons of a TV series in parallel
+ */
+export async function fetchTmdbAllSeasonsEpisodes(
+  tvId: number | string,
+  seasonNumbers: (number | string)[],
+  validTmdbSeasons?: (number | string)[]
+): Promise<Record<string, Record<number, TmdbEpisodeInfo>>> {
+  const result: Record<string, Record<number, TmdbEpisodeInfo>> = {};
+  if (!tvId || !seasonNumbers || seasonNumbers.length === 0) return result;
+
+  const validSet = validTmdbSeasons && validTmdbSeasons.length > 0
+    ? new Set(validTmdbSeasons.map(s => {
+        const num = parseInt(String(s).replace(/\D/g, ''), 10);
+        return isNaN(num) ? -1 : num;
+      }))
+    : null;
+
+  const uniqueParsed = Array.from(new Set(
+    seasonNumbers
+      .map(sNum => {
+        const parsed = parseInt(String(sNum).replace(/\D/g, ''), 10);
+        return isNaN(parsed) ? null : parsed;
+      })
+      .filter((n): n is number => n !== null && (validSet === null || validSet.has(n)))
+  ));
+
+  const promises = uniqueParsed.map(async (parsedNum) => {
+    const cleanSeason = String(parsedNum);
+    const eps = await fetchTmdbSeasonEpisodes(tvId, cleanSeason);
+    if (eps && Object.keys(eps).length > 0) {
+      result[cleanSeason] = eps;
+      if (parsedNum < 10) {
+        result[`0${parsedNum}`] = eps;
+      }
+    }
+  });
+
+  await Promise.all(promises);
+  return result;
+}
+
+/**
+ * Clean any messy release / container tags from an episode title
+ */
+export function cleanRawEpisodeTitle(rawTitle: string): string {
+  if (!rawTitle) return '';
+  let title = rawTitle;
+
+  // Remove common video container extensions
+  title = title.replace(/\.(mp4|mkv|avi|flv|ts|m3u8|mov|wmv|webm)$/i, '');
+
+  // Replace dots, underscores with spaces
+  title = title.replace(/[._]/g, ' ');
+
+  // Remove common release tags (1080p, 720p, web-dl, hevc, x264, etc.)
+  title = title.replace(/\b(1080p|720p|480p|2160p|4k|hd|fhd|uhd|web-dl|webrip|bluray|hevc|x264|x265|aac|dts|dual audio|hindi|eng|sub|esub)\b/gi, ' ');
+
+  // Clean redundant whitespace
+  title = title.replace(/\s+/g, ' ').trim();
+  return title;
+}
+
+export interface ResolvedEpisode {
+  displayTitle: string;
+  episodeNum: number | string;
+  seasonNum: string;
+  tmdbTitle?: string;
+  hasTmdbMatch: boolean;
+  stillUrl?: string;
+  overview?: string;
+}
+
+/**
+ * Automatically resolves the genuine TMDB episode name if available,
+ * replacing generic placeholders like "EP1", "E01", "Episode 1", "S01E01", etc.
+ */
+export function resolveEpisodeInfo(
+  episode: any,
+  seasonNum?: string | number,
+  tmdbEpisodesMap?: Record<string, Record<number, TmdbEpisodeInfo>> | Record<number, TmdbEpisodeInfo> | null,
+  tvId?: number | string
+): ResolvedEpisode {
+  if (!episode) {
+    return {
+      displayTitle: 'Episode',
+      episodeNum: 1,
+      seasonNum: '1',
+      hasTmdbMatch: false,
+    };
+  }
+
+  const rawTitle = (episode.title || episode.name || '').toString().trim();
+
+  // 1. Extract Season Number
+  let sNum = '1';
+  if (seasonNum !== undefined && seasonNum !== null && String(seasonNum).trim() !== '') {
+    sNum = String(seasonNum).replace(/\D/g, '') || '1';
+  } else if (episode.season !== undefined && episode.season !== null) {
+    sNum = String(episode.season).replace(/\D/g, '') || '1';
+  } else {
+    const sMatch = rawTitle.match(/\bS(?:eason)?\s*0*(\d+)/i);
+    if (sMatch) {
+      sNum = String(parseInt(sMatch[1], 10));
+    }
+  }
+
+  // 2. Extract Episode Number
+  let epNum: number | null = null;
+  if (episode.episode_num !== undefined && episode.episode_num !== null && !isNaN(Number(episode.episode_num))) {
+    epNum = parseInt(String(episode.episode_num), 10);
+  } else {
+    // Try matching E01, EP 1, Episode 01, #1
+    const epMatch = rawTitle.match(/(?:(?:^|[\s._\-[\]()])(?:E|EP|Episode|Ep|Part|#)\s*0*(\d+)|(?:\bS\d+\s*E0*(\d+)\b))/i);
+    if (epMatch) {
+      const captured = epMatch[1] || epMatch[2];
+      if (captured && !isNaN(Number(captured))) {
+        epNum = parseInt(captured, 10);
+      }
+    } else {
+      // Standalone single number
+      const numMatch = rawTitle.match(/\b0*(\d{1,3})\b/);
+      if (numMatch && !isNaN(Number(numMatch[1]))) {
+        epNum = parseInt(numMatch[1], 10);
+      }
+    }
+  }
+
+  const finalEpNum = epNum !== null && epNum > 0 ? epNum : (episode.episode_num || 1);
+
+  // 3. Lookup TMDB episode data
+  let tmdbEp: TmdbEpisodeInfo | undefined = undefined;
+
+  if (tmdbEpisodesMap) {
+    // Check if tmdbEpisodesMap is structured as { [season]: { [ep]: info } }
+    if ((tmdbEpisodesMap as any)[sNum]) {
+      tmdbEp = (tmdbEpisodesMap as any)[sNum]?.[Number(finalEpNum)];
+    } else if ((tmdbEpisodesMap as any)[`Season ${sNum}`]) {
+      tmdbEp = (tmdbEpisodesMap as any)[`Season ${sNum}`]?.[Number(finalEpNum)];
+    } else if ((tmdbEpisodesMap as any)[Number(finalEpNum)]?.name) {
+      // Flat map for current season
+      tmdbEp = (tmdbEpisodesMap as any)[Number(finalEpNum)];
+    }
+  }
+
+  // If not found in prop map and tvId is present, check synchronous local cache
+  if (!tmdbEp && tvId) {
+    const cachedSeason = getStoredTmdbSeasonEpisodes(tvId, sNum);
+    if (cachedSeason && cachedSeason[Number(finalEpNum)]) {
+      tmdbEp = cachedSeason[Number(finalEpNum)];
+    }
+  }
+
+  // 4. Determine display title
+  if (tmdbEp && tmdbEp.name && tmdbEp.name.trim() !== '') {
+    const cleanTmdbName = tmdbEp.name.trim();
+    // Verify it's not a generic placeholder like "Episode 1" if we already have one
+    return {
+      displayTitle: cleanTmdbName,
+      episodeNum: finalEpNum,
+      seasonNum: sNum,
+      tmdbTitle: cleanTmdbName,
+      hasTmdbMatch: true,
+      stillUrl: tmdbEp.still_url,
+      overview: tmdbEp.overview,
+    };
+  }
+
+  // Fallback: clean up the raw provider title
+  let cleaned = cleanRawEpisodeTitle(rawTitle);
+  if (!cleaned || cleaned.toLowerCase() === `episode ${finalEpNum}`.toLowerCase() || cleaned.toLowerCase() === `ep ${finalEpNum}`.toLowerCase() || cleaned.toLowerCase() === `e${finalEpNum}`.toLowerCase()) {
+    cleaned = `Episode ${finalEpNum}`;
+  }
+
+  return {
+    displayTitle: cleaned,
+    episodeNum: finalEpNum,
+    seasonNum: sNum,
+    hasTmdbMatch: false,
+  };
 }
 
 export function getLanguageTags(rawTitle: string): string[] {

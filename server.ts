@@ -39,21 +39,26 @@ async function startServer() {
       return res.json(cached.data);
     }
 
-    console.log(`Proxying request to: ${url} (Client IP forwarded: ${clientIp})`);
+    console.log(`Proxying request to: ${url} (Client IP: ${clientIp || 'direct'})`);
     try {
       const targetUrl = new URL(url as string);
+      const reqHeaders: Record<string, string> = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': '*/*',
+      };
+
+      // Only forward IP headers if clientIp is a valid external IP
+      if (clientIp && clientIp !== '127.0.0.1' && clientIp !== '::1' && clientIp !== 'localhost') {
+        reqHeaders['X-Forwarded-For'] = clientIp;
+        reqHeaders['X-Real-IP'] = clientIp;
+      }
+
       const response = await axios.get(url as string, {
         params,
         timeout: 60000, // Increased timeout to 60s
         maxContentLength: 100 * 1024 * 1024, // 100MB limit
         httpsAgent,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-          'Accept': '*/*',
-          'Host': targetUrl.host,
-          'X-Forwarded-For': clientIp,
-          'X-Real-IP': clientIp,
-        }
+        headers: reqHeaders
       });
       
       // Store in cache if successful
@@ -73,8 +78,14 @@ async function startServer() {
         return res.json(cached.data);
       }
 
-      console.error(`Proxy error for ${url}:`, error.message);
       const status = error.response?.status || 500;
+      if (status === 404) {
+        console.warn(`Proxy 404 (Not Found) for: ${url}`);
+      } else if (status === 500) {
+        console.warn(`Upstream provider server error (500) for: ${url} - ${error.message}`);
+      } else {
+        console.error(`Proxy error for ${url}:`, error.message);
+      }
       const data = error.response?.data || { error: "Failed to fetch from IPTV server", details: error.message };
       res.status(status).json(data);
     }

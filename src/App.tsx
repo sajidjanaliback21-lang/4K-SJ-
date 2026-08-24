@@ -72,7 +72,7 @@ import IntroLoading from './components/IntroLoading';
 import { db, auth } from './firebase';
 import { doc, onSnapshot, setDoc, getDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
-import { fetchTmdbDetails, TmdbDetails, fetchTrendingMovies, fetchTrendingSeries, TmdbTrendingItem, cleanMediaTitle, fetchTmdbDetailsById, getStoredTmdbDetails, getStoredTmdbDetailsById, getLanguageTags, getLanguageBadge, TRENDING_REGIONS, TrendingRegion, OTT_PLATFORMS, OttPlatform, fetchPlatformMedia, searchTmdbItems } from './lib/tmdb';
+import { fetchTmdbDetails, TmdbDetails, fetchTrendingMovies, fetchTrendingSeries, TmdbTrendingItem, cleanMediaTitle, fetchTmdbDetailsById, getStoredTmdbDetails, getStoredTmdbDetailsById, getLanguageTags, getLanguageBadge, TRENDING_REGIONS, TrendingRegion, OTT_PLATFORMS, OttPlatform, fetchPlatformMedia, searchTmdbItems, resolveEpisodeInfo, fetchTmdbAllSeasonsEpisodes, getStoredTmdbSeasonEpisodes } from './lib/tmdb';
 
 const RegionFlag = ({ code, className = "w-5 h-3.5" }: { code: string; className?: string }) => {
   if (code === 'ALL') {
@@ -847,6 +847,7 @@ export default function App() {
   const [seriesInfo, setSeriesInfo] = useState<any>(null);
   const [movieInfo, setMovieInfo] = useState<any>(null);
   const [tmdbDetails, setTmdbDetails] = useState<TmdbDetails | null>(null);
+  const [tmdbEpisodesMap, setTmdbEpisodesMap] = useState<Record<string, Record<number, any>>>({});
   const [loadingTmdb, setLoadingTmdb] = useState(false);
   const [isSyncingDetails, setIsSyncingDetails] = useState(false);
   const [syncingItemName, setSyncingItemName] = useState("");
@@ -1062,7 +1063,7 @@ export default function App() {
     live_events_enabled: true,
     anti_popup_enabled: true,
     free_movies_title: 'FREE CINEMA',
-    free_series_title: 'FREE BINGE',
+    free_series_title: 'WEB SERIES',
     live_events_title: 'LIVE EVENTS',
     default_server_url: '',
     default_download_url: '',
@@ -1589,7 +1590,7 @@ export default function App() {
           live_events_enabled: data.live_events_enabled ?? true,
           anti_popup_enabled: data.anti_popup_enabled ?? true,
           free_movies_title: data.free_movies_title || 'FREE CINEMA',
-          free_series_title: data.free_series_title || 'FREE BINGE',
+          free_series_title: (data.free_series_title && data.free_series_title !== 'FREE BINGE') ? data.free_series_title : 'WEB SERIES',
           live_events_title: data.live_events_title || 'LIVE EVENTS',
           default_server_url: data.default_server_url || '',
           default_download_url: data.default_download_url || '',
@@ -1724,15 +1725,20 @@ export default function App() {
           setLoadingInfo(true);
           try {
             const info = await xtreamApi.getSeriesInfo(creds, (selectedItem as Series).series_id);
-            setSeriesInfo(info);
-            // Default to first season
-            if (info.seasons && info.seasons.length > 0) {
-              setSelectedSeason(info.seasons[0].season_number.toString());
-            } else if (info.episodes && Object.keys(info.episodes).length > 0) {
-              setSelectedSeason(Object.keys(info.episodes)[0]);
+            if (info) {
+              setSeriesInfo(info);
+              // Default to first season
+              if (info.seasons && info.seasons.length > 0) {
+                setSelectedSeason(info.seasons[0].season_number.toString());
+              } else if (info.episodes && Object.keys(info.episodes).length > 0) {
+                setSelectedSeason(Object.keys(info.episodes)[0]);
+              }
+            } else {
+              setSeriesInfo(null);
             }
           } catch (err) {
-            console.error("Failed to fetch series info", err);
+            console.warn("Could not fetch series info from provider, using fallback:", err);
+            setSeriesInfo(null);
           } finally {
             setLoadingInfo(false);
           }
@@ -1744,9 +1750,30 @@ export default function App() {
           setLoadingInfo(true);
           try {
             const info = await xtreamApi.getMovieInfo(creds, (selectedItem as any).stream_id);
-            setMovieInfo(info);
+            if (info && (info.info || info.movie_data)) {
+              setMovieInfo(info);
+            } else {
+              setMovieInfo({
+                info: {
+                  name: (selectedItem as any).name,
+                  plot: (selectedItem as any).plot || '',
+                  cast: (selectedItem as any).cast || '',
+                  genre: (selectedItem as any).genre || '',
+                  rating: (selectedItem as any).rating || '',
+                }
+              });
+            }
           } catch (err) {
-            console.error("Failed to fetch movie info", err);
+            console.warn("Could not fetch movie info from provider, using fallback:", err);
+            setMovieInfo({
+              info: {
+                name: (selectedItem as any).name,
+                plot: (selectedItem as any).plot || '',
+                cast: (selectedItem as any).cast || '',
+                genre: (selectedItem as any).genre || '',
+                rating: (selectedItem as any).rating || '',
+              }
+            });
           } finally {
             setLoadingInfo(false);
           }
@@ -1812,8 +1839,76 @@ export default function App() {
       fetchTmdb();
     } else {
       setTmdbDetails(null);
+      setTmdbEpisodesMap({});
     }
   }, [selectedItem, selectedFreeMovie, selectedFreeSeries]);
+
+  // Synchronize TMDB episode titles for Web Series & Free Series
+  useEffect(() => {
+    const activeItem = selectedItem || selectedFreeSeries;
+    const isSeries = !!selectedFreeSeries || (selectedItem && 'series_id' in selectedItem);
+    
+    if (isSeries && tmdbDetails?.id) {
+      const tvId = tmdbDetails.id;
+      
+      // If tmdbDetails has known seasons, use them to restrict requests to only existing TMDB seasons!
+      const validTmdbSeasons: number[] = [];
+      if (tmdbDetails.seasons && Array.isArray(tmdbDetails.seasons)) {
+        for (const s of tmdbDetails.seasons) {
+          const num = typeof s.season_number === 'number' ? s.season_number : parseInt(s.season_number, 10);
+          if (!isNaN(num)) validTmdbSeasons.push(num);
+        }
+      }
+
+      // Determine all season numbers candidate list
+      const seasonsToFetch: (string | number)[] = [];
+      if (selectedSeason) seasonsToFetch.push(selectedSeason);
+      if (selectedFreeSeason) seasonsToFetch.push(selectedFreeSeason);
+      if (seriesInfo?.episodes) {
+        seasonsToFetch.push(...Object.keys(seriesInfo.episodes));
+      }
+      if (freeSeriesEpisodesMap) {
+        seasonsToFetch.push(...Object.keys(freeSeriesEpisodesMap));
+      }
+      if (validTmdbSeasons.length > 0) {
+        seasonsToFetch.push(...validTmdbSeasons);
+      }
+      if (seasonsToFetch.length === 0) seasonsToFetch.push(1);
+
+      const uniqueSeasonNums = Array.from(new Set(
+        seasonsToFetch
+          .map(s => parseInt(String(s).replace(/\D/g, ''), 10))
+          .filter((n): n is number => !isNaN(n) && (validTmdbSeasons.length === 0 || validTmdbSeasons.includes(n)))
+      ));
+
+      // Synchronously populate from local storage first to prevent UI pop-in
+      const initialMap: Record<string, Record<number, any>> = {};
+      for (const sNum of uniqueSeasonNums) {
+        const sStr = String(sNum);
+        const cached = getStoredTmdbSeasonEpisodes(tvId, sStr);
+        if (cached && Object.keys(cached).length > 0) {
+          initialMap[sStr] = cached;
+          if (sNum < 10) initialMap[`0${sNum}`] = cached;
+        }
+      }
+      if (Object.keys(initialMap).length > 0) {
+        setTmdbEpisodesMap(prev => ({ ...prev, ...initialMap }));
+      }
+
+      // Asynchronously fetch fresh season episode data from TMDB
+      if (uniqueSeasonNums.length > 0) {
+        fetchTmdbAllSeasonsEpisodes(tvId, uniqueSeasonNums, validTmdbSeasons.length > 0 ? validTmdbSeasons : undefined)
+          .then((resMap) => {
+            if (resMap && Object.keys(resMap).length > 0) {
+              setTmdbEpisodesMap(prev => ({ ...prev, ...resMap }));
+            }
+          })
+          .catch((err) => {
+            console.warn('Error synchronizing TMDB season episodes:', err);
+          });
+      }
+    }
+  }, [selectedItem, selectedFreeSeries, tmdbDetails, selectedSeason, selectedFreeSeason, seriesInfo, freeSeriesEpisodesMap]);
 
   // Listen for Escape key to close the trailer overlay player
   useEffect(() => {
@@ -3606,15 +3701,25 @@ export default function App() {
   const handlePlayNextFreeEpisode = () => {
     const nextEp = getNextFreeEpisode(playingFreeEpisode);
     if (nextEp) {
-      setPlayingFreeEpisode(nextEp);
+      const resolved = resolveEpisodeInfo(nextEp, nextEp.season, tmdbEpisodesMap, tmdbDetails?.id);
+      setPlayingFreeEpisode({
+        ...nextEp,
+        episode_num: resolved.episodeNum,
+        tmdb_title: resolved.tmdbTitle,
+        display_title: resolved.displayTitle
+      });
       setFreeSeriesActiveUrl(nextEp.play_url);
     }
   };
 
   const handleSelectFreeEpisode = (episode: any, seasonNum: string) => {
+    const resolved = resolveEpisodeInfo(episode, seasonNum, tmdbEpisodesMap, tmdbDetails?.id);
     setPlayingFreeEpisode({
       ...episode,
-      season: seasonNum
+      season: seasonNum,
+      episode_num: resolved.episodeNum,
+      tmdb_title: resolved.tmdbTitle,
+      display_title: resolved.displayTitle
     });
     setFreeSeriesActiveUrl(episode.play_url);
   };
@@ -3952,7 +4057,13 @@ export default function App() {
           }
         }
         if (matchedEpisode) {
-          setPlayingEpisode(matchedEpisode);
+          const resolved = resolveEpisodeInfo(matchedEpisode, matchedEpisode.season, tmdbEpisodesMap, tmdbDetails?.id);
+          setPlayingEpisode({
+            ...matchedEpisode,
+            episode_num: resolved.episodeNum,
+            tmdb_title: resolved.tmdbTitle,
+            display_title: resolved.displayTitle
+          });
         } else {
           // Fallback if seriesInfo doesn't contain the episode ID
           setPlayingEpisode({ episode_num: 'Active', title: 'Web Episode' });
@@ -4671,7 +4782,7 @@ export default function App() {
                           </div>
                           {item.isFree && (
                             <span className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-md bg-purple-600/90 backdrop-blur-md text-[9px] font-extrabold text-white uppercase tracking-wider shadow">
-                              Free Binge
+                              Free Series
                             </span>
                           )}
                         </div>
@@ -5487,7 +5598,7 @@ export default function App() {
                     { 
                       id: 'series',
                       label: 'WEB SERIES', 
-                      title: appSettings.free_series_title || 'WEB SERIES', 
+                      title: (appSettings.free_series_title && appSettings.free_series_title !== 'FREE BINGE') ? appSettings.free_series_title : 'WEB SERIES', 
                       icon: <Tv size={28} className="text-white drop-shadow-lg" />, 
                       color: 'from-purple-400 to-indigo-600', 
                       glow: 'shadow-purple-500/20',
@@ -5603,7 +5714,7 @@ export default function App() {
                     </div>
                     <h3 className="text-2xl font-black text-white italic tracking-tighter uppercase">
                       {activeFreeTab === 'movies' ? (appSettings.free_movies_title || 'Free Movies') : 
-                       activeFreeTab === 'series' ? (appSettings.free_series_title || 'Free Series') : 
+                       activeFreeTab === 'series' ? ((appSettings.free_series_title && appSettings.free_series_title !== 'FREE BINGE') ? appSettings.free_series_title : 'Web Series') : 
                        (appSettings.live_events_title || 'Live Events')}
                     </h3>
                   </div>
@@ -5614,7 +5725,7 @@ export default function App() {
                     isMoviesLoading ? (
                       <div className="flex flex-col items-center justify-center py-24 gap-4">
                         <Loader2 className="animate-spin text-cyan-500" size={48} />
-                        <p className="text-white/40 font-bold uppercase tracking-widest text-xs">Loading Premium Movies...</p>
+                        <p className="text-white/40 font-bold uppercase tracking-widest text-xs">Loading Free Movies...</p>
                       </div>
                     ) : displayedFreeMovies.length === 0 ? (
                       <div className="text-center py-20 glass rounded-[3rem] border border-white/5">
@@ -5652,7 +5763,7 @@ export default function App() {
                               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-5">
                                 <h4 className="text-white font-black text-xs sm:text-sm italic tracking-tighter line-clamp-2 uppercase leading-tight mb-2 group-hover:text-cyan-400 transition-colors">{movie.name}</h4>
                                 <div className="flex items-center gap-2">
-                                  <span className="px-2 py-0.5 bg-cyan-500/20 border border-cyan-500/40 rounded-lg text-[8px] font-black text-cyan-400 uppercase tracking-widest">Premium</span>
+                                  <span className="px-2 py-0.5 bg-cyan-500/20 border border-cyan-500/40 rounded-lg text-[8px] font-black text-cyan-400 uppercase tracking-widest">FREE</span>
                                 </div>
                               </div>
                               <div className="absolute inset-0 bg-cyan-500/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
@@ -5671,7 +5782,7 @@ export default function App() {
                     isSeriesLoading ? (
                       <div className="flex flex-col items-center justify-center py-24 gap-4">
                         <Loader2 className="animate-spin text-purple-500" size={48} />
-                        <p className="text-white/40 font-bold uppercase tracking-widest text-xs">Loading Premium Series...</p>
+                        <p className="text-white/40 font-bold uppercase tracking-widest text-xs">Loading Free Series...</p>
                       </div>
                     ) : displayedFreeSeries.length === 0 ? (
                       <div className="text-center py-20 glass rounded-[3rem] border border-white/5">
@@ -5709,7 +5820,7 @@ export default function App() {
                               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-5">
                                 <h4 className="text-white font-black text-xs sm:text-sm italic tracking-tighter line-clamp-2 uppercase leading-tight mb-2 group-hover:text-purple-400 transition-colors">{series.name}</h4>
                                 <div className="flex items-center gap-2">
-                                  <span className="px-2 py-0.5 bg-purple-500/20 border border-purple-500/40 rounded-lg text-[8px] font-black text-purple-400 uppercase tracking-widest">Premium</span>
+                                  <span className="px-2 py-0.5 bg-purple-500/20 border border-purple-500/40 rounded-lg text-[8px] font-black text-purple-400 uppercase tracking-widest">FREE</span>
                                 </div>
                               </div>
                               <div className="absolute inset-0 bg-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
@@ -6310,57 +6421,60 @@ export default function App() {
 
                           {/* Episodes List */}
                           <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1 no-scrollbar pb-10">
-                            {seriesInfo.episodes[selectedSeason || '']?.map((episode: any, idx: number) => (
-                              <div 
-                                key={`episode-mob-${episode.id}-${idx}`}
-                                className="group/ep flex items-center justify-between p-2.5 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/20 transition-all"
-                              >
-                                <div className="flex items-center gap-3">
-                                  <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-[9px] font-bold">
-                                    {episode.episode_num}
+                            {seriesInfo.episodes[selectedSeason || '']?.map((episode: any, idx: number) => {
+                              const resolved = resolveEpisodeInfo(episode, selectedSeason, tmdbEpisodesMap, tmdbDetails?.id);
+                              return (
+                                <div 
+                                  key={`episode-mob-${episode.id}-${idx}`}
+                                  className="group/ep flex items-center justify-between p-2.5 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/20 transition-all"
+                                >
+                                  <div className="flex items-center gap-3 min-w-0 pr-2">
+                                    <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-[9px] font-bold shrink-0 text-white/90">
+                                      {resolved.episodeNum}
+                                    </div>
+                                    <div className="flex flex-col min-w-0">
+                                      <span className="text-xs font-semibold line-clamp-1 text-white">{resolved.displayTitle}</span>
+                                      <span className="text-[9px] text-white/40 uppercase tracking-wider">Episode {resolved.episodeNum}</span>
+                                    </div>
                                   </div>
-                                  <div className="flex flex-col">
-                                    <span className="text-xs font-semibold line-clamp-1">{episode.title}</span>
-                                    <span className="text-[9px] text-white/40 uppercase tracking-wider">Episode {episode.episode_num}</span>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button 
+                                      onClick={() => handleAction('web_play', selectedItem, episode.id, episode.container_extension)}
+                                      className="p-1.5 bg-[#00D1FF]/10 text-[#00D1FF] hover:bg-[#00D1FF]/20 rounded-lg transition-colors border border-[#00D1FF]/20"
+                                      title="Play Online"
+                                    >
+                                      <Play size={14} fill="currentColor" />
+                                    </button>
+                                    <button 
+                                      onClick={() => handleAction('play', selectedItem, episode.id, episode.container_extension)}
+                                      className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+                                      title="Play in External Player"
+                                    >
+                                      <Share2 size={14} />
+                                    </button>
+                                    <button 
+                                      onClick={() => handleAction('copy', selectedItem, episode.id, episode.container_extension)}
+                                      className={cn(
+                                        "p-1.5 rounded-lg transition-all",
+                                        copiedId === episode.id 
+                                          ? "bg-green-500/20 text-green-400" 
+                                          : "hover:bg-white/20 text-white/60"
+                                      )}
+                                      title="Copy Episode Link"
+                                    >
+                                      {copiedId === episode.id ? <Check size={14} /> : <Copy size={14} />}
+                                    </button>
+                                    <button 
+                                      onClick={() => handleAction('download', selectedItem, episode.id, episode.container_extension)}
+                                      className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
+                                      title="Download Episode"
+                                    >
+                                      <Download size={14} />
+                                    </button>
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-1">
-                                  <button 
-                                    onClick={() => handleAction('web_play', selectedItem, episode.id, episode.container_extension)}
-                                    className="p-1.5 bg-[#00D1FF]/10 text-[#00D1FF] hover:bg-[#00D1FF]/20 rounded-lg transition-colors border border-[#00D1FF]/20"
-                                    title="Play Online"
-                                  >
-                                    <Play size={14} fill="currentColor" />
-                                  </button>
-                                  <button 
-                                    onClick={() => handleAction('play', selectedItem, episode.id, episode.container_extension)}
-                                    className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
-                                    title="Play in External Player"
-                                  >
-                                    <Share2 size={14} />
-                                  </button>
-                                  <button 
-                                    onClick={() => handleAction('copy', selectedItem, episode.id, episode.container_extension)}
-                                    className={cn(
-                                      "p-1.5 rounded-lg transition-all",
-                                      copiedId === episode.id 
-                                        ? "bg-green-500/20 text-green-400" 
-                                        : "hover:bg-white/20 text-white/60"
-                                    )}
-                                    title="Copy Episode Link"
-                                  >
-                                    {copiedId === episode.id ? <Check size={14} /> : <Copy size={14} />}
-                                  </button>
-                                  <button 
-                                    onClick={() => handleAction('download', selectedItem, episode.id, episode.container_extension)}
-                                    className="p-1.5 hover:bg-white/20 rounded-lg transition-colors"
-                                    title="Download Episode"
-                                  >
-                                    <Download size={14} />
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </>
                       ) : (
@@ -6599,57 +6713,60 @@ export default function App() {
 
                             {/* Episodes List (Compact Height to guarantee zero scrolling!) */}
                             <div className="space-y-1.5 max-h-[140px] lg:max-h-[180px] overflow-y-auto pr-1 desktop-scrollbar pb-1">
-                              {seriesInfo.episodes[selectedSeason || '']?.map((episode: any, idx: number) => (
-                                <div 
-                                  key={`episode-desk-${episode.id}-${idx}`}
-                                  className="group/ep flex items-center justify-between p-2 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/20 transition-all"
-                                >
-                                  <div className="flex items-center gap-3">
-                                    <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-xs font-bold">
-                                      {episode.episode_num}
+                              {seriesInfo.episodes[selectedSeason || '']?.map((episode: any, idx: number) => {
+                                const resolved = resolveEpisodeInfo(episode, selectedSeason, tmdbEpisodesMap, tmdbDetails?.id);
+                                return (
+                                  <div 
+                                    key={`episode-desk-${episode.id}-${idx}`}
+                                    className="group/ep flex items-center justify-between p-2 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/20 transition-all"
+                                  >
+                                    <div className="flex items-center gap-3 min-w-0 pr-2">
+                                      <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-xs font-bold shrink-0 text-white/90">
+                                        {resolved.episodeNum}
+                                      </div>
+                                      <div className="flex flex-col min-w-0">
+                                        <span className="text-xs font-semibold line-clamp-1 text-white">{resolved.displayTitle}</span>
+                                        <span className="text-[9px] text-white/40 uppercase tracking-wider">Episode {resolved.episodeNum}</span>
+                                      </div>
                                     </div>
-                                    <div className="flex flex-col">
-                                      <span className="text-xs font-semibold line-clamp-1">{episode.title}</span>
-                                      <span className="text-[9px] text-white/40 uppercase tracking-wider">Episode {episode.episode_num}</span>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <button 
+                                        onClick={() => handleAction('web_play', selectedItem, episode.id, episode.container_extension)}
+                                        className="p-1.5 bg-[#00D1FF]/10 text-[#00D1FF] hover:bg-[#00D1FF]/20 rounded-lg transition-colors border border-[#00D1FF]/20 cursor-pointer"
+                                        title="Play Online"
+                                      >
+                                        <Play size={12} fill="currentColor" />
+                                      </button>
+                                      <button 
+                                        onClick={() => handleAction('play', selectedItem, episode.id, episode.container_extension)}
+                                        className="p-1.5 hover:bg-white/20 rounded-lg transition-colors cursor-pointer"
+                                        title="Play in External Player"
+                                      >
+                                        <Share2 size={12} />
+                                      </button>
+                                      <button 
+                                        onClick={() => handleAction('copy', selectedItem, episode.id, episode.container_extension)}
+                                        className={cn(
+                                          "p-1.5 rounded-lg transition-all cursor-pointer",
+                                          copiedId === episode.id 
+                                            ? "bg-green-500/20 text-green-400" 
+                                            : "hover:bg-white/20 text-white/60"
+                                        )}
+                                        title="Copy Episode Link"
+                                      >
+                                        {copiedId === episode.id ? <Check size={12} /> : <Copy size={12} />}
+                                      </button>
+                                      <button 
+                                        onClick={() => handleAction('download', selectedItem, episode.id, episode.container_extension)}
+                                        className="p-1.5 hover:bg-white/20 rounded-lg transition-colors cursor-pointer"
+                                        title="Download Episode"
+                                      >
+                                        <Download size={12} />
+                                      </button>
                                     </div>
                                   </div>
-                                  <div className="flex items-center gap-1.5">
-                                    <button 
-                                      onClick={() => handleAction('web_play', selectedItem, episode.id, episode.container_extension)}
-                                      className="p-1.5 bg-[#00D1FF]/10 text-[#00D1FF] hover:bg-[#00D1FF]/20 rounded-lg transition-colors border border-[#00D1FF]/20 cursor-pointer"
-                                      title="Play Online"
-                                    >
-                                      <Play size={12} fill="currentColor" />
-                                    </button>
-                                    <button 
-                                      onClick={() => handleAction('play', selectedItem, episode.id, episode.container_extension)}
-                                      className="p-1.5 hover:bg-white/20 rounded-lg transition-colors cursor-pointer"
-                                      title="Play in External Player"
-                                    >
-                                      <Share2 size={12} />
-                                    </button>
-                                    <button 
-                                      onClick={() => handleAction('copy', selectedItem, episode.id, episode.container_extension)}
-                                      className={cn(
-                                        "p-1.5 rounded-lg transition-all cursor-pointer",
-                                        copiedId === episode.id 
-                                          ? "bg-green-500/20 text-green-400" 
-                                          : "hover:bg-white/20 text-white/60"
-                                      )}
-                                      title="Copy Episode Link"
-                                    >
-                                      {copiedId === episode.id ? <Check size={12} /> : <Copy size={12} />}
-                                    </button>
-                                    <button 
-                                      onClick={() => handleAction('download', selectedItem, episode.id, episode.container_extension)}
-                                      className="p-1.5 hover:bg-white/20 rounded-lg transition-colors cursor-pointer"
-                                      title="Download Episode"
-                                    >
-                                      <Download size={12} />
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </>
                         ) : (
@@ -6727,6 +6844,8 @@ export default function App() {
                   onPlayNext={handlePlayNextEpisode}
                   episodesMap={seriesInfo?.episodes}
                   onSelectEpisode={handleSelectEpisode}
+                  tmdbEpisodesMap={tmdbEpisodesMap}
+                  tmdbId={tmdbDetails?.id}
                   isFree={false}
                 />
               </div>
@@ -9085,53 +9204,55 @@ export default function App() {
 
                         {/* Episodes List */}
                         <div className="space-y-2 max-h-[300px] md:max-h-[400px] overflow-y-auto pr-1 md:pr-2 desktop-scrollbar pb-4">
-                          {freeSeriesEpisodesMap[selectedFreeSeason || '']?.map((episode: any, idx: number) => (
-                            <div 
-                              key={`free-episode-${episode.id}-${idx}`}
-                              className="group/ep flex items-center justify-between p-2.5 md:p-3 rounded-lg md:rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/20 transition-all gap-4"
-                            >
-                              <div className="flex items-center gap-3 md:gap-4 min-w-0">
-                                <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-white/10 flex items-center justify-center text-[9px] md:text-[10px] font-bold shrink-0 text-white/85">
-                                  {episode.episode_num}
+                          {freeSeriesEpisodesMap[selectedFreeSeason || '']?.map((episode: any, idx: number) => {
+                            const resolved = resolveEpisodeInfo(episode, selectedFreeSeason, tmdbEpisodesMap, tmdbDetails?.id);
+                            return (
+                              <div 
+                                key={`free-episode-${episode.id}-${idx}`}
+                                className="group/ep flex items-center justify-between p-2.5 md:p-3 rounded-lg md:rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/20 transition-all gap-4"
+                              >
+                                <div className="flex items-center gap-3 md:gap-4 min-w-0">
+                                  <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-white/10 flex items-center justify-center text-[9px] md:text-[10px] font-bold shrink-0 text-white/85">
+                                    {resolved.episodeNum}
+                                  </div>
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="text-xs md:text-sm font-semibold line-clamp-1 text-white">{resolved.displayTitle}</span>
+                                    <span className="text-[9px] md:text-[10px] text-white/40 uppercase tracking-wider">Episode {resolved.episodeNum}</span>
+                                  </div>
                                 </div>
-                                <div className="flex flex-col min-w-0">
-                                  <span className="text-xs md:text-sm font-semibold line-clamp-1 text-white">{episode.title}</span>
-                                  <span className="text-[9px] md:text-[10px] text-white/40 uppercase tracking-wider">Episode {episode.episode_num}</span>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
-                                {/* Play Online */}
-                                <button 
-                                  onClick={() => {
-                                    setPlayingFreeSeries(selectedFreeSeries);
-                                    setSelectedFreeSeries(null);
-                                    handleSelectFreeEpisode(episode, selectedFreeSeason || '');
-                                    trackMediaPlayback(selectedFreeSeries, 'series', `S${selectedFreeSeason || '1'} E${episode.episode_num || '1'}: ${episode.title || ''}`);
-                                  }}
-                                  className="p-1.5 md:p-2 bg-[#00D1FF]/10 text-[#00D1FF] hover:bg-[#00D1FF]/20 rounded-lg transition-colors border border-[#00D1FF]/20 cursor-pointer"
-                                  title="Play Online"
-                                >
-                                  <Play size={14} md:size={16} fill="currentColor" />
-                                </button>
-                                
-                                {/* Share/URL button */}
-                                <button 
-                                  onClick={() => {
-                                    window.location.href = formatVlcUrl(getResellerAdjustedUrl(episode.play_url));
-                                    if (selectedFreeSeries) {
-                                      const seasonStr = selectedFreeSeason ? `S${selectedFreeSeason}` : '';
-                                      const epStr = episode.episode_num ? `E${episode.episode_num}` : '';
-                                      const partStr = [seasonStr, epStr].filter(Boolean).join('');
-                                      trackMediaPlayback(selectedFreeSeries, 'series', `${partStr || 'Episode'}: ${episode.title || ''} (VLC External)`);
-                                    }
-                                  }}
-                                  className="p-1.5 md:p-2 hover:bg-white/20 text-white/60 hover:text-white rounded-lg transition-colors cursor-pointer"
-                                  title="Play in External Player"
-                                >
-                                  <Share2 size={14} md:size={16} />
-                                </button>
+                                <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+                                  {/* Play Online */}
+                                  <button 
+                                    onClick={() => {
+                                      setPlayingFreeSeries(selectedFreeSeries);
+                                      setSelectedFreeSeries(null);
+                                      handleSelectFreeEpisode(episode, selectedFreeSeason || '');
+                                      trackMediaPlayback(selectedFreeSeries, 'series', `S${selectedFreeSeason || '1'} E${resolved.episodeNum || '1'}: ${resolved.displayTitle || ''}`);
+                                    }}
+                                    className="p-1.5 md:p-2 bg-[#00D1FF]/10 text-[#00D1FF] hover:bg-[#00D1FF]/20 rounded-lg transition-colors border border-[#00D1FF]/20 cursor-pointer"
+                                    title="Play Online"
+                                  >
+                                    <Play size={14} md:size={16} fill="currentColor" />
+                                  </button>
+                                  
+                                  {/* Share/URL button */}
+                                  <button 
+                                    onClick={() => {
+                                      window.location.href = formatVlcUrl(getResellerAdjustedUrl(episode.play_url));
+                                      if (selectedFreeSeries) {
+                                        const seasonStr = selectedFreeSeason ? `S${selectedFreeSeason}` : '';
+                                        const epStr = resolved.episodeNum ? `E${resolved.episodeNum}` : '';
+                                        const partStr = [seasonStr, epStr].filter(Boolean).join('');
+                                        trackMediaPlayback(selectedFreeSeries, 'series', `${partStr || 'Episode'}: ${resolved.displayTitle || ''} (VLC External)`);
+                                      }
+                                    }}
+                                    className="p-1.5 md:p-2 hover:bg-white/20 text-white/60 hover:text-white rounded-lg transition-colors cursor-pointer"
+                                    title="Play in External Player"
+                                  >
+                                    <Share2 size={14} md:size={16} />
+                                  </button>
 
-                                {/* Copy link */}
+                                  {/* Copy link */}
                                 <button 
                                   onClick={() => {
                                     navigator.clipboard.writeText(getResellerAdjustedUrl(episode.play_url));
@@ -9159,8 +9280,9 @@ export default function App() {
                                 </button>
                               </div>
                             </div>
-                          ))}
-                        </div>
+                          );
+                        })}
+                      </div>
                       </>
                     ) : (
                       <p className="text-xs md:text-sm text-white/40 italic text-center py-4">No episodes found for this free series.</p>
@@ -9383,6 +9505,8 @@ export default function App() {
                       episodesMap={freeSeriesEpisodesMap || undefined}
                       onSelectEpisode={handleSelectFreeEpisode}
                       onDownloadEpisode={handleDownloadFreeEpisode}
+                      tmdbEpisodesMap={tmdbEpisodesMap}
+                      tmdbId={tmdbDetails?.id}
                       isFree={true}
                     />
                   ) : (
@@ -9759,7 +9883,7 @@ export default function App() {
                       {/* Free Series Toggle */}
                       <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-4">
                         <div className="flex items-center justify-between">
-                          <h4 className="text-xs font-black text-purple-400 uppercase tracking-widest">Free Series</h4>
+                          <h4 className="text-xs font-black text-purple-400 uppercase tracking-widest">Free Web Series</h4>
                           <button 
                             onClick={() => setNewAppSettings(prev => ({ ...prev, free_series_enabled: !prev.free_series_enabled }))}
                             className={cn("w-12 h-6 rounded-full relative transition-all duration-300", newAppSettings.free_series_enabled ? "bg-purple-500" : "bg-white/10")}
@@ -9771,7 +9895,7 @@ export default function App() {
                           type="text" 
                           value={newAppSettings.free_series_title || ''}
                           onChange={(e) => setNewAppSettings(prev => ({ ...prev, free_series_title: e.target.value }))}
-                          placeholder="Category Title"
+                          placeholder="Category Title (e.g. WEB SERIES)"
                           className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-purple-500/50"
                         />
                       </div>

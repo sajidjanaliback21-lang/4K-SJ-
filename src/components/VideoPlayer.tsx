@@ -9,6 +9,7 @@ import * as dashjs from 'dashjs';
 import shaka from 'shaka-player';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShieldCheck, Shield, Cpu, Globe, Sliders, X, SkipForward, List, Tv, Download, Gauge, RotateCcw, Pencil, Check, Zap, ExternalLink } from 'lucide-react';
+import { resolveEpisodeInfo } from '../lib/tmdb';
 
 interface VideoPlayerProps {
   options: {
@@ -35,6 +36,8 @@ interface VideoPlayerProps {
   episodesMap?: Record<string, any[]>;
   onSelectEpisode?: (episode: any, seasonNum: string) => void;
   onDownloadEpisode?: (episode: any) => void;
+  tmdbEpisodesMap?: Record<string, Record<number, any>> | Record<number, any>;
+  tmdbId?: number | string;
 }
 
 const parseDRMUrl = (url: string) => {
@@ -178,7 +181,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onPlayNext,
   episodesMap,
   onSelectEpisode,
-  onDownloadEpisode
+  onDownloadEpisode,
+  tmdbEpisodesMap,
+  tmdbId
 }) => {
   const artRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<Artplayer | null>(null);
@@ -193,7 +198,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const hasCompletedInitialLoad = useRef<boolean>(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingText, setLoadingText] = useState('LOADING VIDEO...');
-  const [isOPlayerConnecting, setIsOPlayerConnecting] = useState(false);
   const [showEqPanel, setShowEqPanel] = useState(false);
   const [showEpisodesPanel, setShowEpisodesPanel] = useState(false);
   const [showSpeedPanel, setShowSpeedPanel] = useState(false);
@@ -537,46 +541,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return !!(options.isLive || isHls || isTs || isMpd || originalUrl?.includes('/live/'));
   }, [originalUrl, options.isLive, source]);
 
-  const showOPlayerFallback = React.useMemo(() => {
-    if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
-
-    // 1. FREE section content MUST NEVER use OPlayer system
-    const isFreeContent = !!(isFree || options.isFree);
-    if (isFreeContent) {
-      return false;
-    }
-
-    // 2. Device Check: MUST be iPhone or iPad ONLY. MacBooks / Mac OS desktops must NOT use OPlayer.
-    const userAgent = navigator.userAgent || '';
-    const platform = navigator.platform || '';
-
-    const isIPhoneOrIPod = /iPhone|iPod/.test(userAgent);
-    const isIPad = /iPad/.test(userAgent) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const isIOSDevice = isIPhoneOrIPod || isIPad;
-
-    // Explicit check to exclude MacBooks & Mac desktops
-    const isMacDesktop = /Macintosh|Mac OS X/.test(userAgent) && !isIPad;
-
-    if (!isIOSDevice || isMacDesktop) {
-      return false;
-    }
-
-    // 3. Live TV / Live Channels do not use OPlayer fallback
-    const isLiveTV = !!(options.isLive || originalUrl.toLowerCase().includes('/live/'));
-    if (isLiveTV) {
-      return false;
-    }
-
-    // Only subscription movies & web series on iPhone/iPad use OPlayer
-    return true;
-  }, [isFree, options.isFree, options.isLive, originalUrl]);
-
-  useEffect(() => {
-    if (showOPlayerFallback) {
-      setIsLoading(false);
-    }
-  }, [showOPlayerFallback]);
-
   const isEmbeddable = (url: string) => {
     if (isEmbed) return true;
     const lowerUrl = url.toLowerCase();
@@ -685,7 +649,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   });
 
   useEffect(() => {
-    if (!artRef.current || !sourceUrl || isEmbeddable(originalUrl) || options.is_webpage || showOPlayerFallback) return;
+    if (!artRef.current || !sourceUrl || isEmbeddable(originalUrl) || options.is_webpage) return;
 
     let dropTime = 0;
 
@@ -2387,7 +2351,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
       <AnimatePresence>
-        {isLoading && !isEmbeddable(originalUrl) && !options.is_webpage && !showOPlayerFallback && (
+        {isLoading && !isEmbeddable(originalUrl) && !options.is_webpage && (
           <motion.div 
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -2512,78 +2476,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </div>
           )}
         </div>
-      ) : showOPlayerFallback ? (
-        <div className="absolute inset-0 w-full h-full bg-[#080808] flex flex-col items-center justify-center p-4 text-center select-none">
-          {/* Ambient Glow */}
-          <div className="absolute inset-0 pointer-events-none overflow-hidden">
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full max-w-[400px] max-h-[400px] bg-[#00D1FF]/10 blur-[100px] rounded-full" />
-          </div>
-
-          <div className="relative z-10 flex flex-col items-center max-w-sm w-full gap-6 px-6 py-8 rounded-3xl bg-[#0d0d0d]/90 border border-white/10 backdrop-blur-xl shadow-[0_15px_40px_rgba(0,0,0,0.8)]">
-            {/* Logo / Icon */}
-            <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-[#00D1FF]/20 to-indigo-500/20 flex items-center justify-center border border-[#00D1FF]/30 shadow-[0_0_20px_rgba(0,209,255,0.2)]">
-              <ExternalLink className="w-8 h-8 text-[#00D1FF] drop-shadow-[0_0_8px_rgba(0,209,255,0.5)]" />
-            </div>
-
-            {/* Header */}
-            <div className="flex flex-col gap-2">
-              <h2 className="text-lg md:text-xl font-bold text-white tracking-widest uppercase italic">
-                Play in OPlayer Lite
-              </h2>
-              <p className="text-xs text-white/60 max-w-[280px] mx-auto leading-relaxed">
-                Enjoy stable high-speed VOD playback, rich subtitles, and full audio controls via OPlayer on iOS.
-              </p>
-            </div>
-
-            {/* Actions / Loading state */}
-            <div className="flex flex-col w-full gap-3.5 mt-2 min-h-[100px] justify-center items-center">
-              {isOPlayerConnecting ? (
-                <div className="flex flex-col items-center gap-4">
-                  {/* Custom CSS Loading Spinner */}
-                  <div className="relative flex items-center justify-center w-12 h-12">
-                    <div className="absolute inset-0 rounded-full border-4 border-white/10" />
-                    <div className="absolute inset-0 rounded-full border-4 border-t-[#00D1FF] border-r-transparent border-b-transparent border-l-transparent animate-spin" />
-                  </div>
-                  <span className="text-xs font-black text-[#00D1FF] uppercase tracking-widest italic animate-pulse">
-                    Connecting to Secure 4K Server...
-                  </span>
-                </div>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsOPlayerConnecting(true);
-                      setTimeout(() => {
-                        const deepLink = 'oplayerlite://' + originalUrl;
-                        console.log('[OPlayer Fallback] Launching OPlayer Deep Link:', deepLink);
-                        window.location.href = deepLink;
-                        // Auto reset connecting state after 5 seconds in case they return back to screen
-                        setTimeout(() => {
-                          setIsOPlayerConnecting(false);
-                        }, 5000);
-                      }, 2500);
-                    }}
-                    className="w-full py-3 px-4 bg-[#00D1FF] hover:bg-cyan-400 text-black font-extrabold text-xs uppercase tracking-widest rounded-xl transition-all duration-300 transform active:scale-[0.98] shadow-lg shadow-[#00D1FF]/20 border border-[#00D1FF]/20 flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Tv className="w-4 h-4 fill-black" />
-                    Play in OPlayer (Recommended)
-                  </button>
-
-                  <a
-                    href="https://apps.apple.com/app/oplayer-lite-media-player/id385907472"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-white/40 hover:text-[#00D1FF] font-medium transition-colors py-1 flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    Don't have OPlayer? Install it first
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
       ) : (
         <div 
           ref={artRef} 
@@ -2692,24 +2584,27 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Floating Episode Number Pill above bottom controls - only shown during controls visible & when web series is playing */}
       {eqPortalTarget && playingEpisode && createPortal(
         <AnimatePresence>
-          {areControlsShown && !isLoading && (
-            <motion.div
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 15 }}
-              className="absolute bottom-[65px] md:bottom-[75px] left-[15px] md:left-[24px] z-[99] pointer-events-none"
-            >
-              <div className="flex items-center gap-2 px-3.5 py-1.5 bg-black/85 backdrop-blur-md rounded-full border border-white/10 shadow-[0_4px_25px_rgba(0,0,0,0.65)]">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#00D1FF] animate-pulse shadow-[0_0_8px_#00D1FF]" />
-                <span className="text-[8px] md:text-[10px] text-white/50 font-black uppercase tracking-[0.2em] font-sans">
-                  You are watching
-                </span>
-                <span className="text-[9px] md:text-[11px] font-black uppercase tracking-wider text-[#00D1FF] drop-shadow-[0_0_6px_rgba(0,209,255,0.55)]">
-                  Episode {playingEpisode.episode_num}
-                </span>
-              </div>
-            </motion.div>
-          )}
+          {areControlsShown && !isLoading && (() => {
+            const resolvedCurrent = resolveEpisodeInfo(playingEpisode, playingEpisode.season || panelSeason, tmdbEpisodesMap, tmdbId);
+            return (
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 15 }}
+                className="absolute bottom-[65px] md:bottom-[75px] left-[15px] md:left-[24px] z-[99] pointer-events-none max-w-[70vw]"
+              >
+                <div className="flex items-center gap-2 px-3.5 py-1.5 bg-black/85 backdrop-blur-md rounded-full border border-white/10 shadow-[0_4px_25px_rgba(0,0,0,0.65)] truncate">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#00D1FF] animate-pulse shadow-[0_0_8px_#00D1FF] shrink-0" />
+                  <span className="text-[8px] md:text-[10px] text-white/50 font-black uppercase tracking-[0.2em] font-sans shrink-0">
+                    Now Playing
+                  </span>
+                  <span className="text-[9px] md:text-[11px] font-black uppercase tracking-wider text-[#00D1FF] drop-shadow-[0_0_6px_rgba(0,209,255,0.55)] truncate">
+                    Ep {resolvedCurrent.episodeNum}{resolvedCurrent.hasTmdbMatch ? ` · ${resolvedCurrent.displayTitle}` : ''}
+                  </span>
+                </div>
+              </motion.div>
+            );
+          })()}
         </AnimatePresence>,
         eqPortalTarget
       )}
@@ -2717,27 +2612,32 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Floating Next Episode Action Button - only shown during controls visible & when next episode is available */}
       {eqPortalTarget && nextEpisode && onPlayNext && createPortal(
         <AnimatePresence>
-          {areControlsShown && !isLoading && (
-            <motion.div
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 15 }}
-              className="absolute bottom-[65px] md:bottom-[75px] right-[15px] md:right-[24px] z-[99] pointer-events-auto"
-            >
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPlayNext();
-                }}
-                className="flex items-center gap-2 px-3 md:px-4 py-1.5 md:py-2 bg-gradient-to-r from-[#00D1FF] to-[#00bdf1] hover:from-[#00e1ff] hover:to-[#00D1FF] text-black font-black tracking-widest text-[9px] md:text-[11px] uppercase rounded-xl md:rounded-2xl border border-cyan-400/40 shadow-[0_0_20px_rgba(0,209,255,0.4)] cursor-pointer transition-all duration-300 hover:scale-105 active:scale-95 flex-row"
-                title={`Play Next Episode (${nextEpisode.episode ? nextEpisode.episode.episode_num : nextEpisode.episode_num})`}
+          {areControlsShown && !isLoading && (() => {
+            const nextRawEp = nextEpisode.episode || nextEpisode;
+            const nextSeason = nextEpisode.season || playingEpisode?.season || panelSeason;
+            const resolvedNext = resolveEpisodeInfo(nextRawEp, nextSeason, tmdbEpisodesMap, tmdbId);
+            return (
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 15 }}
+                className="absolute bottom-[65px] md:bottom-[75px] right-[15px] md:right-[24px] z-[99] pointer-events-auto max-w-[50vw]"
               >
-                <span>Play Next: Ep {nextEpisode.episode ? nextEpisode.episode.episode_num : nextEpisode.episode_num}</span>
-                <SkipForward className="w-3.5 h-3.5 md:w-4 md:h-4 fill-black text-black" />
-              </button>
-            </motion.div>
-          )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPlayNext();
+                  }}
+                  className="flex items-center gap-2 px-3 md:px-4 py-1.5 md:py-2 bg-gradient-to-r from-[#00D1FF] to-[#00bdf1] hover:from-[#00e1ff] hover:to-[#00D1FF] text-black font-black tracking-widest text-[9px] md:text-[11px] uppercase rounded-xl md:rounded-2xl border border-cyan-400/40 shadow-[0_0_20px_rgba(0,209,255,0.4)] cursor-pointer transition-all duration-300 hover:scale-105 active:scale-95 flex-row truncate"
+                  title={`Play Next: Episode ${resolvedNext.episodeNum} - ${resolvedNext.displayTitle}`}
+                >
+                  <span className="truncate">Next: Ep {resolvedNext.episodeNum}{resolvedNext.hasTmdbMatch ? ` - ${resolvedNext.displayTitle}` : ''}</span>
+                  <SkipForward className="w-3.5 h-3.5 md:w-4 md:h-4 fill-black text-black shrink-0" />
+                </button>
+              </motion.div>
+            );
+          })()}
         </AnimatePresence>,
         eqPortalTarget
       )}
@@ -3287,6 +3187,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 <div className="flex-1 overflow-y-auto pr-1 py-3 space-y-2 no-scrollbar scroll-smooth">
                   {episodesMap[panelSeason || '']?.map((episode: any, idx: number) => {
                     const isCurrent = String(episode.id) === String(playingEpisode?.id);
+                    const resolved = resolveEpisodeInfo(episode, panelSeason, tmdbEpisodesMap, tmdbId);
                     return (
                       <button
                         key={`panel-ep-${episode.id}-${idx}`}
@@ -3309,16 +3210,16 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                               ? "bg-[#00D1FF] text-black shadow-[0_0_10px_rgba(0,209,255,0.4)]" 
                               : "bg-white/10 text-white/80 group-hover:bg-white/20"
                           }`}>
-                            {episode.episode_num}
+                            {resolved.episodeNum}
                           </div>
                           <div className="flex flex-col min-w-0">
                             <span className={`text-[11px] md:text-xs font-bold line-clamp-1 transition-colors ${
                               isCurrent ? "text-[#00D1FF]" : "text-white group-hover:text-cyan-400"
                             }`}>
-                              {episode.title}
+                              {resolved.displayTitle}
                             </span>
                             <span className="text-[8px] md:text-[9px] text-white/40 uppercase tracking-widest font-mono">
-                              Episode {episode.episode_num}
+                              Episode {resolved.episodeNum}
                             </span>
                           </div>
                         </div>

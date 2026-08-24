@@ -75,13 +75,23 @@ export const xtreamApi = {
   getSeriesInfo: async (creds: XtreamCredentials, seriesId: string): Promise<any> => {
     const host = sanitizeHost(creds.host);
     const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_series_info&series_id=${seriesId}`;
-    return proxyRequest({ url });
+    try {
+      return await proxyRequest({ url });
+    } catch (err: any) {
+      console.warn(`Upstream series info unavailable for series ${seriesId}:`, err?.message || err);
+      return null;
+    }
   },
 
   getMovieInfo: async (creds: XtreamCredentials, movieId: string): Promise<any> => {
     const host = sanitizeHost(creds.host);
     const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_vod_info&vod_id=${movieId}`;
-    return proxyRequest({ url });
+    try {
+      return await proxyRequest({ url });
+    } catch (err: any) {
+      console.warn(`Upstream VOD info unavailable for movie ${movieId}:`, err?.message || err);
+      return null;
+    }
   },
 
   getLiveCategories: async (creds: XtreamCredentials): Promise<Category[]> => {
