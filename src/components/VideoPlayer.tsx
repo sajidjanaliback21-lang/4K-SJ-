@@ -22,12 +22,17 @@ interface VideoPlayerProps {
     skipProxy?: boolean;
     isLive?: boolean;
     isFree?: boolean;
+    initialTime?: number;
+    resumeTime?: number;
     drm_license_url?: string;
     sandbox_disabled?: boolean;
     iframe_cropping?: boolean;
     show_live_viewer_count?: boolean;
   };
   isFree?: boolean;
+  initialTime?: number;
+  resumeTime?: number;
+  onProgressUpdate?: (currentTime: number, duration: number) => void;
   onReady?: (player: Artplayer) => void;
   onClose?: () => void;
   playingEpisode?: any;
@@ -174,6 +179,9 @@ const setupShakaLiveDvr = (video: HTMLVideoElement, shakaPlayer: any, art: any) 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ 
   options, 
   isFree,
+  initialTime,
+  resumeTime,
+  onProgressUpdate,
   onReady, 
   onClose, 
   playingEpisode, 
@@ -639,19 +647,21 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const onCloseRef = useRef(onClose);
   const onReadyRef = useRef(onReady);
   const onPlayNextRef = useRef(onPlayNext);
+  const onProgressUpdateRef = useRef(onProgressUpdate);
   const optionsRef = useRef(options);
 
   useEffect(() => {
     onCloseRef.current = onClose;
     onReadyRef.current = onReady;
     onPlayNextRef.current = onPlayNext;
+    onProgressUpdateRef.current = onProgressUpdate;
     optionsRef.current = options;
   });
 
   useEffect(() => {
     if (!artRef.current || !sourceUrl || isEmbeddable(originalUrl) || options.is_webpage) return;
 
-    let dropTime = 0;
+    let dropTime = initialTime || resumeTime || options.initialTime || options.resumeTime || 0;
 
     latestUrlRef.current = sourceUrl;
     hasCompletedInitialLoad.current = false;
@@ -1833,9 +1843,39 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       if (dropTime > 0) {
         console.log(`Restoring playback time to: ${dropTime}`);
         art.currentTime = dropTime;
+        const mins = Math.floor(dropTime / 60);
+        const secs = Math.floor(dropTime % 60);
+        art.notice.show = `Resumed from ${mins}:${secs < 10 ? '0' : ''}${secs}`;
         dropTime = 0; // Clear the variable
       }
     };
+
+    let lastProgressReportTime = 0;
+    const reportProgress = () => {
+      if (art && art.video && !options.isLive && typeof onProgressUpdateRef.current === 'function') {
+        const cur = art.video.currentTime || art.currentTime || 0;
+        const dur = art.video.duration || art.duration || 0;
+        if (dur > 10 && cur > 3) {
+          onProgressUpdateRef.current(cur, dur);
+        }
+      }
+    };
+
+    art.on('video:timeupdate', () => {
+      const now = Date.now();
+      if (now - lastProgressReportTime > 3000) {
+        lastProgressReportTime = now;
+        reportProgress();
+      }
+    });
+
+    art.on('video:pause', () => {
+      reportProgress();
+    });
+
+    art.on('video:ended', () => {
+      reportProgress();
+    });
 
     // Also hide loading indicator as soon as live stream video can start playing
     art.on('video:canplay', () => {
@@ -2238,6 +2278,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     window.addEventListener('keydown', handleSpacebar);
 
     return () => {
+      reportProgress();
       window.removeEventListener('keydown', handleSpacebar);
       setEqPortalTarget(null);
       if (hlsRef.current) hlsRef.current.destroy();

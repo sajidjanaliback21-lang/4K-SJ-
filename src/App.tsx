@@ -65,9 +65,10 @@ import {
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { xtreamApi, DEFAULT_CREDENTIALS } from './lib/api';
-import { XtreamCredentials, Category, Stream, Series, LiveStream } from './types';
+import { XtreamCredentials, Category, Stream, Series, LiveStream, ContinueWatchingItem } from './types';
 import axios from 'axios';
 import VideoPlayer from './components/VideoPlayer';
+import ContinueWatchingRow from './components/ContinueWatchingRow';
 import IntroLoading from './components/IntroLoading';
 import { db, auth } from './firebase';
 import { doc, onSnapshot, setDoc, getDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc, where, writeBatch } from 'firebase/firestore';
@@ -986,6 +987,8 @@ export default function App() {
   const [playingLiveStream, setPlayingLiveStream] = useState<LiveStream | null>(null);
   const [liveSearchQuery, setLiveSearchQuery] = useState('');
   const [showDownloadConfirm, setShowDownloadConfirm] = useState(false);
+  const [showRefreshConfirm, setShowRefreshConfirm] = useState(false);
+  const [isRefreshingContent, setIsRefreshingContent] = useState(false);
   const [pendingDownload, setPendingDownload] = useState<{item: any, episodeId?: string, episodeExt?: string} | null>(null);
   const [selectedFreeMovie, setSelectedFreeMovie] = useState<any>(null);
   const [selectedFreeSeries, setSelectedFreeSeries] = useState<any>(null);
@@ -1076,6 +1079,148 @@ export default function App() {
     const saved = localStorage.getItem('anti_popup_enabled');
     return saved !== 'false';
   });
+
+  // Continue Watching state and persistence
+  const [continueWatchingList, setContinueWatchingList] = useState<ContinueWatchingItem[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const savedUserKey = creds.username ? `cw_${creds.username}` : 'cw_guest';
+      const saved = localStorage.getItem(savedUserKey) || localStorage.getItem('continue_watching_list');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const [webPlayerResumeTime, setWebPlayerResumeTime] = useState<number | undefined>(undefined);
+  const [freeMovieResumeTime, setFreeMovieResumeTime] = useState<number | undefined>(undefined);
+  const [freeSeriesResumeTime, setFreeSeriesResumeTime] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    try {
+      const userKey = creds.username ? `cw_${creds.username}` : 'cw_guest';
+      const saved = localStorage.getItem(userKey) || (creds.username ? localStorage.getItem('cw_guest') : null) || localStorage.getItem('continue_watching_list');
+      if (saved) {
+        setContinueWatchingList(JSON.parse(saved));
+      } else {
+        setContinueWatchingList([]);
+      }
+    } catch (e) {
+      setContinueWatchingList([]);
+    }
+  }, [creds.username]);
+
+  const saveContinueWatching = (updatedList: ContinueWatchingItem[]) => {
+    setContinueWatchingList(updatedList);
+    try {
+      const userKey = creds.username ? `cw_${creds.username}` : 'cw_guest';
+      localStorage.setItem(userKey, JSON.stringify(updatedList));
+      localStorage.setItem('continue_watching_list', JSON.stringify(updatedList));
+    } catch (e) {
+      console.error('Failed to persist continue watching', e);
+    }
+  };
+
+  const updatePlaybackProgress = (
+    id: string,
+    type: 'movie' | 'series' | 'free_movie' | 'free_series',
+    title: string,
+    currentTime: number,
+    duration: number,
+    extra?: {
+      subtitle?: string;
+      poster_url?: string;
+      backdrop_url?: string;
+      itemData?: any;
+      episodeId?: string;
+      episodeExt?: string;
+      episodeNum?: number | string;
+      seasonNum?: string;
+      episodeTitle?: string;
+      playUrl?: string;
+    }
+  ) => {
+    if (!duration || duration <= 0 || currentTime <= 3) return;
+    const percentage = Math.min(100, Math.max(0, (currentTime / duration) * 100));
+
+    setContinueWatchingList((prev) => {
+      const filtered = prev.filter((item) => item.id !== id);
+      if (percentage >= 96) {
+        saveContinueWatching(filtered);
+        return filtered;
+      }
+
+      const existing = prev.find((item) => item.id === id);
+      const newItem: ContinueWatchingItem = {
+        id,
+        type,
+        title,
+        subtitle: extra?.subtitle || existing?.subtitle,
+        poster_url: extra?.poster_url || existing?.poster_url,
+        backdrop_url: extra?.backdrop_url || existing?.backdrop_url,
+        currentTime,
+        duration,
+        percentage,
+        lastWatched: Date.now(),
+        itemData: extra?.itemData !== undefined ? extra.itemData : (existing?.itemData || {}),
+        episodeId: extra?.episodeId || existing?.episodeId,
+        episodeExt: extra?.episodeExt || existing?.episodeExt,
+        episodeNum: extra?.episodeNum || existing?.episodeNum,
+        seasonNum: extra?.seasonNum || existing?.seasonNum,
+        episodeTitle: extra?.episodeTitle || existing?.episodeTitle,
+        playUrl: extra?.playUrl || existing?.playUrl
+      };
+
+      const updated = [newItem, ...filtered].slice(0, 30);
+      try {
+        const userKey = creds.username ? `cw_${creds.username}` : 'cw_guest';
+        localStorage.setItem(userKey, JSON.stringify(updated));
+        localStorage.setItem('continue_watching_list', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  };
+
+  const handleRemoveContinueWatching = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const filtered = continueWatchingList.filter((item) => item.id !== id);
+    saveContinueWatching(filtered);
+  };
+
+  const handleClearContinueWatching = () => {
+    saveContinueWatching([]);
+  };
+
+  const handleResumeContinueWatching = async (cwItem: ContinueWatchingItem) => {
+    if (cwItem.type === 'movie') {
+      if (!isLoggedIn) {
+        setShowLoginModal(true);
+        return;
+      }
+      setSelectedItem(cwItem.itemData);
+      setWebPlayerResumeTime(cwItem.currentTime);
+      handleAction('web_play', cwItem.itemData);
+    } else if (cwItem.type === 'series') {
+      if (!isLoggedIn) {
+        setShowLoginModal(true);
+        return;
+      }
+      setSelectedItem(cwItem.itemData);
+      setWebPlayerResumeTime(cwItem.currentTime);
+      if (cwItem.seasonNum) {
+        setSelectedSeason(cwItem.seasonNum);
+      }
+      handleAction('web_play', cwItem.itemData, cwItem.episodeId, cwItem.episodeExt);
+    } else if (cwItem.type === 'free_movie') {
+      setFreeMovieResumeTime(cwItem.currentTime);
+      setSelectedFreeMovie(cwItem.itemData);
+      setPlayingFreeMovie(cwItem.itemData);
+    } else if (cwItem.type === 'free_series') {
+      setFreeSeriesResumeTime(cwItem.currentTime);
+      setSelectedFreeSeries(cwItem.itemData);
+      setPlayingFreeSeries(cwItem.itemData);
+    }
+  };
 
   const [streamingMode, setStreamingMode] = useState<'A' | 'B'>(() => {
     if (typeof window === 'undefined') return 'B';
@@ -1278,6 +1423,7 @@ export default function App() {
     playingTrailerUrl ||
     showDownloadConfirm ||
     showRegionModal ||
+    showRefreshConfirm ||
     trendingSelectorData?.show ||
     isSyncingDetails ||
     passwordProtectedItem ||
@@ -1299,6 +1445,7 @@ export default function App() {
   const handleCloseWebPlayer = () => {
     setShowWebPlayer(false);
     setPlayingEpisode(null);
+    setWebPlayerResumeTime(undefined);
   };
 
   const getNextEpisode = (currentEp: any) => {
@@ -1399,6 +1546,7 @@ export default function App() {
   const [mediaRequests, setMediaRequests] = useState<any[]>([]);
   const [showRequestModal, setShowRequestModal] = useState<boolean>(false);
   const [requestTab, setRequestTab] = useState<'new' | 'my'>('new');
+
   const [requestSearchQuery, setRequestSearchQuery] = useState<string>('');
   const [requestMediaType, setRequestMediaType] = useState<'all' | 'movie' | 'tv'>('all');
   const [requestTmdbResults, setRequestTmdbResults] = useState<TmdbTrendingItem[]>([]);
@@ -2225,6 +2373,117 @@ export default function App() {
     setTimeout(() => {
       setToastMessage(null);
     }, 4000);
+  };
+
+  // Full Content Refresh Handler
+  const handleRefreshContent = async () => {
+    setShowRefreshConfirm(false);
+    setIsRefreshingContent(true);
+    showToast("Refreshing latest content from server...", "info");
+
+    try {
+      // 1. Clear cached local home data
+      localStorage.removeItem('iptv_home_cache');
+
+      // 2. Refresh categories if user is logged in
+      if (creds) {
+        try {
+          const [mCats, sCats, lCats] = await Promise.all([
+            xtreamApi.getMovieCategories(creds),
+            xtreamApi.getSeriesCategories(creds),
+            xtreamApi.getLiveCategories(creds)
+          ]);
+
+          if (mCats && mCats.length > 0) {
+            setMovieCategories([{ category_id: '0', category_name: 'All Movies', parent_id: 0 }, ...mCats]);
+          }
+          if (sCats && sCats.length > 0) {
+            setSeriesCategories([{ category_id: '0', category_name: 'All Series', parent_id: 0 }, ...sCats]);
+          }
+          if (lCats && lCats.length > 0) {
+            setLiveCategories([{ category_id: '0', category_name: 'All Channels', parent_id: 0 }, ...lCats]);
+          }
+        } catch (catErr) {
+          console.warn("Failed to refresh categories:", catErr);
+        }
+
+        // 3. Fetch Movies
+        let refreshedMovies: Stream[] = [];
+        try {
+          setLoadingMovies(true);
+          const mItems = await xtreamApi.getMovies(creds, selectedMovieCategory || '0');
+          const sortedMItems = [...mItems].sort((a, b) => (parseInt(b.added) || 0) - (parseInt(a.added) || 0));
+          setMovieItems(sortedMItems);
+          setTotalMovieCount(mItems.length);
+          refreshedMovies = sortedMItems;
+        } catch (mErr) {
+          console.warn("Failed to refresh movies:", mErr);
+        } finally {
+          setLoadingMovies(false);
+        }
+
+        // 4. Fetch Series
+        let refreshedSeries: Series[] = [];
+        try {
+          setLoadingSeries(true);
+          const sItems = await xtreamApi.getSeries(creds, selectedSeriesCategory || '0');
+          const sortedSItems = [...sItems].sort((a, b) => (parseInt(b.last_modified) || 0) - (parseInt(a.last_modified) || 0));
+          setSeriesItems(sortedSItems);
+          setTotalSeriesCount(sItems.length);
+          refreshedSeries = sortedSItems;
+        } catch (sErr) {
+          console.warn("Failed to refresh series:", sErr);
+        } finally {
+          setLoadingSeries(false);
+        }
+
+        // 5. Update Home Popular Data
+        if (refreshedMovies.length > 0 || refreshedSeries.length > 0) {
+          const newData = {
+            popularMovies: refreshedMovies.slice(0, 20),
+            popularSeries: refreshedSeries.slice(0, 20)
+          };
+          setHomeData(newData);
+          localStorage.setItem('iptv_home_cache', JSON.stringify(newData));
+        }
+
+        // 6. Refresh Live Streams if active or loaded
+        if (liveItems.length > 0 || activeTab === 'live') {
+          try {
+            setLoadingLive(true);
+            const lItems = await xtreamApi.getLiveStreams(creds, selectedLiveCategory || '0');
+            setLiveItems(lItems);
+            setTotalLiveCount(lItems.length);
+          } catch (lErr) {
+            console.warn("Failed to refresh live channels:", lErr);
+          } finally {
+            setLoadingLive(false);
+          }
+        }
+      }
+
+      // 7. Refresh TMDB Trending Content
+      try {
+        setLoadingTrending(true);
+        const [tMovies, tSeries] = await Promise.all([
+          fetchTrendingMovies(selectedTrendingRegion),
+          fetchTrendingSeries(selectedTrendingRegion)
+        ]);
+        setTrendingMovies(tMovies);
+        setTrendingSeries(tSeries);
+      } catch (tErr) {
+        console.warn("Failed to refresh trending content:", tErr);
+      } finally {
+        setLoadingTrending(false);
+      }
+
+      showToast("All content refreshed successfully!", "success");
+    } catch (err: any) {
+      console.error("Critical error during content refresh:", err);
+      showToast("Failed to refresh content. Please try again.", "error");
+    } finally {
+      setIsRefreshingContent(false);
+    }
   };
 
   const handleTrendingClick = (trendingItem: TmdbTrendingItem, isSeries: boolean) => {
@@ -4220,6 +4479,16 @@ export default function App() {
               </button>
             )}
 
+            {/* Refresh Content Button (Desktop) */}
+            <button 
+              onClick={() => setShowRefreshConfirm(true)}
+              disabled={isRefreshingContent}
+              className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 hover:text-cyan-300 transition-all hover:scale-105 active:scale-95 cursor-pointer shrink-0 shadow-sm shadow-cyan-500/10 disabled:opacity-50"
+              title="Refresh All Content"
+            >
+              <RefreshCw size={15} className={cn("transition-transform", isRefreshingContent && "animate-spin text-cyan-300")} />
+            </button>
+
           </nav>
         </div>
 
@@ -4233,6 +4502,16 @@ export default function App() {
               <MessageSquarePlus size={16} />
             </button>
           )}
+
+          {/* Mobile Refresh Content Button */}
+          <button 
+            onClick={() => setShowRefreshConfirm(true)}
+            disabled={isRefreshingContent}
+            className="md:hidden flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-cyan-500/15 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/25 transition-all cursor-pointer shrink-0 disabled:opacity-50"
+            title="Refresh All Content"
+          >
+            <RefreshCw size={15} className={cn("transition-transform", isRefreshingContent && "animate-spin text-cyan-300")} />
+          </button>
           <AnimatePresence initial={false} mode="wait">
             {!isSearchOpen ? (
               <motion.button 
@@ -4883,6 +5162,14 @@ export default function App() {
               </div>
             ) : (
               <>
+                {/* Continue Watching Section */}
+                <ContinueWatchingRow 
+                  items={continueWatchingList}
+                  onResume={handleResumeContinueWatching}
+                  onRemove={handleRemoveContinueWatching}
+                  onClearAll={handleClearContinueWatching}
+                />
+
                 {/* 1. Trending Movies Section */}
                 <section className="space-y-4">
                   <div className="flex items-center justify-between px-2 flex-wrap gap-3">
@@ -6828,6 +7115,58 @@ export default function App() {
               <div className="flex-1 w-full h-full bg-black relative">
                 <VideoPlayer 
                   key={selectedItem?.stream_id || selectedItem?.id || 'premium-player'}
+                  initialTime={webPlayerResumeTime}
+                  onProgressUpdate={(currentTime, duration) => {
+                    const isLive = !!(selectedItem as any)?.stream_type && (selectedItem as any).stream_type === 'live';
+                    if (isLive) return;
+
+                    const isSeries = !!(playingEpisode || (selectedItem && 'series_id' in selectedItem));
+                    if (isSeries) {
+                      const seriesId = (selectedItem as any)?.series_id || 'series';
+                      const epId = playingEpisode?.id || 'ep';
+                      const seriesName = (selectedItem as any)?.name || webPlayTitle || 'Series';
+                      const epNum = playingEpisode?.episode_num || '1';
+                      const epSeason = playingEpisode?.season || '1';
+                      const epTitle = playingEpisode?.tmdb_title || playingEpisode?.title || `Episode ${epNum}`;
+                      
+                      updatePlaybackProgress(
+                        `series_${seriesId}_${epId}`,
+                        'series',
+                        seriesName,
+                        currentTime,
+                        duration,
+                        {
+                          subtitle: `S${epSeason}:E${epNum} • ${epTitle}`,
+                          poster_url: (selectedItem as any)?.cover || posterUrl,
+                          backdrop_url: tmdbDetails?.backdrop_path ? `https://image.tmdb.org/t/p/w780${tmdbDetails.backdrop_path}` : ((selectedItem as any)?.cover || posterUrl),
+                          itemData: selectedItem,
+                          episodeId: epId,
+                          episodeExt: playingEpisode?.container_extension,
+                          episodeNum: epNum,
+                          seasonNum: String(epSeason),
+                          episodeTitle: epTitle
+                        }
+                      );
+                    } else {
+                      const streamId = (selectedItem as any)?.stream_id || (selectedItem as any)?.id || 'movie';
+                      const movieName = (selectedItem as any)?.name || webPlayTitle || 'Movie';
+                      const releaseYear = tmdbDetails?.release_date ? String(tmdbDetails.release_date).slice(0, 4) : undefined;
+                      
+                      updatePlaybackProgress(
+                        `movie_${streamId}`,
+                        'movie',
+                        movieName,
+                        currentTime,
+                        duration,
+                        {
+                          subtitle: releaseYear ? `${releaseYear} • Movie` : 'Movie',
+                          poster_url: (selectedItem as any)?.stream_icon || posterUrl,
+                          backdrop_url: tmdbDetails?.backdrop_path ? `https://image.tmdb.org/t/p/w780${tmdbDetails.backdrop_path}` : ((selectedItem as any)?.stream_icon || posterUrl),
+                          itemData: selectedItem
+                        }
+                      );
+                    }
+                  }}
                   options={{
                     autoplay: true,
                     controls: true,
@@ -8123,6 +8462,75 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Refresh Content Confirmation Modal */}
+      <AnimatePresence>
+        {showRefreshConfirm && (
+          <div className="fixed inset-0 z-[190] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !isRefreshingContent && setShowRefreshConfirm(false)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="relative w-full max-w-sm bg-gradient-to-b from-slate-900 to-[#0b1120] rounded-3xl p-6 shadow-2xl border border-cyan-500/30 text-white overflow-hidden"
+            >
+              {/* Glow accent */}
+              <div className="absolute -top-14 -right-14 w-28 h-28 bg-cyan-500/20 rounded-full blur-2xl pointer-events-none" />
+
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className="w-14 h-14 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shadow-lg shadow-cyan-500/20">
+                  <RefreshCw size={26} className={isRefreshingContent ? "animate-spin" : ""} />
+                </div>
+
+                <div className="space-y-1.5">
+                  <h3 className="text-lg font-black tracking-tight text-white uppercase italic">
+                    Refresh Content?
+                  </h3>
+                  <p className="text-xs text-white/70 leading-relaxed px-2">
+                    Kya aap tamam movies, web series aur categories ko server se dobara refresh karna chahte hain?
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 w-full pt-2">
+                  <button
+                    type="button"
+                    disabled={isRefreshingContent}
+                    onClick={() => setShowRefreshConfirm(false)}
+                    className="flex-1 py-3 px-4 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 hover:text-white text-xs font-bold transition-all border border-white/10 cursor-pointer disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isRefreshingContent}
+                    onClick={handleRefreshContent}
+                    className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {isRefreshingContent ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        <span>Refreshing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw size={14} />
+                        <span>Refresh Now</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Download Confirmation Modal */}
       <AnimatePresence>
         {showDownloadConfirm && pendingDownload && (
@@ -8631,6 +9039,25 @@ export default function App() {
                 <div className="relative z-10 w-full h-full">
                   <VideoPlayer 
                     key={getResellerAdjustedUrl(playingFreeMovie.play_url)}
+                    initialTime={freeMovieResumeTime}
+                    onProgressUpdate={(currentTime, duration) => {
+                      if (!playingFreeMovie) return;
+                      const movieId = playingFreeMovie.id || playingFreeMovie.name;
+                      updatePlaybackProgress(
+                        `free_movie_${movieId}`,
+                        'free_movie',
+                        playingFreeMovie.name || 'Movie',
+                        currentTime,
+                        duration,
+                        {
+                          subtitle: playingFreeMovie.genre || 'Free Cinema',
+                          poster_url: playingFreeMovie.poster_url,
+                          backdrop_url: playingFreeMovie.poster_url,
+                          itemData: playingFreeMovie,
+                          playUrl: playingFreeMovie.play_url
+                        }
+                      );
+                    }}
                     options={{
                       autoplay: true,
                       controls: true,
@@ -8651,6 +9078,10 @@ export default function App() {
                       }]
                     }} 
                     isFree={true}
+                    onClose={() => {
+                      setPlayingFreeMovie(null);
+                      setFreeMovieResumeTime(undefined);
+                    }}
                   />
                 </div>
               </div>
@@ -9483,6 +9914,34 @@ export default function App() {
                   (!isM3uLoading && (freeSeriesActiveUrl || playingFreeSeries.play_url)) ? (
                     <VideoPlayer 
                       key={playingFreeSeries.id}
+                      initialTime={freeSeriesResumeTime}
+                      onProgressUpdate={(currentTime, duration) => {
+                        if (!playingFreeSeries) return;
+                        const seriesId = playingFreeSeries.id || playingFreeSeries.name;
+                        const epId = playingFreeEpisode?.id || 'ep';
+                        const epNum = playingFreeEpisode?.episode_num || '1';
+                        const epSeason = playingFreeEpisode?.season || selectedFreeSeason || '1';
+                        const epTitle = playingFreeEpisode?.display_title || playingFreeEpisode?.tmdb_title || playingFreeEpisode?.title || `Episode ${epNum}`;
+
+                        updatePlaybackProgress(
+                          `free_series_${seriesId}_${epId}`,
+                          'free_series',
+                          playingFreeSeries.name || 'Series',
+                          currentTime,
+                          duration,
+                          {
+                            subtitle: `S${epSeason}:E${epNum} • ${epTitle}`,
+                            poster_url: playingFreeSeries.poster_url,
+                            backdrop_url: playingFreeSeries.poster_url,
+                            itemData: playingFreeSeries,
+                            episodeId: epId,
+                            episodeNum: epNum,
+                            seasonNum: String(epSeason),
+                            episodeTitle: epTitle,
+                            playUrl: freeSeriesActiveUrl || playingFreeSeries.play_url
+                          }
+                        );
+                      }}
                       options={{
                         autoplay: true,
                         controls: true,
@@ -9506,8 +9965,12 @@ export default function App() {
                       onSelectEpisode={handleSelectFreeEpisode}
                       onDownloadEpisode={handleDownloadFreeEpisode}
                       tmdbEpisodesMap={tmdbEpisodesMap}
-                      tmdbId={tmdbDetails?.id}
+                      tmdbId={selectedFreeSeries?.tmdb_id || tmdbDetails?.id}
                       isFree={true}
+                      onClose={() => {
+                        setPlayingFreeSeries(null);
+                        setFreeSeriesResumeTime(undefined);
+                      }}
                     />
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center text-white/45 bg-black gap-2">
@@ -9752,1896 +10215,58 @@ export default function App() {
                             type="url"
                             value={tempResellerSettings.download_url}
                             onChange={(e) => setTempResellerSettings(prev => ({ ...prev, download_url: e.target.value }))}
-                            placeholder="e.g. https://reseller-mkv-dns.com"
+                            placeholder="e.g. https://your-download-server.com"
                             className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold font-mono"
                           />
-                          <p className="text-[8px] text-white/30 mt-0.5">Overrides standard server for .mkv file downloads.</p>
+                          <p className="text-[8px] text-white/30 mt-0.5">Overrides standard server for MKV downloads.</p>
                         </div>
 
                         <div>
-                          <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-1">App APK Download Link</label>
+                          <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-1">App Download Link (APK / Web App)</label>
                           <input 
                             type="url"
                             value={tempResellerSettings.app_link}
                             onChange={(e) => setTempResellerSettings(prev => ({ ...prev, app_link: e.target.value }))}
-                            placeholder="https://example.com/download-app.apk"
-                            className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
+                            placeholder="https://..."
+                            className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 font-bold"
                           />
                         </div>
 
                         <div>
-                          <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-1">Custom Logo URL (Optional)</label>
+                          <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-1">Custom Brand Logo URL (PNG/SVG/WebP)</label>
                           <input 
                             type="url"
                             value={tempResellerSettings.logo_url}
                             onChange={(e) => setTempResellerSettings(prev => ({ ...prev, logo_url: e.target.value }))}
-                            placeholder="https://example.com/logo.png"
+                            placeholder="https://.../logo.png"
                             className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
                           />
                         </div>
                       </div>
 
-                      <button 
-                        onClick={handleSaveResellerProfile}
-                        className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black py-2.5 rounded-xl font-black uppercase tracking-widest text-[10px] shadow-lg transition-all active:scale-[0.98] cursor-pointer"
-                      >
-                        💾 Save Settings
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Standalone Admin Panel Modal */}
-      <AnimatePresence>
-        {isAdminLoggedIn && (
-          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 gpu">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsAdminLoggedIn(false)}
-              className="absolute inset-0 bg-black/90 backdrop-blur-xl gpu"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 30 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 30 }}
-              onClick={(e) => e.stopPropagation()}
-              className="relative w-full max-w-2xl bg-[#0a0a0b] rounded-[3rem] overflow-hidden shadow-[0_0_80px_rgba(34,211,238,0.2)] border border-white/10 flex flex-col gpu"
-            >
-              <div className="p-6 flex items-center justify-between border-b border-white/5 bg-white/5">
-                <div className="flex flex-col">
-                  <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Admin Control Center</h3>
-                  <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest">Logged in: {currentUser?.email}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button 
-                    onClick={() => {
-                      setIsAdminLoggedIn(false);
-                    }}
-                    className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-red-500/20"
-                  >
-                    Log Out
-                  </button>
-                  <button 
-                    onClick={() => setIsAdminLoggedIn(false)}
-                    className="p-2 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white"
-                  >
-                    <X size={24} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-6 bg-black/40 border-b border-white/5">
-                <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 overflow-x-auto no-scrollbar">
-                  {(['app', 'free_movies', 'free_series', 'live_events', 'analytics', 'resellers', 'requests'] as const).map((tab) => (
-                    <button 
-                      key={tab}
-                      onClick={() => setActiveAdminTab(tab)}
-                      className={`min-w-[80px] flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                        activeAdminTab === tab 
-                          ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20' 
-                          : 'text-white/40 hover:text-white hover:bg-white/5'
-                      }`}
-                    >
-                      {tab === 'app' ? 'General' : tab === 'analytics' ? 'STATS & ANALYTICS' : tab === 'resellers' ? 'RESELLERS' : tab === 'requests' ? `REQUESTS (${mediaRequests.filter(r => r.status === 'pending').length})` : tab.replace('free_', '').replace('_', ' ').toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="p-6 flex-1 overflow-y-auto no-scrollbar max-h-[60vh]">
-                <div className="flex flex-col gap-6">
-                  {activeAdminTab === 'app' && (
-                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Free Movies Toggle */}
-                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-4">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-xs font-black text-indigo-400 uppercase tracking-widest">Free Movies</h4>
-                          <button 
-                            onClick={() => setNewAppSettings(prev => ({ ...prev, free_movies_enabled: !prev.free_movies_enabled }))}
-                            className={cn("w-12 h-6 rounded-full relative transition-all duration-300", newAppSettings.free_movies_enabled ? "bg-indigo-500" : "bg-white/10")}
-                          >
-                            <motion.div animate={{ x: newAppSettings.free_movies_enabled ? 26 : 2 }} className="w-5 h-5 bg-white rounded-full absolute top-0.5" />
-                          </button>
-                        </div>
-                        <input 
-                          type="text" 
-                          value={newAppSettings.free_movies_title || ''}
-                          onChange={(e) => setNewAppSettings(prev => ({ ...prev, free_movies_title: e.target.value }))}
-                          placeholder="Category Title"
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500/50"
-                        />
-                      </div>
-                      {/* Free Series Toggle */}
-                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-4">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-xs font-black text-purple-400 uppercase tracking-widest">Free Web Series</h4>
-                          <button 
-                            onClick={() => setNewAppSettings(prev => ({ ...prev, free_series_enabled: !prev.free_series_enabled }))}
-                            className={cn("w-12 h-6 rounded-full relative transition-all duration-300", newAppSettings.free_series_enabled ? "bg-purple-500" : "bg-white/10")}
-                          >
-                            <motion.div animate={{ x: newAppSettings.free_series_enabled ? 26 : 2 }} className="w-5 h-5 bg-white rounded-full absolute top-0.5" />
-                          </button>
-                        </div>
-                        <input 
-                          type="text" 
-                          value={newAppSettings.free_series_title || ''}
-                          onChange={(e) => setNewAppSettings(prev => ({ ...prev, free_series_title: e.target.value }))}
-                          placeholder="Category Title (e.g. WEB SERIES)"
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-purple-500/50"
-                        />
-                      </div>
-                      {/* Live Events Toggle */}
-                      <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-4">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-xs font-black text-rose-400 uppercase tracking-widest">Live Events</h4>
-                          <button 
-                            onClick={() => setNewAppSettings(prev => ({ ...prev, live_events_enabled: !prev.live_events_enabled }))}
-                            className={cn("w-12 h-6 rounded-full relative transition-all duration-300", newAppSettings.live_events_enabled ? "bg-rose-500" : "bg-white/10")}
-                          >
-                            <motion.div animate={{ x: newAppSettings.live_events_enabled ? 26 : 2 }} className="w-5 h-5 bg-white rounded-full absolute top-0.5" />
-                          </button>
-                        </div>
-                        <input 
-                          type="text" 
-                          value={newAppSettings.live_events_title || ''}
-                          onChange={(e) => setNewAppSettings(prev => ({ ...prev, live_events_title: e.target.value }))}
-                          placeholder="Category Title"
-                          className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-rose-500/50"
-                        />
-                      </div>
-                      {/* Popup & Redirect Shield Toggle */}
-                      <div className="p-4 bg-gradient-to-br from-emerald-500/10 via-transparent to-transparent rounded-2xl border border-emerald-500/20 space-y-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Shield className="w-4 h-4 text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]" />
-                            <h4 className="text-xs font-black text-emerald-400 uppercase tracking-widest">Popup & Ads Shield</h4>
-                          </div>
-                          <button 
-                            type="button"
-                            onClick={() => setNewAppSettings(prev => ({ ...prev, anti_popup_enabled: !prev.anti_popup_enabled }))}
-                            className={cn("w-12 h-6 rounded-full relative transition-all duration-300 shadow-[inset_0_2px_4px_rgba(0,0,0,0.4)]", newAppSettings.anti_popup_enabled !== false ? "bg-emerald-500" : "bg-white/10")}
-                          >
-                            <motion.div animate={{ x: newAppSettings.anti_popup_enabled !== false ? 26 : 2 }} className="w-5 h-5 bg-white rounded-full absolute top-0.5 shadow-md" />
-                          </button>
-                        </div>
-                        <p className="text-[10px] text-white/50 font-medium leading-relaxed">
-                          Blocks iframe-based players from opening popups, redirecting this page, or opening new windows. Note: If a stream fails to load, try disabling this.
-                        </p>
-                      </div>
-
-                      {/* Default Server & Download URLs Customization */}
-                      <div className="p-5 bg-gradient-to-br from-amber-500/5 via-neutral-950 to-neutral-950 rounded-2xl border border-amber-500/10 space-y-4 md:col-span-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg">⚙️</span>
-                          <h4 className="text-xs font-black text-amber-400 uppercase tracking-widest">Default Server & Download URL Customization</h4>
-                        </div>
-                        <p className="text-[11px] text-white/50 leading-relaxed">
-                          Yahan se aap default/apna IPTV Server play host, Movie/Series (.mkv/download) Server host aur default APK Application ka download link customize kar sakte hain. Jab koi reseller matching website na ho, tab ye custom default URLs use honge. Is se aapko code edit karne ki zaroorat nahi padegi!
-                        </p>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-2">
-                          <div className="space-y-2">
-                            <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest block px-1">Default IPTV Server URL</label>
-                            <input 
-                              type="url" 
-                              value={newAppSettings.default_server_url || ''}
-                              onChange={(e) => setNewAppSettings(prev => ({ ...prev, default_server_url: e.target.value }))}
-                              placeholder="e.g. https://60fpssj-60fps10.hf.space"
-                              className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-amber-500/50 font-bold font-mono"
-                            />
-                            <p className="text-[9px] text-white/30">Standard play fallback is: https://60fpssj-60fps10.hf.space</p>
-                          </div>
-                          <div className="space-y-2">
-                            <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest block px-1">Default Movie Download Server</label>
-                            <input 
-                              type="url" 
-                              value={newAppSettings.default_download_url || ''}
-                              onChange={(e) => setNewAppSettings(prev => ({ ...prev, default_download_url: e.target.value }))}
-                              placeholder="e.g. https://mkv-download-dns.com"
-                              className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-amber-500/50 font-bold font-mono"
-                            />
-                            <p className="text-[9px] text-white/30">Used for Movie/Series (.mkv/.mp4) file downloads. Bypasses play server host for downloads.</p>
-                          </div>
-                          <div className="space-y-2">
-                            <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest block px-1">Default App Link (APK)</label>
-                            <input 
-                              type="url" 
-                              value={newAppSettings.default_app_download_url || ''}
-                              onChange={(e) => setNewAppSettings(prev => ({ ...prev, default_app_download_url: e.target.value }))}
-                              placeholder="e.g. https://example.com/myapp.apk"
-                              className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-amber-500/50 font-bold font-mono"
-                            />
-                            <p className="text-[9px] text-white/30">Provides a default "Download App" button on the home screen when no reseller is active.</p>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:col-span-3 border-t border-white/5 pt-3">
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest block px-1">Default WhatsApp Group Link</label>
-                              <input 
-                                type="url" 
-                                value={newAppSettings.whatsapp_group_link !== undefined ? newAppSettings.whatsapp_group_link : ''}
-                                onChange={(e) => setNewAppSettings(prev => ({ ...prev, whatsapp_group_link: e.target.value }))}
-                                placeholder="e.g. https://chat.whatsapp.com/..."
-                                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-cyan-500/50 font-bold font-mono"
-                              />
-                              <p className="text-[9px] text-white/30">Used for "Join our WhatsApp Group" on the website.</p>
-                            </div>
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest block px-1">Default WhatsApp Channel Link</label>
-                              <input 
-                                type="url" 
-                                value={newAppSettings.whatsapp_channel_link !== undefined ? newAppSettings.whatsapp_channel_link : ''}
-                                onChange={(e) => setNewAppSettings(prev => ({ ...prev, whatsapp_channel_link: e.target.value }))}
-                                placeholder="e.g. https://whatsapp.com/channel/..."
-                                className="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-emerald-500/50 font-bold font-mono"
-                              />
-                              <p className="text-[9px] text-white/30">Used for the floating "WhatsApp Channel" badge on the website.</p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-
-                  {(activeAdminTab === 'free_movies' || activeAdminTab === 'free_series') && (
-                    <div className="space-y-6">
-                      {/* TMDB Autocomplete Field */}
-                      <div className="bg-cyan-500/[0.03] border border-cyan-500/20 rounded-3xl p-5 space-y-3 shadow-[0_8px_30px_rgba(0,0,0,0.3)]">
-                        <div className="flex items-center gap-2 px-1">
-                          <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
-                          <label className="text-[10px] font-black text-cyan-400 uppercase tracking-widest">
-                            TMDB ID Autocomplete
-                          </label>
-                        </div>
-                        <div className="flex gap-2">
-                          <input 
-                            type="text" 
-                            value={activeAdminTab === 'free_movies' ? (newFreeMovie.tmdb_id || '') : (newFreeSeries.tmdb_id || '')}
-                            onChange={(e) => activeAdminTab === 'free_movies' 
-                              ? setNewFreeMovie({...newFreeMovie, tmdb_id: e.target.value}) 
-                              : setNewFreeSeries({...newFreeSeries, tmdb_id: e.target.value})
-                            }
-                            placeholder="Enter TMDB ID (e.g. 550 for Fight Club, 1396 for Breaking Bad)"
-                            className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 placeholder-white/30 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                          <button
-                            type="button"
-                            onClick={handleFetchFreeItemTmdbDetails}
-                            disabled={isFetchingTmdb}
-                            className="px-5 py-3 rounded-2xl bg-cyan-500 hover:bg-cyan-400 disabled:bg-zinc-800 text-black disabled:text-white/40 font-black text-xs uppercase tracking-wider shadow-lg shadow-cyan-500/10 hover:shadow-cyan-400/20 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
-                          >
-                            {isFetchingTmdb ? (
-                              <>
-                                <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                                Loading...
-                              </>
-                            ) : (
-                              'Fetch Details'
-                            )}
-                          </button>
-                        </div>
-                        <p className="text-[9px] text-white/30 italic px-1 leading-normal">
-                          If you enter TMDB ID, the title and poster image will load instantly, so you do not have to write them manually.
-                        </p>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Title</label>
-                          <input 
-                            type="text" 
-                            value={activeAdminTab === 'free_movies' ? newFreeMovie.name : newFreeSeries.name}
-                            onChange={(e) => activeAdminTab === 'free_movies' 
-                              ? setNewFreeMovie({...newFreeMovie, name: e.target.value}) 
-                              : setNewFreeSeries({...newFreeSeries, name: e.target.value})
-                            }
-                            placeholder="Display Name"
-                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Poster URL</label>
-                          <input 
-                            type="text" 
-                            value={activeAdminTab === 'free_movies' ? newFreeMovie.poster_url : newFreeSeries.poster_url}
-                            onChange={(e) => activeAdminTab === 'free_movies' 
-                              ? setNewFreeMovie({...newFreeMovie, poster_url: e.target.value}) 
-                              : setNewFreeSeries({...newFreeSeries, poster_url: e.target.value})
-                            }
-                            placeholder="Image URL"
-                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Streaming Link</label>
-                        <input 
-                          type="text" 
-                          value={activeAdminTab === 'free_movies' ? newFreeMovie.play_url : newFreeSeries.play_url}
-                          onChange={(e) => activeAdminTab === 'free_movies' 
-                            ? setNewFreeMovie({...newFreeMovie, play_url: e.target.value}) 
-                            : setNewFreeSeries({...newFreeSeries, play_url: e.target.value})
-                          }
-                          placeholder="Source Link"
-                          className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                        />
-                      </div>
-
-                      {/* Upload M3U File Feature Block */}
-                      <div className="bg-gradient-to-br from-purple-900/30 via-purple-950/20 to-black border border-purple-500/30 rounded-3xl p-5 space-y-4 shadow-[0_8px_30px_rgba(168,85,247,0.12)]">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2.5">
-                            <div className="p-2.5 rounded-2xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
-                              <Upload size={18} />
-                            </div>
-                            <div>
-                              <h4 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2">
-                                <span>Upload M3U File ({activeAdminTab === 'free_series' ? 'Web Series' : 'Movie'})</span>
-                                <span className="px-2 py-0.5 rounded-full text-[8px] bg-purple-500/30 text-purple-200 border border-purple-400/30 font-bold">
-                                  AUTO PARSER
-                                </span>
-                              </h4>
-                              <p className="text-[10px] text-white/50 leading-tight mt-0.5">
-                                Select an .m3u / .m3u8 file from your computer to extract all episodes and seasons automatically.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
-                          {/* Choose file drop zone button */}
-                          <label className="group flex flex-col items-center justify-center border-2 border-dashed border-purple-500/40 hover:border-purple-400 bg-purple-500/5 hover:bg-purple-500/10 rounded-2xl p-4 transition-all cursor-pointer text-center min-h-[110px]">
-                            <input 
-                              type="file" 
-                              accept=".m3u,.m3u8,.txt,.m3u_plus" 
-                              onChange={(e) => handleM3uFileUpload(e, activeAdminTab === 'free_series')}
-                              className="hidden" 
-                            />
-                            <FileText size={26} className="text-purple-400 group-hover:scale-110 transition-transform mb-1.5" />
-                            <span className="text-xs font-black text-purple-300 uppercase tracking-wider">
-                              Choose .M3U File
-                            </span>
-                            <span className="text-[9px] text-white/40 mt-1">
-                              Supports .m3u, .m3u8 series files
-                            </span>
-                          </label>
-
-                          {/* Parsed status box */}
-                          <div className="bg-black/40 border border-white/10 rounded-2xl p-4 flex flex-col justify-center min-h-[110px]">
-                            {m3uUploadSuccessMsg ? (
-                              <div className="space-y-2">
-                                <div className="flex items-center gap-1.5 text-emerald-400 font-extrabold text-xs">
-                                  <CheckCircle2 size={15} />
-                                  <span>M3U Extracted</span>
-                                </div>
-                                <p className="text-xs text-white/90 leading-relaxed font-medium">
-                                  {m3uUploadSuccessMsg}
-                                </p>
-                                <div className="flex items-center gap-3 pt-1">
-                                  {activeAdminTab === 'free_series' && (
-                                    <span className="text-[10px] font-black px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                                      {newFreeSeries.episodes?.length || 0} Episodes Loaded
-                                    </span>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (activeAdminTab === 'free_series') {
-                                        setNewFreeSeries(prev => ({ ...prev, episodes: [] }));
-                                      }
-                                      setM3uUploadSuccessMsg(null);
-                                    }}
-                                    className="text-[10px] font-bold text-red-400 hover:text-red-300 underline cursor-pointer"
-                                  >
-                                    Reset Upload
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="text-center text-white/40 space-y-1">
-                                <p className="text-xs font-bold text-white/60">No file uploaded</p>
-                                <p className="text-[9px] leading-normal text-white/40">
-                                  Select an .m3u file to parse all episodes without typing them manually.
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {activeAdminTab === 'free_series' && (
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Or Playlist M3U URL (Optional Online Link)</label>
-                          <input 
-                            type="text" 
-                            value={newFreeSeries.playlist_url || ''}
-                            onChange={(e) => setNewFreeSeries({...newFreeSeries, playlist_url: e.target.value})}
-                            placeholder="e.g. https://60fpssj-60fps10.hf.space/series_links/spider/playlist.m3u"
-                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                        </div>
-                      )}
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Password Lock / Pin (Optional)</label>
-                          <input 
-                            type="text" 
-                            value={activeAdminTab === 'free_movies' ? (newFreeMovie.password || '') : (newFreeSeries.password || '')}
-                            onChange={(e) => activeAdminTab === 'free_movies' 
-                              ? setNewFreeMovie({...newFreeMovie, password: e.target.value}) 
-                              : setNewFreeSeries({...newFreeSeries, password: e.target.value})
-                            }
-                            placeholder="Leave empty for no password lock"
-                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Download Link (Optional)</label>
-                          <input 
-                            type="text" 
-                            value={activeAdminTab === 'free_movies' ? newFreeMovie.download_url : newFreeSeries.download_url}
-                            onChange={(e) => activeAdminTab === 'free_movies' 
-                              ? setNewFreeMovie({...newFreeMovie, download_url: e.target.value}) 
-                              : setNewFreeSeries({...newFreeSeries, download_url: e.target.value})
-                            }
-                            placeholder="Optional Play/File Link"
-                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-4">
-                        <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3 w-fit">
-                          <input 
-                            type="checkbox" 
-                            id="is_embed_admin"
-                            checked={activeAdminTab === 'free_movies' ? newFreeMovie.is_embed : newFreeSeries.is_embed}
-                            onChange={(e) => activeAdminTab === 'free_movies' 
-                              ? setNewFreeMovie({...newFreeMovie, is_embed: e.target.checked}) 
-                              : setNewFreeSeries({...newFreeSeries, is_embed: e.target.checked})
-                            }
-                            className="w-4 h-4 accent-cyan-500"
-                          />
-                          <label htmlFor="is_embed_admin" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Embed Mode</label>
-                        </div>
-
-                        <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3 w-fit">
-                          <input 
-                            type="checkbox" 
-                            id="resellers_access_admin"
-                            checked={activeAdminTab === 'free_movies' ? (newFreeMovie.available_for_resellers !== false) : (newFreeSeries.available_for_resellers !== false)}
-                            onChange={(e) => activeAdminTab === 'free_movies' 
-                              ? setNewFreeMovie({...newFreeMovie, available_for_resellers: e.target.checked}) 
-                              : setNewFreeSeries({...newFreeSeries, available_for_resellers: e.target.checked})
-                            }
-                            className="w-4 h-4 accent-cyan-500"
-                          />
-                          <label htmlFor="resellers_access_admin" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Resellers Access</label>
-                        </div>
-
-                        <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-2xl px-5 py-3 w-fit animate-pulse-slow">
-                          <input 
-                            type="checkbox" 
-                            id="show_live_viewer_count_admin"
-                            checked={activeAdminTab === 'free_movies' ? !!newFreeMovie.show_live_viewer_count : !!newFreeSeries.show_live_viewer_count}
-                            onChange={(e) => activeAdminTab === 'free_movies' 
-                              ? setNewFreeMovie({...newFreeMovie, show_live_viewer_count: e.target.checked}) 
-                              : setNewFreeSeries({...newFreeSeries, show_live_viewer_count: e.target.checked})
-                            }
-                            className="w-4 h-4 accent-red-500"
-                          />
-                          <label htmlFor="show_live_viewer_count_admin" className="text-[10px] text-red-400 font-black uppercase tracking-widest cursor-pointer select-none">Show Live Viewer Count</label>
-                        </div>
-
-                        {(activeAdminTab === 'free_movies' ? newFreeMovie.is_embed : newFreeSeries.is_embed) && (
-                          <div className="flex items-center gap-3 bg-cyan-500/10 border border-cyan-500/20 rounded-2xl px-5 py-3 w-fit">
-                            <input 
-                              type="checkbox" 
-                              id="iframe_cropping_admin"
-                              checked={activeAdminTab === 'free_movies' ? !!newFreeMovie.iframe_cropping : !!newFreeSeries.iframe_cropping}
-                              onChange={(e) => activeAdminTab === 'free_movies' 
-                                ? setNewFreeMovie({...newFreeMovie, iframe_cropping: e.target.checked}) 
-                                : setNewFreeSeries({...newFreeSeries, iframe_cropping: e.target.checked})
-                              }
-                              className="w-4 h-4 accent-cyan-500"
-                            />
-                            <label htmlFor="iframe_cropping_admin" className="text-[10px] text-cyan-400 font-black uppercase tracking-widest cursor-pointer select-none">Enable Iframe Cropping (Hide Top Bar)</label>
-                          </div>
-                        )}
-                      </div>
-
-                      {activeAdminTab === 'free_series' && (
-                        <div className="border border-white/5 bg-white/[0.02] rounded-3xl p-6 space-y-5">
-                          <div>
-                            <h4 className="text-xs font-black text-white uppercase tracking-widest">
-                              Manually Managed / Weekly Episodes Panel
-                            </h4>
-                            <p className="text-[10px] text-white/40 mt-1 leading-normal">
-                              Use this to input manual episodes week-by-week. If a series gets episodes every Monday, add them here. Leave the central "Playlist M3U URL" empty.
-                            </p>
-                          </div>
-
-                          {newFreeSeries.playlist_url && newFreeSeries.playlist_url.trim() !== '' ? (
-                            <div className="bg-purple-950/20 border border-purple-500/20 rounded-2xl p-5 text-center space-y-2">
-                              <span className="text-xs font-black text-purple-400 uppercase tracking-widest block">
-                                ℹ️ Manual Episodes Panel Disabled
-                              </span>
-                              <p className="text-[10px] text-white/50 leading-relaxed max-w-md mx-auto">
-                                Since you have entered a <strong>Playlist M3U URL</strong> above, the system will load and parse episodes directly from your M3U link automatically. Single/Manual Episode entry is hidden to avoid conflicts.
-                              </p>
-                            </div>
-                          ) : (
-                            <>
-                              {/* Existing Episodes List */}
-                              {newFreeSeries.episodes && newFreeSeries.episodes.length > 0 && (
-                                <div className="space-y-2">
-                                  <label className="text-[9px] font-bold text-white/30 uppercase tracking-wider px-1">Added Episodes List ({newFreeSeries.episodes.length})</label>
-                                  <div className="max-h-[220px] overflow-y-auto pr-2 no-scrollbar space-y-1.5">
-                                    {newFreeSeries.episodes.map((ep, index) => (
-                                      <div key={ep.id || index} className="flex items-center justify-between bg-white/5 border border-white/10 px-4 py-3 rounded-xl gap-4">
-                                        <div className="flex items-center gap-3 min-w-0">
-                                          <div className="text-[10px] bg-cyan-500/10 text-cyan-400 font-bold px-2 py-1 rounded shrink-0">
-                                            S{ep.season} E{ep.episode_num}
-                                          </div>
-                                          <div className="flex flex-col min-w-0">
-                                            <span className="text-[11px] text-white font-bold truncate">{ep.title}</span>
-                                            <span className="text-[9px] text-white/30 truncate">{ep.play_url}</span>
-                                          </div>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleRemoveManualEpisode(ep.id)}
-                                          className="p-1.5 hover:bg-red-500/10 text-red-400 rounded-lg transition-colors cursor-pointer shrink-0"
-                                          title="Remove Episode"
-                                        >
-                                          <Trash2 size={13} />
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Add New Episode Inputs Row */}
-                              <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 space-y-4">
-                                <h5 className="text-[10px] font-black text-cyan-400 uppercase tracking-widest flex items-center gap-1.5">
-                                  <span>➕ Add New Episode</span>
-                                </h5>
-
-                                <div className="grid grid-cols-3 gap-3">
-                                  <div className="space-y-1">
-                                    <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Season</label>
-                                    <input
-                                      type="number"
-                                      min="1"
-                                      value={manualEpisodeInput.season}
-                                      onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, season: e.target.value })}
-                                      placeholder="Season"
-                                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                                    />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Episode #</label>
-                                    <input
-                                      type="number"
-                                      min="1"
-                                      value={manualEpisodeInput.episode_num}
-                                      onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, episode_num: e.target.value })}
-                                      placeholder="Episode"
-                                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                                    />
-                                  </div>
-                                  <div className="space-y-1">
-                                    <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Title (Optional)</label>
-                                    <input
-                                      type="text"
-                                      value={manualEpisodeInput.title}
-                                      onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, title: e.target.value })}
-                                      placeholder={`Episode ${manualEpisodeInput.episode_num}`}
-                                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                                    />
-                                  </div>
-                                </div>
-
-                                <div className="space-y-1">
-                                  <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Stream / Play URL</label>
-                                  <input
-                                    type="text"
-                                    value={manualEpisodeInput.play_url}
-                                    onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, play_url: e.target.value })}
-                                    placeholder="Enter episode .m3u8 or .mp4 link"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                                  />
-                                </div>
-
-                                <div className="space-y-1">
-                                  <label className="text-[9px] font-bold text-white/40 uppercase tracking-widest px-1">Download URL (Optional)</label>
-                                  <input
-                                    type="text"
-                                    value={manualEpisodeInput.download_url}
-                                    onChange={(e) => setManualEpisodeInput({ ...manualEpisodeInput, download_url: e.target.value })}
-                                    placeholder="Enter episode direct file download link"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500/50"
-                                  />
-                                </div>
-
-                                <button
-                                  type="button"
-                                  onClick={handleAddManualEpisode}
-                                  className="w-full py-2.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-cyan-500/20 active:scale-[0.98] cursor-pointer"
-                                >
-                                  Add Episode to List
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      )}
-
-                      <button 
-                        onClick={activeAdminTab === 'free_movies' ? handleAddFreeMovie : handleAddFreeSeries}
-                        className={`w-full py-4 rounded-2xl text-xs font-black uppercase tracking-[0.2em] transition-all shadow-xl ${
-                          (activeAdminTab === 'free_movies' ? editingMovieId : editingSeriesId)
-                            ? 'bg-yellow-500 text-black shadow-yellow-500/20' 
-                            : 'bg-cyan-500 text-black shadow-cyan-500/20'
-                        }`}
-                      >
-                        {(activeAdminTab === 'free_movies' ? editingMovieId : editingSeriesId) ? 'Update Entry' : 'Publish to Hub'}
-                      </button>
-
-                      <div className="space-y-3">
-                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Recent Management</label>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {(activeAdminTab === 'free_movies' ? freeMovies : freeSeries).map((item, idx) => (
-                            <div key={`admin-v2-${item.id}-${idx}`} className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10 group">
-                              <div className="flex flex-col gap-0.5 max-w-[140px]">
-                                <span className="text-[11px] text-white font-bold truncate">{item.name}</span>
-                                <span className="text-[8px] text-white/30 uppercase tracking-widest font-black">Online Now</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button 
-                                  onClick={() => {
-                                    if (activeAdminTab === 'free_movies') {
-                                      setEditingMovieId(item.id);
-                                      setNewFreeMovie({
-                                        tmdb_id: item.tmdb_id || '',
-                                        name: item.name || '',
-                                        poster_url: item.poster_url || '',
-                                        play_url: item.play_url || '',
-                                        download_url: item.download_url || '',
-                                        is_embed: !!item.is_embed,
-                                        is_webpage: !!item.is_webpage,
-                                        iframe_cropping: !!item.iframe_cropping,
-                                        show_live_viewer_count: !!item.show_live_viewer_count,
-                                        password: item.password || '',
-                                        available_for_resellers: item.available_for_resellers !== false
-                                      });
-                                    } else {
-                                      setEditingSeriesId(item.id);
-                                      setNewFreeSeries({
-                                        tmdb_id: item.tmdb_id || '',
-                                        name: item.name || '',
-                                        poster_url: item.poster_url || '',
-                                        play_url: item.play_url || '',
-                                        download_url: item.download_url || '',
-                                        playlist_url: item.playlist_url || '',
-                                        is_embed: !!item.is_embed,
-                                        is_webpage: !!item.is_webpage,
-                                        iframe_cropping: !!item.iframe_cropping,
-                                        show_live_viewer_count: !!item.show_live_viewer_count,
-                                        password: item.password || '',
-                                        episodes: item.episodes || [],
-                                        available_for_resellers: item.available_for_resellers !== false
-                                      });
-                                    }
-                                  }}
-                                  className="w-8 h-8 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 flex items-center justify-center transition-all"
-                                >
-                                  <Pencil size={14} />
-                                </button>
-                                <button 
-                                  onClick={() => activeAdminTab === 'free_movies' ? handleDeleteFreeMovie(item.id) : handleDeleteFreeSeries(item.id)}
-                                  className="w-8 h-8 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-400 flex items-center justify-center transition-all"
-                                >
-                                  <X size={16} />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {activeAdminTab === 'live_events' && (
-                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Event Name</label>
-                          <input 
-                            type="text" 
-                            value={newLiveEvent.name}
-                            onChange={(e) => setNewLiveEvent({...newLiveEvent, name: e.target.value})}
-                            placeholder="e.g. Pakistan vs Australia - 1st ODI"
-                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Poster Image URL</label>
-                          <input 
-                            type="text" 
-                            value={newLiveEvent.poster_url}
-                            onChange={(e) => setNewLiveEvent({...newLiveEvent, poster_url: e.target.value})}
-                            placeholder="e.g. Poster Image Link"
-                            className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500/50"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-4">
-                        <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                          <h4 className="text-[10px] font-black text-rose-400 uppercase tracking-widest">Streams & Channels</h4>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setNewLiveEvent({
-                                ...newLiveEvent,
-                                channels: [...newLiveEvent.channels, { name: `Channel ${newLiveEvent.channels.length + 1}`, play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false, iframe_cropping: false, show_live_viewer_count: false }]
-                              });
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-cyan-500 text-black font-black text-[9px] uppercase tracking-wider hover:bg-cyan-400 transition-all cursor-pointer"
-                          >
-                            + Add Channel
-                          </button>
-                        </div>
-
-                        <div className="space-y-3">
-                          {newLiveEvent.channels.map((channel, cIdx) => (
-                            <div key={`chan-edit-${cIdx}`} className="flex flex-col bg-black/40 p-4 rounded-xl border border-white/5 space-y-3">
-                              <div className="flex flex-col md:flex-row gap-3 items-end md:items-center">
-                                <div className="w-full md:w-1/4 space-y-1">
-                                  <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">Channel Name</label>
-                                  <input 
-                                    type="text" 
-                                    value={channel.name}
-                                    onChange={(e) => {
-                                      const updatedCh = [...newLiveEvent.channels];
-                                      updatedCh[cIdx].name = e.target.value;
-                                      setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                    }}
-                                    placeholder="e.g. English, Urdu"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                                  />
-                                </div>
-
-                                <div className="w-full md:flex-1 space-y-1">
-                                  {channel.is_mpd ? (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                      <div className="space-y-1">
-                                        <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">MPD Manifest URL</label>
-                                        <input 
-                                          type="text" 
-                                          value={parseKeysFromUrl(channel.play_url).base}
-                                          onChange={(e) => {
-                                            const val = e.target.value;
-                                            const parsed = parseKeysFromUrl(val);
-                                            const updatedCh = [...newLiveEvent.channels];
-                                            if (parsed.keys) {
-                                              updatedCh[cIdx].play_url = val;
-                                            } else {
-                                              const keys = parseKeysFromUrl(channel.play_url).keys;
-                                              updatedCh[cIdx].play_url = buildUrlWithKeys(val, keys);
-                                            }
-                                            setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                          }}
-                                          placeholder="e.g. .mpd manifest link"
-                                          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                                        />
-                                      </div>
-                                      <div className="space-y-1">
-                                        <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">ClearKey (kid:key)</label>
-                                        <input 
-                                          type="text" 
-                                          value={parseKeysFromUrl(channel.play_url).keys}
-                                          onChange={(e) => {
-                                            const keysVal = e.target.value;
-                                            const base = parseKeysFromUrl(channel.play_url).base;
-                                            const updatedCh = [...newLiveEvent.channels];
-                                            updatedCh[cIdx].play_url = buildUrlWithKeys(base, keysVal);
-                                            setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                          }}
-                                          placeholder="e.g. kid:key (Paste Separately)"
-                                          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none font-mono placeholder:text-white/20"
-                                        />
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-2">
-                                      <div className="space-y-1">
-                                        <label className="text-[8px] font-bold text-white/40 uppercase tracking-widest">Stream / Play Link</label>
-                                        <input 
-                                          type="text" 
-                                          value={channel.play_url}
-                                          onChange={(e) => {
-                                            const val = e.target.value;
-                                            const extracted = extractIframeSrc(val);
-                                            const updatedCh = [...newLiveEvent.channels];
-                                            if (extracted && val.toLowerCase().includes('<iframe')) {
-                                              updatedCh[cIdx].play_url = extracted;
-                                              updatedCh[cIdx].is_embed = true;
-                                            } else {
-                                              const parsed = parseKeysFromUrl(val);
-                                              if (parsed.keys || val.toLowerCase().includes('.mpd')) {
-                                                updatedCh[cIdx].play_url = val;
-                                                updatedCh[cIdx].is_mpd = true;
-                                                updatedCh[cIdx].is_embed = false;
-                                              } else {
-                                                updatedCh[cIdx].play_url = val;
-                                              }
-                                            }
-                                            setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                          }}
-                                          placeholder="e.g. m3u8 link, .mpd link, or embed stream"
-                                          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
-                                        />
-                                      </div>
-                                      <div className="space-y-1">
-                                        <label className="text-[8px] font-bold text-cyan-400 uppercase tracking-widest">📋 Paste Full Iframe Code (Pasted embed automatically)</label>
-                                        <input 
-                                          type="text" 
-                                          placeholder='e.g. <iframe src="..." ...></iframe>'
-                                          onChange={(e) => {
-                                            const val = e.target.value;
-                                            const extracted = extractIframeSrc(val);
-                                            if (extracted) {
-                                              const updatedCh = [...newLiveEvent.channels];
-                                              updatedCh[cIdx].play_url = extracted;
-                                              updatedCh[cIdx].is_embed = true;
-                                              setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                            }
-                                          }}
-                                          className="w-full bg-cyan-500/5 border border-cyan-500/20 rounded-xl px-3 py-2 text-[11px] text-cyan-200 placeholder:text-white/20 focus:outline-none font-mono"
-                                        />
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-3 py-2 h-[38px]">
-                                  <input 
-                                    type="checkbox" 
-                                    id={`is_embed-${cIdx}`}
-                                    checked={!!channel.is_embed}
-                                    onChange={(e) => {
-                                      const updatedCh = [...newLiveEvent.channels];
-                                      updatedCh[cIdx].is_embed = e.target.checked;
-                                      if (e.target.checked) {
-                                        updatedCh[cIdx].is_mpd = false;
-                                        updatedCh[cIdx].is_webpage = false;
-                                      }
-                                      setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                    }}
-                                    className="w-4 h-4 accent-cyan-500"
-                                  />
-                                  <label htmlFor={`is_embed-${cIdx}`} className="text-[9px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Embed</label>
-                                </div>
-
-                                <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-3 py-2 h-[38px]">
-                                  <input 
-                                    type="checkbox" 
-                                    id={`is_mpd-${cIdx}`}
-                                    checked={!!channel.is_mpd}
-                                    onChange={(e) => {
-                                      const updatedCh = [...newLiveEvent.channels];
-                                      updatedCh[cIdx].is_mpd = e.target.checked;
-                                      if (e.target.checked) {
-                                        updatedCh[cIdx].is_embed = false;
-                                        updatedCh[cIdx].is_webpage = false;
-                                      }
-                                      setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                    }}
-                                    className="w-4 h-4 accent-cyan-500"
-                                  />
-                                  <label htmlFor={`is_mpd-${cIdx}`} className="text-[9px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">MPD</label>
-                                </div>
-
-                                <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-3 py-2 h-[38px]">
-                                  <input 
-                                    type="checkbox" 
-                                    id={`is_webpage-${cIdx}`}
-                                    checked={!!channel.is_webpage}
-                                    onChange={(e) => {
-                                      const updatedCh = [...newLiveEvent.channels];
-                                      updatedCh[cIdx].is_webpage = e.target.checked;
-                                      if (e.target.checked) {
-                                        updatedCh[cIdx].is_embed = false;
-                                        updatedCh[cIdx].is_mpd = false;
-                                      }
-                                      setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                    }}
-                                    className="w-4 h-4 accent-cyan-500"
-                                  />
-                                  <label htmlFor={`is_webpage-${cIdx}`} className="text-[9px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Webpage</label>
-                                </div>
-
-                                <div className="flex items-center gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2 h-[38px] animate-pulse-slow">
-                                  <input 
-                                    type="checkbox" 
-                                    id={`show_live_viewer_count_channel-${cIdx}`}
-                                    checked={!!channel.show_live_viewer_count}
-                                    onChange={(e) => {
-                                      const updatedCh = [...newLiveEvent.channels];
-                                      updatedCh[cIdx].show_live_viewer_count = e.target.checked;
-                                      setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                    }}
-                                    className="w-4 h-4 accent-red-500"
-                                  />
-                                  <label htmlFor={`show_live_viewer_count_channel-${cIdx}`} className="text-[9px] text-red-400 font-black uppercase tracking-widest cursor-pointer select-none">Live Viewers</label>
-                                </div>
-
-                                {(channel.is_embed || channel.is_webpage) && (
-                                  <>
-                                    <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2 h-[38px]">
-                                      <input 
-                                        type="checkbox" 
-                                        id={`sandbox_disabled-${cIdx}`}
-                                        checked={!!channel.sandbox_disabled}
-                                        onChange={(e) => {
-                                          const updatedCh = [...newLiveEvent.channels];
-                                          updatedCh[cIdx].sandbox_disabled = e.target.checked;
-                                          setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                        }}
-                                        className="w-4 h-4 accent-rose-500"
-                                      />
-                                      <label htmlFor={`sandbox_disabled-${cIdx}`} className="text-[9px] text-rose-400 font-black uppercase tracking-widest cursor-pointer select-none">Sandbox Off</label>
-                                    </div>
-                                    <div className="flex items-center gap-3 bg-cyan-500/10 border border-cyan-500/20 rounded-xl px-3 py-2 h-[38px]">
-                                      <input 
-                                        type="checkbox" 
-                                        id={`iframe_cropping_channel-${cIdx}`}
-                                        checked={!!channel.iframe_cropping}
-                                        onChange={(e) => {
-                                          const updatedCh = [...newLiveEvent.channels];
-                                          updatedCh[cIdx].iframe_cropping = e.target.checked;
-                                          setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                        }}
-                                        className="w-4 h-4 accent-cyan-500"
-                                      />
-                                      <label htmlFor={`iframe_cropping_channel-${cIdx}`} className="text-[9px] text-cyan-400 font-black uppercase tracking-widest cursor-pointer select-none">Enable Iframe Cropping (Hide Top Bar)</label>
-                                    </div>
-                                  </>
-                                )}
-
-                                {newLiveEvent.channels.length > 1 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const updatedCh = newLiveEvent.channels.filter((_, i) => i !== cIdx);
-                                      setNewLiveEvent({ ...newLiveEvent, channels: updatedCh });
-                                    }}
-                                    className="p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl transition-all cursor-pointer h-[38px] w-[38px]"
-                                  >
-                                    <X size={16} />
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3 w-fit">
-                        <input 
-                          type="checkbox" 
-                          id="live_event_resellers_access"
-                          checked={newLiveEvent.available_for_resellers !== false}
-                          onChange={(e) => setNewLiveEvent({...newLiveEvent, available_for_resellers: e.target.checked})}
-                          className="w-4 h-4 accent-cyan-500"
-                        />
-                        <label htmlFor="live_event_resellers_access" className="text-[10px] text-white/60 font-black uppercase tracking-widest cursor-pointer select-none">Resellers Access</label>
-                      </div>
-
-                      <button 
-                        onClick={handleAddLiveEvent}
-                        className={`w-full py-4 rounded-2xl text-xs font-black uppercase tracking-[0.2em] transition-all shadow-xl ${
-                          editingLiveEventId
-                            ? 'bg-yellow-500 text-black shadow-yellow-500/20' 
-                            : 'bg-cyan-500 text-black shadow-cyan-500/20'
-                        }`}
-                      >
-                        {editingLiveEventId ? 'Update Live Event' : 'Launch Live Event'}
-                      </button>
-
-                      <div className="space-y-3">
-                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest px-1">Manage Live Events</label>
-                        {isLiveEventsLoading ? (
-                          <div className="flex justify-center p-6 text-white/40 text-xs">
-                            <Loader2 className="animate-spin text-cyan-400 mr-2" size={16} /> Loading Events...
-                          </div>
-                        ) : liveEvents.length === 0 ? (
-                          <div className="text-center p-6 text-white/30 text-xs font-bold border border-dashed border-white/10 rounded-2xl">
-                            No Live Events Configured
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {liveEvents.map((item, idx) => (
-                              <div key={`admin-live-${item.id}-${idx}`} className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10 group">
-                                <div className="flex flex-col gap-0.5 max-w-[140px]">
-                                  <span className="text-[11px] text-white font-bold truncate">{item.name}</span>
-                                  <span className="text-[8px] text-[#FF4C5E] uppercase tracking-widest font-black">
-                                    {item.channels?.length || 0} Channels Active
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <button 
-                                    onClick={() => {
-                                      setEditingLiveEventId(item.id);
-                                      setNewLiveEvent({
-                                        name: item.name || '',
-                                        poster_url: item.poster_url || '',
-                                        channels: item.channels && item.channels.length > 0 
-                                          ? item.channels.map((ch: any) => ({
-                                              name: ch.name || '',
-                                              play_url: ch.play_url || '',
-                                              is_embed: !!ch.is_embed,
-                                              is_mpd: !!ch.is_mpd,
-                                              is_webpage: !!ch.is_webpage,
-                                              sandbox_disabled: !!ch.sandbox_disabled,
-                                              iframe_cropping: !!ch.iframe_cropping,
-                                              show_live_viewer_count: !!ch.show_live_viewer_count
-                                            }))
-                                          : [{ name: 'Urdu', play_url: '', is_embed: false, is_mpd: false, is_webpage: false, sandbox_disabled: false, iframe_cropping: false, show_live_viewer_count: false }],
-                                        available_for_resellers: item.available_for_resellers !== false
-                                      });
-                                    }}
-                                    className="w-8 h-8 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 flex items-center justify-center transition-all"
-                                  >
-                                    <Pencil size={14} />
-                                  </button>
-                                  <button 
-                                    onClick={() => handleDeleteLiveEvent(item.id)}
-                                    className="w-8 h-8 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-400 flex items-center justify-center transition-all"
-                                  >
-                                    <X size={16} />
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-
-
-                  {activeAdminTab === 'analytics' && (
-                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                      {/* Sub-Navigation */}
-                      <div className="flex bg-white/5 p-1 rounded-xl border border-white/5">
-                        <button
-                          onClick={() => setAnalyticsSubTab('media')}
-                          className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer ${
-                            analyticsSubTab === 'media'
-                              ? 'bg-cyan-500 text-cyan-400 shadow-sm'
-                              : 'text-white/40 hover:text-white'
-                          }`}
+                      <div className="flex items-center gap-3 pt-2">
+                        <button 
+                          onClick={handleSaveResellerProfile}
+                          className="flex-1 py-3 bg-cyan-500 hover:bg-cyan-400 text-black font-black uppercase tracking-wider text-xs rounded-xl transition-all shadow-[0_0_20px_rgba(6,182,212,0.3)] cursor-pointer"
                         >
-                          Media Playback Stats
+                          Save Changes
                         </button>
-                        <button
-                          onClick={() => setAnalyticsSubTab('users')}
-                          className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-colors cursor-pointer ${
-                            analyticsSubTab === 'users'
-                              ? 'bg-cyan-500 text-black font-extrabold shadow-sm'
-                              : 'text-white/40 hover:text-white'
-                          }`}
+                        <button 
+                          onClick={() => setIsEditingResellerProfile(false)}
+                          className="px-5 py-3 bg-white/10 hover:bg-white/15 text-white font-bold uppercase tracking-wider text-xs rounded-xl transition-all border border-white/10 cursor-pointer"
                         >
-                          User Account Logins
+                          Cancel
                         </button>
                       </div>
-
-                      {/* Search Bar / Filter Area */}
-                      <div className="space-y-3">
-                        <div className="relative">
-                          <input 
-                            type="text"
-                            placeholder={analyticsSubTab === 'media' ? "Search played items..." : "Search registered usernames..."}
-                            value={analyticsSearchQuery}
-                            onChange={(e) => setAnalyticsSearchQuery(e.target.value)}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 placeholder-white/20 pl-8"
-                          />
-                          <span className="absolute left-3 top-3 text-white/20 text-xs">🔍</span>
-                          {analyticsSearchQuery && (
-                            <button 
-                              onClick={() => setAnalyticsSearchQuery('')} 
-                              className="absolute right-3 top-2.5 text-white/40 hover:text-white text-xs border-0 bg-transparent cursor-pointer"
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
-
-                        {analyticsSubTab === 'media' && (
-                          <div className="flex flex-wrap gap-1.5 overflow-x-auto no-scrollbar py-1">
-                            {(['all', 'movie', 'series', 'live_event'] as const).map((cat) => (
-                              <button
-                                key={`filter-${cat}`}
-                                onClick={() => setAnalyticsCategoryFilter(cat)}
-                                className={`px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider border cursor-pointer whitespace-nowrap transition-colors ${
-                                  analyticsCategoryFilter === cat
-                                    ? 'bg-cyan-500 border-cyan-500 text-black font-extrabold'
-                                    : 'bg-white/5 border-white/10 text-white/50 hover:text-white'
-                                }`}
-                              >
-                                {cat === 'all' ? 'All Sections' : cat.replace('_', ' ')}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Display Data */}
-                      {analyticsLoading && (userActivities.length === 0 && mediaStats.length === 0) ? (
-                        <div className="flex flex-col items-center justify-center py-12 gap-3">
-                          <Loader2 className="animate-spin text-cyan-400" size={24} />
-                          <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Gathering real-time stats...</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          {analyticsSubTab === 'media' ? (
-                            (() => {
-                              const filtered = mediaStats.filter((stat: any) => {
-                                const matchQuery = !analyticsSearchQuery || 
-                                  stat.itemName?.toLowerCase().includes(analyticsSearchQuery.toLowerCase()) ||
-                                  stat.itemId?.toLowerCase().includes(analyticsSearchQuery.toLowerCase());
-                                const matchCategory = analyticsCategoryFilter === 'all' || stat.category === analyticsCategoryFilter;
-                                return matchQuery && matchCategory;
-                              });
-
-                              if (filtered.length === 0) {
-                                return (
-                                  <div className="text-center py-8 bg-white/5 border border-dashed border-white/10 rounded-2xl">
-                                    <span className="text-xs text-white/30 font-medium">No playback records found matching query</span>
-                                  </div>
-                                );
-                              }
-
-                              return (
-                                <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1 no-scrollbar pb-6">
-                                  {filtered.map((stat: any, index) => {
-                                    const viewers = stat.users ? Object.keys(stat.users) : [];
-                                    const viewersCount = viewers.length;
-                                    
-                                    return (
-                                      <div 
-                                        key={`stat-${stat.itemId}-${index}`}
-                                        className="p-3 bg-white/5 border border-white/5 rounded-2xl flex flex-col gap-2 hover:bg-white/10 transition-colors"
-                                      >
-                                        <div className="flex items-start justify-between gap-4">
-                                          <div className="min-w-0">
-                                            <span className="text-[10px] uppercase font-bold tracking-wider text-cyan-400 bg-cyan-950/40 border border-cyan-800/30 px-1.5 py-0.5 rounded-md mr-2">
-                                              {stat.category === 'live_event' ? 'LIVE EVENT' : stat.category?.toUpperCase()}
-                                            </span>
-                                            <h4 className="text-xs font-black text-white italic tracking-tight uppercase inline md:block mt-1 leading-normal">
-                                              {stat.itemName}
-                                            </h4>
-                                          </div>
-                                          <div className="text-right shrink-0">
-                                            <div className="text-cyan-400 text-sm font-black italic tracking-tighter shadow-sm">
-                                              {stat.totalPlays || 0} <span className="text-[9px] font-black uppercase text-white/40">PLAYS</span>
-                                            </div>
-                                            <div className="text-[9px] font-medium text-white/30 mt-0.5">
-                                              {viewersCount} unique watcher{viewersCount === 1 ? '' : 's'}
-                                            </div>
-                                          </div>
-                                        </div>
-
-                                        {viewers.length > 0 && (
-                                          <div className="flex flex-col gap-1.5 pt-1.5 border-t border-white/5">
-                                            <span className="text-[8px] font-black uppercase text-white/30 tracking-widest text-left block">Viewers (Account Usernames):</span>
-                                            <div className="flex flex-wrap gap-1">
-                                              {viewers.map((usr: string) => (
-                                                <span 
-                                                  key={`viewer-${usr}`}
-                                                  className="text-[9px] font-bold text-white/70 bg-white/5 border border-white/10 px-2 py-0.5 rounded-lg"
-                                                >
-                                                  {usr}
-                                                </span>
-                                              ))}
-                                            </div>
-                                          </div>
-                                        )}
-
-                                        <div className="text-[9px] text-white/20 text-right uppercase tracking-wider pt-0.5">
-                                          Last Played: {stat.lastPlayed ? new Date(stat.lastPlayed).toLocaleString() : 'Never'}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              );
-                            })()
-                          ) : (
-                            (() => {
-                              const filtered = userActivities.filter((act: any) => {
-                                return !analyticsSearchQuery || act.username?.toLowerCase().includes(analyticsSearchQuery.toLowerCase());
-                              });
-
-                              if (filtered.length === 0) {
-                                return (
-                                  <div className="text-center py-8 bg-white/5 border border-dashed border-white/10 rounded-2xl">
-                                    <span className="text-xs text-white/30 font-medium font-bold">No user login accounts found matching query</span>
-                                  </div>
-                                );
-                              }
-
-                              return (
-                                <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1 no-scrollbar pb-6">
-                                  {filtered.map((act: any, index) => (
-                                    <div 
-                                      key={`user-${act.username}-${index}`}
-                                      className="p-3 bg-white/5 border border-white/5 rounded-2xl flex flex-col gap-2 hover:bg-white/10 transition-colors"
-                                    >
-                                      <div className="flex items-center justify-between gap-4">
-                                        <div className="flex items-center gap-2.5">
-                                          <div className="w-8 h-8 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 font-black text-xs flex items-center justify-center uppercase shadow-inner">
-                                            {act.username ? act.username.slice(0, 2) : 'U'}
-                                          </div>
-                                          <div className="flex flex-col">
-                                            <span className="text-xs font-black text-white italic tracking-tight uppercase leading-none">{act.username}</span>
-                                            <span className="text-[9px] text-white/30 uppercase tracking-widest mt-1">First active: {act.firstActive ? new Date(act.firstActive).toLocaleDateString() : 'N/A'}</span>
-                                          </div>
-                                        </div>
-
-                                        <div className="text-right">
-                                          <div className="text-cyan-400 text-sm font-black italic tracking-tighter">
-                                            {act.loginCount || 1} <span className="text-[9px] uppercase font-black text-white/40">LOGINS</span>
-                                          </div>
-                                        </div>
-                                      </div>
-
-                                      <div className="flex justify-between items-center text-[9px] text-white/30 bg-black/20 p-2 rounded-xl mt-1.5 border border-white/5">
-                                        <div className="uppercase tracking-wider">
-                                          Last login: {act.lastLogin ? new Date(act.lastLogin).toLocaleString() : 'N/A'}
-                                        </div>
-                                        <div className="font-bold text-cyan-400 flex items-center gap-1 select-none">
-                                          Active Session Verified
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              );
-                            })()
-                          )}
-                        </div>
-                      )}
                     </div>
-                  )}
-
-                  {activeAdminTab === 'resellers' && (
-                    <div className="space-y-6">
-                      <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-2xl p-5">
-                        <h4 className="text-cyan-400 font-bold uppercase text-[11px] tracking-widest mb-1">Reseller Custom Branding Engine</h4>
-                        <p className="text-xs text-white/70 leading-relaxed">
-                          Enter your reseller's subdomain or custom domain keyword. When visitors open the website via that subdomain or domain, all your default WhatsApp numbers, group links, and brand names will automatically change to their custom details. This allows multiple IPTV resellers to share your single app securely without any overlap!
-                        </p>
-                        <div className="mt-3 text-[10px] text-white/50 bg-black/40 p-3 rounded-xl border border-white/5 space-y-1">
-                          <p className="font-bold text-white uppercase tracking-wider">How to connect subdomain/domain:</p>
-                          <p>1. In Cloudflare DNS, add a <span className="text-cyan-400 font-mono font-bold">CNAME</span> record pointing your reseller's subdomain (e.g. <span className="font-mono text-cyan-400">reseller1.yourdomain.com</span>) to your main Hugging Face Space URL.</p>
-                          <p>2. Add the subdomain prefix (<span className="text-cyan-400 font-mono font-bold">reseller1</span>) below as the "Subdomain Keyword".</p>
-                          <p>3. Alternatively, you can share the link using a parameter: <span className="text-cyan-400 font-mono font-bold">https://sj.4kott.online/?ref=reseller1</span></p>
-                        </div>
-                      </div>
-
-                      {/* Reseller Form Card */}
-                      <div className="bg-white/5 border border-white/10 p-5 rounded-2xl space-y-4">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-white font-bold text-sm tracking-tight">
-                            {editingResellerId ? '📝 Edit Reseller Settings' : '✨ Add New Reseller Domain Setup'}
-                          </h4>
-                          {editingResellerId && (
-                            <button
-                              onClick={() => {
-                                setEditingResellerId(null);
-                                setNewReseller({
-                                  subdomain: '',
-                                  brand_name: '',
-                                  tagline: '',
-                                  whatsapp_number: '',
-                                  whatsapp_group_link: '',
-                                  whatsapp_channel_link: '',
-                                  logo_url: '',
-                                  server_url: '',
-                                  download_url: '',
-                                  app_link: '',
-                                  password: '',
-                                  license_type: '1 Year'
-                                });
-                              }}
-                              className="text-xs text-rose-400 hover:underline font-bold"
-                            >
-                              Cancel Edit
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Subdomain / Domain Keyword <span className="text-rose-400">*</span></label>
-                            <input
-                              type="text"
-                              placeholder="e.g. reseller1 or full subdomain"
-                              value={newReseller.subdomain}
-                              onChange={(e) => setNewReseller({ ...newReseller, subdomain: e.target.value })}
-                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom Brand Name <span className="text-rose-400">*</span></label>
-                            <input
-                              type="text"
-                              placeholder="e.g. VIP IPTV"
-                              value={newReseller.brand_name}
-                              onChange={(e) => setNewReseller({ ...newReseller, brand_name: e.target.value })}
-                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Slogan / Tagline</label>
-                            <input
-                              type="text"
-                              placeholder="e.g. Premium Live & VOD Experience"
-                              value={newReseller.tagline}
-                              onChange={(e) => setNewReseller({ ...newReseller, tagline: e.target.value })}
-                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">WhatsApp Number (digits only, e.g. 923112223344)</label>
-                            <input
-                              type="text"
-                              placeholder="e.g. 923161611304"
-                              value={newReseller.whatsapp_number}
-                              onChange={(e) => setNewReseller({ ...newReseller, whatsapp_number: e.target.value })}
-                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom WhatsApp Group Link</label>
-                            <input
-                              type="url"
-                              placeholder="https://chat.whatsapp.com/..."
-                              value={newReseller.whatsapp_group_link}
-                              onChange={(e) => setNewReseller({ ...newReseller, whatsapp_group_link: e.target.value })}
-                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom WhatsApp Channel Link</label>
-                            <input
-                              type="url"
-                              placeholder="https://whatsapp.com/channel/..."
-                              value={newReseller.whatsapp_channel_link}
-                              onChange={(e) => setNewReseller({ ...newReseller, whatsapp_channel_link: e.target.value })}
-                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 font-bold"
-                            />
-                          </div>
-
-                          <div className="sm:col-span-2">
-                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom Logo URL (Optional)</label>
-                            <input
-                              type="url"
-                              placeholder="https://example.com/logo.png"
-                              value={newReseller.logo_url}
-                              onChange={(e) => setNewReseller({ ...newReseller, logo_url: e.target.value })}
-                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
-                            />
-                          </div>
-
-                          <div className="sm:col-span-2">
-                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom IPTV Server URL / Host (Optional)</label>
-                            <input
-                              type="url"
-                              placeholder="e.g. http://your-server-dns.com or https://60fpssj-60fps10.hf.space"
-                              value={newReseller.server_url || ''}
-                              onChange={(e) => setNewReseller({ ...newReseller, server_url: e.target.value })}
-                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
-                            />
-                            <p className="text-[9px] text-white/40 mt-1">If specified, all IPTV requests for this reseller's domain will bypass the default server and route through their custom IPTV server URL.</p>
-                          </div>
-
-                          <div className="sm:col-span-2">
-                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom Movie/Series Download Server URL (Optional)</label>
-                            <input
-                              type="url"
-                              placeholder="e.g. https://reseller-mkv-dns.com"
-                              value={newReseller.download_url || ''}
-                              onChange={(e) => setNewReseller({ ...newReseller, download_url: e.target.value })}
-                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
-                            />
-                            <p className="text-[9px] text-white/40 mt-1">If specified, user movie/series (.mkv/.mp4) file downloads for this reseller's domain will route through this custom media download server instead of play/streaming server host.</p>
-                          </div>
-
-                          <div className="sm:col-span-2">
-                            <label className="text-[10px] text-white/50 font-black uppercase tracking-widest block mb-1">Custom Application Download Link (Optional)</label>
-                            <input
-                              type="url"
-                              placeholder="https://example.com/download-app.apk"
-                              value={newReseller.app_link || ''}
-                              onChange={(e) => setNewReseller({ ...newReseller, app_link: e.target.value })}
-                              className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
-                            />
-                            <p className="text-[9px] text-white/40 mt-1">Provide an APK or application download URL. If present, a beautiful download button will appear for your users on the home screen next to Trending Movies.</p>
-                          </div>
-
-                          <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-white/5">
-                            <div>
-                              <label className="text-[10px] text-cyan-400 font-black uppercase tracking-widest block mb-1">Reseller Login Password <span className="text-rose-400">*</span></label>
-                              <input
-                                type="text"
-                                placeholder="e.g. resellerpass123"
-                                value={newReseller.password || ''}
-                                onChange={(e) => setNewReseller({ ...newReseller, password: e.target.value })}
-                                className="w-full bg-black/40 border border-cyan-500/20 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="text-[10px] text-cyan-400 font-black uppercase tracking-widest block mb-1">License Duration <span className="text-rose-400">*</span></label>
-                              <select
-                                value={newReseller.license_type || '1 Year'}
-                                onChange={(e) => setNewReseller({ ...newReseller, license_type: e.target.value })}
-                                className="w-full bg-black/40 border border-cyan-500/20 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold"
-                              >
-                                <option value="1 Year" className="bg-neutral-900 text-white font-bold">1 Year</option>
-                                <option value="Lifetime" className="bg-neutral-900 text-white font-bold">Lifetime</option>
-                              </select>
-                            </div>
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={handleAddReseller}
-                          className="w-full bg-cyan-500 hover:bg-cyan-400 text-black py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg active:scale-98"
-                        >
-                          {editingResellerId ? '💾 Save Reseller Changes' : '➕ Register Reseller Custom Subdomain'}
-                        </button>
-                      </div>
-
-                      {/* Reseller List */}
-                      <div className="space-y-3">
-                        <h4 className="text-white font-bold text-sm tracking-tight">👥 Active Reseller Domains ({resellers.length})</h4>
-                        {resellers.length === 0 ? (
-                          <div className="text-center p-6 bg-white/5 border border-white/10 rounded-2xl">
-                            <p className="text-xs text-white/40 font-bold uppercase tracking-wider">No resellers configured yet</p>
-                          </div>
-                        ) : (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {resellers.map((item, idx) => (
-                              <div key={`reseller-row-${item.id}-${idx}`} className="bg-white/5 border border-white/10 p-4 rounded-2xl space-y-3 flex flex-col justify-between group">
-                                <div className="space-y-1">
-                                  <div className="flex items-center justify-between">
-                                    <span className="px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 font-mono text-[9px] font-bold">
-                                      {item.subdomain}
-                                    </span>
-                                    <div className="flex items-center gap-1.5 opacity-60 group-hover:opacity-100 transition-opacity">
-                                      <button
-                                        onClick={() => {
-                                          setEditingResellerId(item.id);
-                                          setNewReseller({
-                                            subdomain: item.subdomain || '',
-                                            brand_name: item.brand_name || '',
-                                            tagline: item.tagline || '',
-                                            whatsapp_number: item.whatsapp_number || '',
-                                            whatsapp_group_link: item.whatsapp_group_link || '',
-                                            whatsapp_channel_link: item.whatsapp_channel_link || '',
-                                            logo_url: item.logo_url || '',
-                                            server_url: item.server_url || '',
-                                            download_url: item.download_url || '',
-                                            app_link: item.app_link || '',
-                                            password: item.password || '',
-                                            license_type: item.license_type || '1 Year'
-                                          });
-                                        }}
-                                        className="p-1.5 rounded-lg bg-white/5 hover:bg-cyan-500/20 text-white hover:text-cyan-400 transition-all cursor-pointer"
-                                        title="Edit"
-                                      >
-                                        <Pencil size={12} />
-                                      </button>
-                                      <button
-                                        onClick={() => handleDeleteReseller(item.id)}
-                                        className="p-1.5 rounded-lg bg-white/5 hover:bg-rose-500/20 text-white hover:text-rose-400 transition-all cursor-pointer"
-                                        title="Delete"
-                                      >
-                                        <Trash2 size={12} />
-                                      </button>
-                                    </div>
-                                  </div>
-                                  <h5 className="text-sm font-black text-white">{item.brand_name}</h5>
-                                  <p className="text-[10px] text-white/40 italic">"{item.tagline || 'Premium experience'}"</p>
-                                </div>
-
-                                <div className="pt-2 border-t border-white/5 space-y-1 text-[10px] text-white/60">
-                                  <div>📱 WA No: <span className="font-mono text-white">{item.whatsapp_number || 'N/A'}</span></div>
-                                  <div className="truncate">🔗 Group: <a href={item.whatsapp_group_link} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline font-bold">{item.whatsapp_group_link || 'N/A'}</a></div>
-                                  <div className="truncate">📢 Channel: <a href={item.whatsapp_channel_link} target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline font-bold">{item.whatsapp_channel_link || 'N/A'}</a></div>
-                                  <div className="truncate">🖥️ Play Server: <span className="font-mono text-cyan-400">{item.server_url || 'Default'}</span></div>
-                                  <div className="truncate">💾 Download Host: <span className="font-mono text-purple-400">{item.download_url || 'Default'}</span></div>
-                                  <div className="truncate">📥 App Link: <span className="font-mono text-emerald-400 font-bold truncate max-w-[200px]" title={item.app_link || 'N/A'}>{item.app_link || 'N/A'}</span></div>
-                                  <div className="flex items-center gap-4 mt-1 pt-1 border-t border-white/5">
-                                    <div>🔑 Pass: <span className="font-mono text-cyan-400 font-bold">{item.password || 'None'}</span></div>
-                                    <div>📜 License: <span className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20">{item.license_type || '1 Year'}</span></div>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {activeAdminTab === 'requests' && (
-                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h4 className="text-sm font-bold text-amber-400 uppercase tracking-widest flex items-center gap-2">
-                            <MessageSquarePlus size={18} /> User Requests For Movies & Web Series
-                          </h4>
-                          <p className="text-xs text-white/50">Manage user submitted requests and mark them as added when fulfilled.</p>
-                        </div>
-                        <div className="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold">
-                          Total Requests: {mediaRequests.length}
-                        </div>
-                      </div>
-
-                      {mediaRequests.length === 0 ? (
-                        <div className="text-center py-12 bg-white/5 rounded-2xl border border-white/5 space-y-2">
-                          <Inbox size={40} className="mx-auto text-white/20" />
-                          <p className="text-sm text-white/50">Abhi tak kisi user ne request submit nahi ki hai.</p>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {mediaRequests.map((req) => (
-                            <div key={req.id} className="p-4 bg-white/5 border border-white/10 rounded-2xl space-y-3">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="flex items-center gap-3 min-w-0">
-                                  <MediaPosterImage 
-                                    src={req.posterUrl} 
-                                    alt={req.title} 
-                                    type={req.mediaType}
-                                    className="w-14 h-20 object-cover rounded-xl bg-slate-800 shrink-0 border border-white/10"
-                                  />
-                                  <div className="min-w-0 space-y-1">
-                                    {req.requestType === 'playback_issue' && (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-rose-300 text-[10px] font-black uppercase">
-                                        <AlertTriangle size={12} className="text-rose-400" /> Playback Issue (Link Broken)
-                                      </span>
-                                    )}
-                                    <h5 className="text-sm font-extrabold text-white truncate">{req.title}</h5>
-                                    <div className="flex items-center gap-2 text-[11px] text-white/60">
-                                      <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-extrabold uppercase text-[10px]">
-                                        {req.mediaType === 'tv' ? 'Web Series' : 'Movie'}
-                                      </span>
-                                      {req.year && <span>{req.year}</span>}
-                                      {req.tmdbId && <span className="font-mono text-white/40">ID: {req.tmdbId}</span>}
-                                    </div>
-                                    <div className="text-[11px] text-amber-300/90 font-medium truncate">
-                                      👤 User: <span className="text-white font-bold">{req.username || 'User'}</span>
-                                    </div>
-                                    <div className="text-[10px] text-white/40">
-                                      📅 Date: {req.createdAt ? new Date(req.createdAt).toLocaleString() : 'N/A'}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <button
-                                  onClick={() => handleDeleteRequest(req.id)}
-                                  className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-all cursor-pointer shrink-0"
-                                  title="Delete Request"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
-                              </div>
-
-                              <div className="pt-3 border-t border-white/5 flex items-center justify-between gap-2 flex-wrap">
-                                <div>
-                                  {req.status === 'fulfilled' ? (
-                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 text-xs font-bold">
-                                      <CheckCircle2 size={14} /> Added & Ready
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/50 text-amber-300 text-xs font-bold animate-pulse">
-                                      <Clock3 size={14} /> Pending Action
-                                    </span>
-                                  )}
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                  {req.status !== 'fulfilled' && (
-                                    <button
-                                      onClick={() => handleFulfillRequest(req.id)}
-                                      className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-extrabold flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
-                                    >
-                                      <Check size={14} /> Mark as Added
-                                    </button>
-                                  )}
-
-                                  <button
-                                    onClick={() => handleQuickAddRequest(req)}
-                                    className="px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
-                                    title="Quick auto-fill into Free Content publishing form"
-                                  >
-                                    <Plus size={14} /> Auto-Fill to Publish
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {activeAdminTab === 'app' && (
-                    <button 
-                      onClick={handleUpdateUrl}
-                      className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-black py-4 rounded-2xl text-xs font-black uppercase tracking-[0.3em] transition-all shadow-xl shadow-cyan-500/20"
-                    >
-                      Update Hub Status
-                    </button>
                   )}
                 </div>
-              </div>
-
-              <div className="p-4 bg-white/5 text-center">
-                 <p className="text-[9px] text-white/20 uppercase tracking-[0.3em] font-bold italic">Admin Surface v2.0 • Secure Session Exclusive</p>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
-
-      {/* Premium Change Location Region Modal */}
-      <AnimatePresence>
-        {showRegionModal && (
-          <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              onClick={() => setShowRegionModal(false)}
-              className="absolute inset-0 bg-black/60"
-            />
-
-            <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 12 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="relative w-full max-w-2xl bg-zinc-950 rounded-3xl border border-white/15 p-5 sm:p-7 shadow-2xl overflow-hidden z-10"
-            >
-              {/* Soft subtle glow */}
-              <div className="absolute -top-20 -left-20 w-48 h-48 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none" />
-
-              {/* Modal Header */}
-              <div className="flex items-start justify-between pb-4 border-b border-white/10 relative z-10">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-                    <Globe size={22} />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-xl sm:text-2xl font-display font-extrabold text-white tracking-tight">
-                        Select Trending Location
-                      </h2>
-                      <span className="hidden sm:inline-flex text-[9px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-black uppercase tracking-widest">
-                        GLOBAL
-                      </span>
-                    </div>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      Explore top 10 movies & web series trending in different regions around the world
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowRegionModal(false)}
-                  className="p-2 rounded-full bg-white/5 hover:bg-white/15 text-white/70 hover:text-white border border-white/10 transition-colors cursor-pointer"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              {/* Region Cards Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 my-4 max-h-[55vh] overflow-y-auto pr-1 no-scrollbar relative z-10">
-                {TRENDING_REGIONS.map((region) => {
-                  const isSelected = selectedTrendingRegion === region.code;
-                  return (
-                    <button
-                      key={`region-${region.code}`}
-                      onClick={() => {
-                        setSelectedTrendingRegion(region.code);
-                        localStorage.setItem('trending_region', region.code);
-                        setShowRegionModal(false);
-                      }}
-                      className={`flex items-center justify-between p-3 sm:p-3.5 rounded-2xl text-left border transition-all duration-150 group cursor-pointer active:scale-[0.98] ${
-                        isSelected
-                          ? 'bg-gradient-to-r from-cyan-950/80 via-zinc-900 to-cyan-950/80 border-cyan-400/80 shadow-md text-white'
-                          : 'bg-white/5 hover:bg-white/10 border-white/10 hover:border-white/25 text-zinc-300 hover:text-white'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3.5 min-w-0">
-                        <RegionFlag code={region.code} className="w-8 h-5 rounded-md shadow-md" />
-                        <div className="min-w-0">
-                          <h4 className="text-sm font-bold text-white flex items-center gap-2 truncate">
-                            {region.name}
-                            {isSelected && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-400 text-black font-extrabold uppercase">
-                                Active
-                              </span>
-                            )}
-                          </h4>
-                          <p className="text-xs text-zinc-400 truncate">{region.subtitle}</p>
-                        </div>
-                      </div>
-
-                      <div className="shrink-0 ml-2">
-                        {isSelected ? (
-                          <div className="w-5 h-5 rounded-full bg-cyan-400 text-black flex items-center justify-center">
-                            <Check size={12} strokeWidth={3} />
-                          </div>
-                        ) : (
-                          <div className="w-5 h-5 rounded-full border border-white/20 group-hover:border-cyan-400/50 flex items-center justify-center text-transparent group-hover:text-cyan-400 transition-colors">
-                            <ChevronRight size={12} />
-                          </div>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Modal Footer */}
-              <div className="pt-3 border-t border-white/10 flex items-center justify-between text-xs text-zinc-400 relative z-10">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                  <span className="text-zinc-300 font-medium">Location preference applied</span>
-                </div>
-                <button
-                  onClick={() => setShowRegionModal(false)}
-                  className="px-5 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white font-bold transition-colors cursor-pointer"
-                >
-                  Close
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Trailer Modal Player */}
-      <AnimatePresence>
-        {playingTrailerUrl && (
-          <div className="fixed inset-0 z-[190] flex items-center justify-center p-4 md:p-8">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setPlayingTrailerUrl(null)}
-              className="absolute inset-0 bg-black/90 backdrop-blur-md gpu"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="relative w-full max-w-5xl bg-black rounded-2xl md:rounded-3xl shadow-[0_24px_50px_rgba(0,0,0,0.95)] overflow-hidden flex flex-col z-10 border border-white/10"
-            >
-              {/* Premium Floating Close Button */}
-              <button 
-                onClick={() => setPlayingTrailerUrl(null)}
-                className="absolute top-3 right-3 md:top-4 md:right-4 z-50 p-2 md:p-3 bg-black/60 hover:bg-black text-white/80 hover:text-white rounded-full border border-white/10 backdrop-blur-md transition-all duration-300 hover:scale-110 active:scale-95 shadow-2xl cursor-pointer flex items-center justify-center group"
-                title="Close Trailer"
-              >
-                <X size={18} className="group-hover:rotate-90 transition-transform duration-300" />
-              </button>
-
-              {/* Player Body (Aspect 16:9) */}
-              <div className="w-full aspect-video bg-black relative">
-                {playingTrailerUrl && (
-                  <iframe
-                    src={`${playingTrailerUrl}?autoplay=1&mute=0&rel=0&modestbranding=1&controls=1&showinfo=0&iv_load_policy=3&enablejsapi=1`}
-                    title="Trailer Player"
-                    frameBorder="0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                    className="absolute inset-0 w-full h-full"
-                  />
-                )}
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Floating WhatsApp Channel Overlay */}
-      {currentWhatsappChannelLink && currentWhatsappChannelLink.trim() !== '' && currentWhatsappChannelLink !== 'N/A' && (
-        <motion.a
-          href={currentWhatsappChannelLink}
-          target="_blank"
-          rel="noopener noreferrer"
-          initial={{ scale: 0.8, opacity: 0, y: 15 }}
-          animate={{ scale: 1, opacity: 1, y: 0 }}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          className="fixed bottom-[130px] right-3 sm:bottom-10 sm:right-6 z-[100] group flex items-center gap-2 bg-gradient-to-r from-emerald-600 via-emerald-500 to-green-500 hover:from-emerald-500 hover:to-green-400 text-white pl-2 pr-3 py-1 sm:py-1.5 rounded-full shadow-[0_6px_20px_rgba(16,185,129,0.4)] border border-emerald-300/40 backdrop-blur-md transition-all duration-300 cursor-pointer"
-          title="For more updates follow WhatsApp channel"
-        >
-          <div className="relative flex items-center justify-center w-5 h-5 rounded-full bg-white/20 text-white shrink-0">
-            <MessageCircle size={12} className="fill-white stroke-none" />
-            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-green-300 rounded-full animate-ping" />
-            <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-green-200 rounded-full" />
-          </div>
-
-          <div className="flex flex-col text-left">
-            <span className="text-[7px] uppercase font-black tracking-wider text-emerald-100 opacity-90 leading-none">
-              For More Updates
-            </span>
-            <span className="text-[9px] sm:text-[11px] font-extrabold tracking-tight text-white leading-tight mt-0.5">
-              WhatsApp Channel
-            </span>
-          </div>
-        </motion.a>
-      )}
-
-      {/* Footer */}
-      <footer className="p-8 pb-24 md:pb-8 text-center border-t border-white/5 bg-black/20">
-        <div className="mb-4">
-          <h2 className="text-xl font-display font-black tracking-tighter italic">{currentBrandName}</h2>
-          <p className="text-[10px] text-cyan-500 font-bold uppercase tracking-[0.3em] mt-1">Premium Experience</p>
-        </div>
-        <p className="text-white/20 text-[10px] font-medium uppercase tracking-[0.2em]">
-          Powered by {currentBrandName} Engine • Premium Content Delivery
-        </p>
-      </footer>
     </div>
   );
 }
+

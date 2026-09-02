@@ -86,3 +86,23 @@ export interface LoginResponse {
   user_info: UserInfo;
   server_info: ServerInfo;
 }
+
+export interface ContinueWatchingItem {
+  id: string;
+  type: 'movie' | 'series' | 'free_movie' | 'free_series';
+  title: string;
+  subtitle?: string;
+  poster_url?: string;
+  backdrop_url?: string;
+  currentTime: number;
+  duration: number;
+  percentage: number;
+  lastWatched: number;
+  itemData: any;
+  episodeId?: string;
+  episodeExt?: string;
+  episodeNum?: number | string;
+  seasonNum?: string;
+  episodeTitle?: string;
+  playUrl?: string;
+}
