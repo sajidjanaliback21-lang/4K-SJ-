@@ -69,6 +69,7 @@ import { XtreamCredentials, Category, Stream, Series, LiveStream, ContinueWatchi
 import axios from 'axios';
 import VideoPlayer from './components/VideoPlayer';
 import ContinueWatchingRow from './components/ContinueWatchingRow';
+import AdminPanelModal from './components/AdminPanelModal';
 import IntroLoading from './components/IntroLoading';
 import { db, auth } from './firebase';
 import { doc, onSnapshot, setDoc, getDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc, where, writeBatch } from 'firebase/firestore';
@@ -1826,7 +1827,8 @@ export default function App() {
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminPassword === 'sajid122') {
+    const cleanPassword = (adminPassword || '').trim();
+    if (cleanPassword === 'sajid122') {
       setIsAdminLoggedIn(true);
       setLoggedInReseller(null);
       if (typeof window !== 'undefined') {
@@ -1836,7 +1838,7 @@ export default function App() {
       setAdminPassword('');
     } else {
       // Find matching reseller by password
-      const matchedReseller = resellers.find(r => r.password && r.password.trim() !== '' && r.password === adminPassword);
+      const matchedReseller = resellers.find(r => r.password && r.password.trim() !== '' && r.password.trim() === cleanPassword);
       if (matchedReseller) {
         setLoggedInReseller(matchedReseller);
         setIsAdminLoggedIn(false);
@@ -9379,6 +9381,23 @@ export default function App() {
               </form>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Super Admin Control Panel Modal */}
+      <AnimatePresence>
+        {isAdminLoggedIn && (
+          <AdminPanelModal
+            isOpen={isAdminLoggedIn}
+            onClose={() => setIsAdminLoggedIn(false)}
+            appSettings={appSettings}
+            setAppSettings={setAppSettings}
+            freeMovies={freeMovies}
+            freeSeries={freeSeries}
+            liveEvents={liveEvents}
+            resellers={resellers}
+            mediaRequests={mediaRequests}
+          />
         )}
       </AnimatePresence>
 
