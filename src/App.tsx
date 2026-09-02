@@ -774,6 +774,7 @@ export default function App() {
       return null;
     }
   });
+  const [showResellerModal, setShowResellerModal] = useState(false);
 
   const [creds, setCreds] = useState<XtreamCredentials>(() => {
     const saved = localStorage.getItem('iptv_creds');
@@ -1367,6 +1368,25 @@ export default function App() {
       // Determine the active reseller
       const matched = findActiveReseller(list);
       const resellerKey = getResellerKey();
+
+      // Sync loggedInReseller with latest Firestore database state
+      if (typeof window !== 'undefined') {
+        try {
+          const savedStr = localStorage.getItem('logged_in_reseller');
+          if (savedStr) {
+            const parsed = JSON.parse(savedStr);
+            if (parsed && parsed.id) {
+              const latestInDb = list.find(r => r.id === parsed.id);
+              if (latestInDb) {
+                setLoggedInReseller(latestInDb);
+                localStorage.setItem('logged_in_reseller', JSON.stringify(latestInDb));
+              }
+            }
+          }
+        } catch (e) {
+          // ignore parsing error
+        }
+      }
       
       if (matched) {
         setActiveReseller(matched);
@@ -1831,6 +1851,7 @@ export default function App() {
     if (cleanPassword === 'sajid122') {
       setIsAdminLoggedIn(true);
       setLoggedInReseller(null);
+      setShowResellerModal(false);
       if (typeof window !== 'undefined') {
         localStorage.removeItem('logged_in_reseller');
       }
@@ -1841,6 +1862,7 @@ export default function App() {
       const matchedReseller = resellers.find(r => r.password && r.password.trim() !== '' && r.password.trim() === cleanPassword);
       if (matchedReseller) {
         setLoggedInReseller(matchedReseller);
+        setShowResellerModal(true);
         setIsAdminLoggedIn(false);
         if (typeof window !== 'undefined') {
           localStorage.setItem('logged_in_reseller', JSON.stringify(matchedReseller));
@@ -4495,6 +4517,26 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2 md:gap-3.5 shrink-0 min-w-0">
+          {loggedInReseller && (
+            <button 
+              onClick={() => setShowResellerModal(true)}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[10px] sm:text-xs font-bold transition-all shadow-sm shadow-purple-500/20 shrink-0 active:scale-95 cursor-pointer"
+              title={`Open ${loggedInReseller.brand_name} Reseller Panel`}
+            >
+              <Shield size={13} className="text-purple-400 shrink-0" />
+              <span className="hidden sm:inline">{loggedInReseller.brand_name}</span>
+              <span className="sm:hidden">Reseller</span>
+            </button>
+          )}
+
+          <button 
+            onClick={() => setShowAdminLogin(true)}
+            className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 md:w-10 md:h-10 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-white/40 hover:text-white transition-all hover:scale-105 active:scale-95 cursor-pointer shrink-0"
+            title="Settings & Admin Portal"
+          >
+            <Settings size={15} className="sm:w-4 sm:h-4 md:w-5 md:h-5" />
+          </button>
+
           {isLoggedIn && (
             <button 
               onClick={() => setShowRequestModal(true)}
@@ -9360,6 +9402,41 @@ export default function App() {
                   <X size={18} />
                 </button>
               </div>
+
+              {loggedInReseller && (
+                <div className="mb-4 p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="text-[8px] text-purple-300 font-bold uppercase tracking-wider block">Active Session</span>
+                      <span className="text-xs font-bold text-white truncate block">{loggedInReseller.brand_name}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLoggedInReseller(null);
+                        setShowResellerModal(false);
+                        if (typeof window !== 'undefined') {
+                          localStorage.removeItem('logged_in_reseller');
+                        }
+                      }}
+                      className="text-[10px] px-2.5 py-1 bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 rounded-lg font-bold border border-rose-500/30 transition-colors shrink-0 cursor-pointer"
+                    >
+                      Log Out
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAdminLogin(false);
+                      setShowResellerModal(true);
+                    }}
+                    className="w-full py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm shadow-purple-500/30 cursor-pointer"
+                  >
+                    Open Reseller License Panel
+                  </button>
+                </div>
+              )}
+
               <form onSubmit={handleAdminLogin} className="space-y-4">
                 <div>
                   <label className="block text-[10px] uppercase tracking-widest text-white/40 font-bold mb-1.5">Password</label>
@@ -10006,13 +10083,13 @@ export default function App() {
 
       {/* Standalone Reseller Panel Modal */}
       <AnimatePresence>
-        {loggedInReseller && (
+        {loggedInReseller && showResellerModal && (
           <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 gpu">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setLoggedInReseller(null)}
+              onClick={() => setShowResellerModal(false)}
               className="absolute inset-0 bg-black/90 backdrop-blur-xl gpu"
             />
             <motion.div
@@ -10032,16 +10109,17 @@ export default function App() {
                   <button 
                     onClick={() => {
                       setLoggedInReseller(null);
+                      setShowResellerModal(false);
                       if (typeof window !== 'undefined') {
                         localStorage.removeItem('logged_in_reseller');
                       }
                     }}
-                    className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-rose-500/20"
+                    className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-rose-500/20 cursor-pointer"
                   >
                     Log Out
                   </button>
                   <button 
-                    onClick={() => setLoggedInReseller(null)}
+                    onClick={() => setShowResellerModal(false)}
                     className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors border border-white/5 cursor-pointer text-white"
                   >
                     <X size={18} />
