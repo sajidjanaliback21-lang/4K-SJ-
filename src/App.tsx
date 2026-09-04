@@ -865,10 +865,21 @@ export default function App() {
     return 'IN';
   });
   const [showRegionModal, setShowRegionModal] = useState<boolean>(false);
+  const [regionSearchQuery, setRegionSearchQuery] = useState<string>('');
 
   const currentRegionObj = useMemo(() => {
     return TRENDING_REGIONS.find(r => r.code === selectedTrendingRegion) || TRENDING_REGIONS[0];
   }, [selectedTrendingRegion]);
+
+  const filteredTrendingRegions = useMemo(() => {
+    const q = regionSearchQuery.toLowerCase().trim();
+    if (!q) return TRENDING_REGIONS;
+    return TRENDING_REGIONS.filter(r => 
+      r.name.toLowerCase().includes(q) ||
+      r.code.toLowerCase().includes(q) ||
+      r.subtitle.toLowerCase().includes(q)
+    );
+  }, [regionSearchQuery]);
 
   // Studios & OTT Platforms State
   const [selectedPlatform, setSelectedPlatform] = useState<OttPlatform | null>(null);
@@ -2298,7 +2309,6 @@ export default function App() {
 
   // Fetch Trending Movies & TV Series from TMDB
   useEffect(() => {
-    if (!creds) return;
     const loadTrendingContent = async () => {
       setLoadingTrending(true);
       try {
@@ -2315,7 +2325,7 @@ export default function App() {
       }
     };
     loadTrendingContent();
-  }, [creds, selectedTrendingRegion]);
+  }, [selectedTrendingRegion]);
 
   // Fetch Movie items when category changes
   useEffect(() => {
@@ -5222,10 +5232,14 @@ export default function App() {
                         <span className="w-1.5 h-6 bg-cyan-500 rounded-full" />
                         Trending Movies
                       </h3>
-                      <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black/60 backdrop-blur-xl border border-white/15 text-[11px] sm:text-xs font-bold text-white shadow-lg">
+                      <button
+                        onClick={() => setShowRegionModal(true)}
+                        className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black/60 hover:bg-cyan-950/40 backdrop-blur-xl border border-white/15 hover:border-cyan-400/50 text-[11px] sm:text-xs font-bold text-white shadow-lg cursor-pointer transition-all hover:scale-105 active:scale-95"
+                        title="Click to Change Trending Region"
+                      >
                         <RegionFlag code={currentRegionObj.code} className="w-5 h-3.5" />
                         <span className="text-cyan-300 font-extrabold">{currentRegionObj.name}</span>
-                      </span>
+                      </button>
                     </div>
 
                     <div className="flex items-center gap-2.5 flex-wrap">
@@ -5466,24 +5480,30 @@ export default function App() {
                         <span className="w-1.5 h-6 bg-cyan-500 rounded-full" />
                         Trending Web Series
                       </h3>
-                      <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black/60 backdrop-blur-xl border border-white/15 text-[11px] sm:text-xs font-bold text-white shadow-lg">
+                      <button
+                        onClick={() => setShowRegionModal(true)}
+                        className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black/60 hover:bg-cyan-950/40 backdrop-blur-xl border border-white/15 hover:border-cyan-400/50 text-[11px] sm:text-xs font-bold text-white shadow-lg cursor-pointer transition-all hover:scale-105 active:scale-95"
+                        title="Click to Change Trending Region"
+                      >
                         <RegionFlag code={currentRegionObj.code} className="w-5 h-3.5" />
                         <span className="text-cyan-300 font-extrabold">{currentRegionObj.name}</span>
-                      </span>
+                      </button>
                     </div>
 
-                    <button
-                      onClick={() => setShowRegionModal(true)}
-                      className="group relative inline-flex items-center gap-2 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full bg-gradient-to-r from-zinc-900/90 via-black/90 to-zinc-900/90 hover:from-cyan-950/80 hover:via-zinc-900 hover:to-cyan-950/80 backdrop-blur-2xl border border-white/20 hover:border-cyan-400/60 text-xs sm:text-sm font-bold text-white transition-all duration-300 shadow-[0_4px_20px_rgba(0,0,0,0.6)] hover:shadow-[0_0_25px_rgba(6,182,212,0.35)] active:scale-95 cursor-pointer"
-                    >
-                      <Globe size={15} className="text-cyan-400 group-hover:rotate-45 transition-transform duration-500" />
-                      <span className="text-zinc-300 font-medium">Change Location</span>
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-[11px] font-black text-cyan-300">
-                        <RegionFlag code={currentRegionObj.code} className="w-4 h-2.5" />
-                        <span>{currentRegionObj.code}</span>
-                      </span>
-                      <ChevronDown size={14} className="text-white/60 group-hover:translate-y-0.5 transition-transform" />
-                    </button>
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <button
+                        onClick={() => setShowRegionModal(true)}
+                        className="group relative inline-flex items-center gap-2 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full bg-gradient-to-r from-zinc-900/90 via-black/90 to-zinc-900/90 hover:from-cyan-950/80 hover:via-zinc-900 hover:to-cyan-950/80 backdrop-blur-2xl border border-white/20 hover:border-cyan-400/60 text-xs sm:text-sm font-bold text-white transition-all duration-300 shadow-[0_4px_20px_rgba(0,0,0,0.6)] hover:shadow-[0_0_25px_rgba(6,182,212,0.35)] active:scale-95 cursor-pointer"
+                      >
+                        <Globe size={15} className="text-cyan-400 group-hover:rotate-45 transition-transform duration-500" />
+                        <span className="text-zinc-300 font-medium">Change Location</span>
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-[11px] font-black text-cyan-300">
+                          <RegionFlag code={currentRegionObj.code} className="w-4 h-2.5" />
+                          <span>{currentRegionObj.code}</span>
+                        </span>
+                        <ChevronDown size={14} className="text-white/60 group-hover:translate-y-0.5 transition-transform" />
+                      </button>
+                    </div>
                   </div>
                   
                   {loadingTrending ? (
@@ -7637,6 +7657,33 @@ export default function App() {
                         <p className="mt-2.5 text-[10px] text-emerald-400/80 text-center font-semibold">
                           Click the number above to connect on WhatsApp directly
                         </p>
+
+                        {(currentWhatsappGroupLink || currentWhatsappChannelLink) && (
+                          <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-center gap-2 flex-wrap">
+                            {currentWhatsappGroupLink && (
+                              <a
+                                href={currentWhatsappGroupLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-[#25D366]/20 border border-emerald-500/30 hover:border-[#25D366]/60 text-[#25D366] text-[11px] font-bold transition-all shadow-sm"
+                              >
+                                <MessageCircle size={13} />
+                                <span>Join WhatsApp Group</span>
+                              </a>
+                            )}
+                            {currentWhatsappChannelLink && (
+                              <a
+                                href={currentWhatsappChannelLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 text-[11px] font-bold transition-all shadow-sm"
+                              >
+                                <Radio size={13} />
+                                <span>Follow WhatsApp Channel</span>
+                              </a>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -8488,6 +8535,30 @@ export default function App() {
                         </a>
                       )}
 
+                      {currentWhatsappGroupLink && (
+                        <a 
+                          href={currentWhatsappGroupLink} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="w-full h-11 bg-[#25D366]/15 hover:bg-[#25D366]/25 border border-[#25D366]/30 text-[#25D366] rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98] uppercase tracking-wider"
+                        >
+                          <MessageCircle size={16} />
+                          Join WhatsApp Community
+                        </a>
+                      )}
+
+                      {currentWhatsappChannelLink && (
+                        <a 
+                          href={currentWhatsappChannelLink} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="w-full h-11 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98] uppercase tracking-wider"
+                        >
+                          <Radio size={16} />
+                          Follow WhatsApp Channel
+                        </a>
+                      )}
+
                       <button 
                         onClick={() => {
                           setShowProfileModal(false);
@@ -8654,6 +8725,28 @@ export default function App() {
             className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] md:hidden w-auto pointer-events-none px-4"
           >
             <div className="relative flex items-center gap-1 p-2 bg-black/80 border border-white/10 rounded-[3rem] shadow-[0_25px_50px_-12px_rgba(0,0,0,1)] backdrop-blur-3xl pointer-events-auto ring-1 ring-white/10">
+              {/* Compact WhatsApp Channel Floating Pill Button directly above FREE */}
+              {currentWhatsappChannelLink && (
+                <motion.a
+                  href={currentWhatsappChannelLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  initial={{ opacity: 0, y: 6, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.96 }}
+                  className="absolute -top-7 right-1 sm:right-2 z-30 pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-[#021f11]/95 via-[#063319]/95 to-[#021f11]/95 border border-[#25D366]/60 hover:border-[#25D366] shadow-[0_4px_16px_rgba(0,0,0,0.85),0_0_12px_rgba(37,211,102,0.3)] backdrop-blur-xl transition-all duration-200 cursor-pointer select-none group"
+                >
+                  <span className="relative flex h-1.5 w-1.5 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#25D366] opacity-75" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#25D366]" />
+                  </span>
+                  <Radio size={10} className="text-[#25D366] shrink-0 group-hover:rotate-12 transition-transform" />
+                  <span className="text-[9.5px] font-medium text-white/95 whitespace-nowrap drop-shadow-sm">
+                    Follow <span className="font-bold text-[#25D366]">WhatsApp Channel</span> for Updates
+                  </span>
+                </motion.a>
+              )}
               {[
                 { id: 'home', label: 'HOME', icon: Home, color: 'cyan' },
                 { id: 'movies', label: 'MOVIES', icon: Clapperboard, color: 'blue' },
@@ -8986,7 +9079,7 @@ export default function App() {
                     <span>Watch Free Online</span>
                   </button>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
                     {selectedFreeMovie.download_url ? (
                       <button 
                         onClick={() => {
@@ -8994,12 +9087,12 @@ export default function App() {
                           triggerDownload(selectedFreeMovie.download_url, filename);
                           trackMediaPlayback(selectedFreeMovie, 'movie', 'Download Link Clicked');
                         }}
-                        className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-white px-4 py-3 rounded-xl font-bold text-xs transition-all border border-white/5 cursor-pointer"
+                        className="flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 text-white px-3 py-3 rounded-xl font-bold text-xs transition-all border border-white/5 cursor-pointer"
                       >
                         <Download size={16} /> Download Movie
                       </button>
                     ) : (
-                      <div className="flex items-center justify-center text-white/20 select-none text-xs border border-dashed border-white/10 rounded-xl px-4 py-3">
+                      <div className="flex items-center justify-center text-white/20 select-none text-xs border border-dashed border-white/10 rounded-xl px-3 py-3">
                         No Download Available
                       </div>
                     )}
@@ -9007,7 +9100,7 @@ export default function App() {
                     <a 
                       href={formatVlcUrl(getResellerAdjustedUrl(selectedFreeMovie.download_url || selectedFreeMovie.play_url))}
                       onClick={() => trackMediaPlayback(selectedFreeMovie, 'movie', 'Play in VLC Clicked')}
-                      className="flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-3 rounded-xl font-bold text-xs transition-all shadow-lg shadow-orange-500/10"
+                      className="flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-3 py-3 rounded-xl font-bold text-xs transition-all shadow-lg shadow-orange-500/10"
                     >
                       <Play size={16} /> Play in VLC
                     </a>
@@ -9017,9 +9110,20 @@ export default function App() {
                         href={currentWhatsappGroupLink} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-4 py-3 rounded-xl font-bold text-xs transition-all shadow-lg shadow-green-500/10"
+                        className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-3 py-3 rounded-xl font-bold text-xs transition-all shadow-lg shadow-green-500/10"
                       >
-                        <MessageCircle size={16} /> Join WhatsApp Group
+                        <MessageCircle size={16} /> WhatsApp Group
+                      </a>
+                    )}
+
+                    {currentWhatsappChannelLink && (
+                      <a 
+                        href={currentWhatsappChannelLink} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-3 rounded-xl font-bold text-xs transition-all shadow-lg shadow-emerald-600/10"
+                      >
+                        <Radio size={16} /> WhatsApp Channel
                       </a>
                     )}
                   </div>
@@ -9261,17 +9365,31 @@ export default function App() {
                   </p>
                 </div>
                 
-                {currentWhatsappGroupLink && (
-                  <a 
-                    href={currentWhatsappGroupLink} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-3 bg-[#25D366] hover:bg-[#128C7E] text-white px-8 py-3 rounded-2xl font-black text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest cursor-pointer"
-                  >
-                    <MessageCircle size={20} fill="white" />
-                    Join WhatsApp Group
-                  </a>
-                )}
+                <div className="flex items-center justify-center gap-3 flex-wrap">
+                  {currentWhatsappGroupLink && (
+                    <a 
+                      href={currentWhatsappGroupLink} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2.5 bg-[#25D366] hover:bg-[#128C7E] text-white px-6 sm:px-8 py-3 rounded-2xl font-black text-xs sm:text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(37,211,102,0.4)] uppercase tracking-widest cursor-pointer"
+                    >
+                      <MessageCircle size={18} fill="white" />
+                      Join WhatsApp Group
+                    </a>
+                  )}
+
+                  {currentWhatsappChannelLink && (
+                    <a 
+                      href={currentWhatsappChannelLink} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2.5 bg-emerald-700 hover:bg-emerald-600 text-white px-6 sm:px-8 py-3 rounded-2xl font-black text-xs sm:text-sm transition-all transform hover:scale-105 shadow-[0_0_20px_rgba(16,185,129,0.4)] uppercase tracking-widest cursor-pointer"
+                    >
+                      <Radio size={18} />
+                      Follow Channel
+                    </a>
+                  )}
+                </div>
               </div>
             </motion.div>
           </div>
@@ -9642,6 +9760,16 @@ export default function App() {
                           className="inline-flex items-center gap-2 bg-[#25D366] hover:bg-[#128C7E] text-white px-3 py-1.5 rounded-full font-bold text-[10px] md:text-xs transition-all shadow-lg shadow-green-500/10 active:scale-95 cursor-pointer whitespace-nowrap"
                         >
                           <MessageCircle size={14} /> Join WhatsApp Group
+                        </a>
+                      )}
+                      {currentWhatsappChannelLink && (
+                        <a 
+                          href={currentWhatsappChannelLink} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-full font-bold text-[10px] md:text-xs transition-all shadow-lg shadow-emerald-500/10 active:scale-95 cursor-pointer whitespace-nowrap"
+                        >
+                          <Radio size={14} /> WhatsApp Channel
                         </a>
                       )}
                       {tmdbDetails?.trailer_url && (
@@ -10358,6 +10486,157 @@ export default function App() {
                     </div>
                   )}
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Trending Location / Region Selection Modal */}
+      <AnimatePresence>
+        {showRegionModal && (
+          <div className="fixed inset-0 z-[220] flex items-center justify-center p-3 sm:p-4 md:p-6 gpu">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setShowRegionModal(false);
+                setRegionSearchQuery('');
+              }}
+              className="absolute inset-0 bg-black/85 backdrop-blur-xl gpu"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94, y: 25 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: 25 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-xl bg-[#0d0e12] rounded-3xl overflow-hidden shadow-[0_0_80px_rgba(6,182,212,0.25)] border border-white/15 flex flex-col max-h-[88vh] gpu text-white"
+            >
+              {/* Top Header */}
+              <div className="flex items-center justify-between p-4 sm:p-5 border-b border-white/10 bg-gradient-to-r from-cyan-950/40 via-zinc-900/80 to-[#0d0e12]">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.3)] shrink-0">
+                    <Globe size={20} className="animate-pulse" />
+                  </div>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                      Change Trending Location
+                    </h3>
+                    <p className="text-[11px] text-white/50">
+                      Select country to discover local top movies & web series
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => {
+                    setShowRegionModal(false);
+                    setRegionSearchQuery('');
+                  }}
+                  className="p-2 bg-white/5 hover:bg-white/15 rounded-full transition-colors border border-white/10 cursor-pointer text-white/60 hover:text-white"
+                  title="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Search Bar */}
+              <div className="p-3.5 sm:px-5 border-b border-white/5 bg-black/40">
+                <div className="relative">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40" size={16} />
+                  <input 
+                    type="text"
+                    value={regionSearchQuery}
+                    onChange={(e) => setRegionSearchQuery(e.target.value)}
+                    placeholder="Search country (e.g. Pakistan, India, USA, Turkey)..."
+                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-10 py-2.5 text-xs sm:text-sm text-white placeholder-white/40 focus:outline-none focus:border-cyan-500/80 focus:bg-white/10 transition-all font-medium"
+                    autoFocus
+                  />
+                  {regionSearchQuery && (
+                    <button 
+                      onClick={() => setRegionSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-white/40 hover:text-white transition-colors text-xs"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Countries Grid */}
+              <div className="p-3 sm:p-5 overflow-y-auto max-h-[55vh] space-y-2 no-scrollbar">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {filteredTrendingRegions.map((region) => {
+                    const isSelected = selectedTrendingRegion === region.code;
+                    return (
+                      <button
+                        key={region.code}
+                        type="button"
+                        onClick={() => {
+                          setSelectedTrendingRegion(region.code);
+                          if (typeof window !== 'undefined') {
+                            localStorage.setItem('trending_region', region.code);
+                          }
+                          setShowRegionModal(false);
+                          setRegionSearchQuery('');
+                        }}
+                        className={`flex items-center justify-between p-3 rounded-2xl border transition-all text-left cursor-pointer group active:scale-[0.98] ${
+                          isSelected 
+                            ? 'bg-cyan-500/15 border-cyan-500/60 shadow-[0_0_25px_rgba(6,182,212,0.25)] ring-1 ring-cyan-500/30' 
+                            : 'bg-white/[0.03] hover:bg-white/[0.07] border-white/5 hover:border-white/15'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="shrink-0 p-1 rounded-lg bg-black/60 border border-white/10 shadow-sm flex items-center justify-center">
+                            <RegionFlag code={region.code} className="w-7 h-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-xs sm:text-sm font-bold truncate ${isSelected ? 'text-cyan-300' : 'text-white group-hover:text-cyan-200'}`}>
+                                {region.name}
+                              </span>
+                              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-white/10 text-white/60 font-bold">
+                                {region.code}
+                              </span>
+                            </div>
+                            <p className="text-[10px] sm:text-[11px] text-white/40 truncate group-hover:text-white/60 transition-colors">
+                              {region.subtitle}
+                            </p>
+                          </div>
+                        </div>
+
+                        {isSelected ? (
+                          <div className="w-6 h-6 rounded-full bg-cyan-500 text-black flex items-center justify-center shrink-0 shadow-md shadow-cyan-500/40">
+                            <Check size={14} className="stroke-[3]" />
+                          </div>
+                        ) : (
+                          <div className="w-6 h-6 rounded-full bg-white/5 border border-white/5 flex items-center justify-center shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <ChevronDown size={12} className="text-white/40 -rotate-90" />
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {filteredTrendingRegions.length === 0 && (
+                  <div className="text-center py-12">
+                    <Globe size={32} className="mx-auto text-white/20 mb-2" />
+                    <p className="text-white/50 text-xs">No country found matching "{regionSearchQuery}"</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-3 sm:p-4 border-t border-white/10 bg-black/50 flex items-center justify-between text-[11px] text-white/50 px-5">
+                <div className="flex items-center gap-2">
+                  <span>Selected:</span>
+                  <span className="inline-flex items-center gap-1.5 font-bold text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded-full border border-cyan-500/20">
+                    <RegionFlag code={currentRegionObj.code} className="w-4 h-2.5" />
+                    {currentRegionObj.name}
+                  </span>
+                </div>
+                <span className="text-[10px] text-white/40">Auto-Refreshes TMDB</span>
               </div>
             </motion.div>
           </div>

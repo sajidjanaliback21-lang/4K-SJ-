@@ -1557,6 +1557,32 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     />
                   </div>
                   <div>
+                    <label className="text-[10px] font-bold text-white/70 uppercase flex items-center justify-between">
+                      <span>WhatsApp Group / Community Link</span>
+                      <span className="text-[9px] text-cyan-400 font-semibold lowercase">optional</span>
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://chat.whatsapp.com/..."
+                      value={resellerForm.whatsapp_group_link}
+                      onChange={(e) => setResellerForm({ ...resellerForm, whatsapp_group_link: e.target.value })}
+                      className="w-full mt-1 px-3 py-2 bg-black/50 border border-white/15 rounded-xl text-xs text-white focus:border-emerald-400 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-white/70 uppercase flex items-center justify-between">
+                      <span>WhatsApp Channel Link</span>
+                      <span className="text-[9px] text-emerald-400 font-semibold lowercase">optional</span>
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://whatsapp.com/channel/..."
+                      value={resellerForm.whatsapp_channel_link}
+                      onChange={(e) => setResellerForm({ ...resellerForm, whatsapp_channel_link: e.target.value })}
+                      className="w-full mt-1 px-3 py-2 bg-black/50 border border-white/15 rounded-xl text-xs text-white focus:border-emerald-400 outline-none"
+                    />
+                  </div>
+                  <div>
                     <label className="text-[10px] font-bold text-white/70 uppercase">License Duration</label>
                     <select
                       value={resellerForm.license_type}
@@ -1577,6 +1603,16 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                       placeholder="http://server.reseller.com:8080"
                       value={resellerForm.server_url}
                       onChange={(e) => setResellerForm({ ...resellerForm, server_url: e.target.value })}
+                      className="w-full mt-1 px-3 py-2 bg-black/50 border border-white/15 rounded-xl text-xs text-white focus:border-emerald-400 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-white/70 uppercase">Custom Movie Download Server URL</label>
+                    <input
+                      type="text"
+                      placeholder="https://download.reseller.com"
+                      value={resellerForm.download_url}
+                      onChange={(e) => setResellerForm({ ...resellerForm, download_url: e.target.value })}
                       className="w-full mt-1 px-3 py-2 bg-black/50 border border-white/15 rounded-xl text-xs text-white focus:border-emerald-400 outline-none"
                     />
                   </div>
@@ -1659,10 +1695,82 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                         </div>
 
                         {/* Details */}
-                        <div className="text-[11px] space-y-1 text-white/60 bg-black/40 p-2.5 rounded-lg border border-white/5 font-mono">
-                          <div>Password: <span className="text-white font-bold">{r.password || 'Not set'}</span></div>
-                          {r.whatsapp_number && <div>WhatsApp: <span className="text-white">{r.whatsapp_number}</span></div>}
-                          {r.server_url && <div className="truncate">Server: <span className="text-white">{r.server_url}</span></div>}
+                        <div className="text-[11px] space-y-1.5 text-white/70 bg-black/40 p-3 rounded-xl border border-white/5 font-mono">
+                          <div className="flex items-center justify-between">
+                            <span className="text-white/40">Password:</span>
+                            <span className="text-white font-bold">{r.password || 'Not set'}</span>
+                          </div>
+                          {r.whatsapp_number && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-white/40">WhatsApp:</span>
+                              <a 
+                                href={`https://wa.me/${r.whatsapp_number.replace(/[^0-9]/g, '')}`} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="text-emerald-400 hover:underline font-bold flex items-center gap-1"
+                              >
+                                <span>{r.whatsapp_number}</span>
+                                <ExternalLink size={10} />
+                              </a>
+                            </div>
+                          )}
+                          {r.whatsapp_group_link && (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-white/40 shrink-0">Group/Community:</span>
+                              <a 
+                                href={r.whatsapp_group_link} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="text-cyan-400 hover:underline truncate max-w-[180px] font-bold flex items-center gap-1"
+                                title={r.whatsapp_group_link}
+                              >
+                                <span className="truncate">{r.whatsapp_group_link}</span>
+                                <ExternalLink size={10} className="shrink-0" />
+                              </a>
+                            </div>
+                          )}
+                          {r.whatsapp_channel_link && (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-white/40 shrink-0">Channel:</span>
+                              <a 
+                                href={r.whatsapp_channel_link} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="text-emerald-300 hover:underline truncate max-w-[180px] font-bold flex items-center gap-1"
+                                title={r.whatsapp_channel_link}
+                              >
+                                <span className="truncate">{r.whatsapp_channel_link}</span>
+                                <ExternalLink size={10} className="shrink-0" />
+                              </a>
+                            </div>
+                          )}
+                          {r.server_url && (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-white/40 shrink-0">Server:</span>
+                              <span className="text-purple-300 truncate max-w-[180px]">{r.server_url}</span>
+                            </div>
+                          )}
+                          {r.download_url && (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-white/40 shrink-0">Download Host:</span>
+                              <span className="text-pink-300 truncate max-w-[180px]">{r.download_url}</span>
+                            </div>
+                          )}
+                          {r.app_link && (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-white/40 shrink-0">App Link:</span>
+                              <a 
+                                href={r.app_link} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="text-amber-300 hover:underline truncate max-w-[180px] flex items-center gap-1"
+                                title={r.app_link}
+                              >
+                                <span className="truncate">{r.app_link}</span>
+                                <ExternalLink size={10} className="shrink-0" />
+                              </a>
+                            </div>
+                          )}
                         </div>
 
                         {/* Portal Link Copy */}
