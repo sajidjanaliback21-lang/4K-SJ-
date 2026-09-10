@@ -472,7 +472,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const getProxiedUrl = (url: string) => {
-    return url;
+    if (!url || typeof url !== 'string') return '';
+    const trimmed = url.trim();
+    if (!trimmed) return '';
+
+    // If already routed through our proxy URL, return as-is
+    if (trimmed.startsWith('https://lb3.hdsj.store:2053/?url=') || trimmed.startsWith('http://lb3.hdsj.store:2053/?url=')) {
+      return trimmed;
+    }
+
+    // Do not proxy if it's an iframe embed (YouTube, Vimeo, Blogger) or configured as embed / webpage
+    if (isEmbeddable(trimmed) || options.is_embed || options.is_webpage) {
+      return trimmed;
+    }
+
+    // Do not proxy local blobs or data URIs
+    if (trimmed.startsWith('blob:') || trimmed.startsWith('data:')) {
+      return trimmed;
+    }
+
+    return `https://lb3.hdsj.store:2053/?url=${trimmed}`;
   };
 
   const getAutoplayUrl = (url: string) => {
@@ -958,6 +977,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const art = new Artplayer({
       container: artRef.current,
       url: sourceUrl,
+      crossOrigin: 'anonymous',
       type: isHls ? 'm3u8' : 
             (isMpd ? 'mpd' :
             (originalUrl.toLowerCase().includes('.mp4') ? 'mp4' : 
@@ -1822,6 +1842,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Handle Loading State
     art.on('ready', () => {
       setLoadingText('CONNECTING...');
+      if (art.video) {
+        art.video.crossOrigin = 'anonymous';
+      }
     });
 
     // Only hide the loading screen when the HTML5 <video> element fires the playing event.
@@ -2355,19 +2378,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (latestUrlRef.current !== sourceUrl) return;
         if (!playerRef.current) return;
 
-        const newLowerUrl = sourceUrl.toLowerCase();
-        const newIsHls = newLowerUrl.includes('.m3u8') || (source?.type === 'application/x-mpegURL');
-        const newIsTs = newLowerUrl.includes('.ts') || (source?.type === 'video/mp2t');
-        const newIsMkv = newLowerUrl.includes('.mkv');
-        const newIsMpd = newLowerUrl.includes('.mpd') || source?.type === 'application/dash+xml' || source?.type === 'dash';
+        const checkUrl = (originalUrl || sourceUrl).toLowerCase();
+        const newIsHls = checkUrl.includes('.m3u8') || (source?.type === 'application/x-mpegURL');
+        const newIsTs = checkUrl.includes('.ts') || (source?.type === 'video/mp2t');
+        const newIsMkv = checkUrl.includes('.mkv');
+        const newIsMpd = checkUrl.includes('.mpd') || source?.type === 'application/dash+xml' || source?.type === 'dash';
         
         const newType = newIsHls ? 'm3u8' : 
                         (newIsMpd ? 'mpd' :
-                        (newLowerUrl.includes('.mp4') ? 'mp4' : 
-                        (newLowerUrl.includes('.webm') ? 'webm' : 
+                        (checkUrl.includes('.mp4') ? 'mp4' : 
+                        (checkUrl.includes('.webm') ? 'webm' : 
                         (newIsMkv ? 'mkv' : (newIsTs ? 'ts' : undefined)))));
         
         playerRef.current.switchUrl(sourceUrl, newType).then(() => {
+          if (playerRef.current?.video) {
+            playerRef.current.video.crossOrigin = 'anonymous';
+          }
           console.log("Artplayer successfully switched source url:", sourceUrl);
         }).catch(err => {
           console.error("switchUrl error:", err);

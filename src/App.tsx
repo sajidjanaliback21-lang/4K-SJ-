@@ -4332,7 +4332,10 @@ export default function App() {
     }
     
     if (action === 'web_play') {
-      setWebPlayUrl(url);
+      const proxiedUrl = url.startsWith('https://lb3.hdsj.store:2053/?url=') || url.startsWith('http://lb3.hdsj.store:2053/?url=')
+        ? url
+        : `https://lb3.hdsj.store:2053/?url=${url}`;
+      setWebPlayUrl(proxiedUrl);
       setWebPlayTitle((item as any).name || (selectedItem as any)?.name || 'Title');
       
       // Find and set playingEpisode metadata if it's a web series
