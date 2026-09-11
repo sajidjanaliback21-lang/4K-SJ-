@@ -1246,6 +1246,15 @@ export default function App() {
   const currentTagline = activeReseller?.tagline || (getResellerKey() ? "Loading Premium Experience..." : "Premium Experience");
   
   const getStreamingHost = () => {
+    // 1. If active reseller has configured a custom server_url, prioritize it directly without forced ports
+    if (activeReseller?.server_url && activeReseller.server_url.trim() !== '' && activeReseller.server_url !== 'N/A') {
+      let rUrl = activeReseller.server_url.trim();
+      if (!rUrl.startsWith('http://') && !rUrl.startsWith('https://')) {
+        rUrl = `https://${rUrl}`;
+      }
+      return rUrl.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
+    }
+
     if (streamingMode === 'B') {
       if (serverInfo) {
         let url = serverInfo.url;
@@ -1259,15 +1268,19 @@ export default function App() {
           // Remove trailing slash
           url = url.replace(/\/$/, '');
           
-          // If there is an HTTPS port and it is not 443, append it
-          if (serverInfo.https_port && serverInfo.https_port !== '443' && serverInfo.https_port !== '80' && !url.includes(':', 6)) {
+          // Never force 8443 port (8443 is internal panel management SSL port, content does not play on 8443)
+          url = url.replace(/:8443(?=[\/?#]|$)/g, '');
+          
+          // Only append explicit custom port if it is NOT 8443, 443, or 80
+          if (serverInfo.https_port && serverInfo.https_port !== '443' && serverInfo.https_port !== '80' && serverInfo.https_port !== '8443' && !url.includes(':', 6)) {
             url = `${url}:${serverInfo.https_port}`;
           }
           return url;
         }
       }
     }
-    return activeReseller?.server_url || appSettings.default_server_url || "https://60fpssj-60fps10.hf.space";
+    const fallback = activeReseller?.server_url || appSettings.default_server_url || "https://60fpssj-60fps10.hf.space";
+    return fallback.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
   };
 
   const currentServerHost = getStreamingHost();
@@ -1299,7 +1312,7 @@ export default function App() {
   const getResellerAdjustedUrl = (url: string, action: string = 'play') => {
     if (!url) return '';
     
-    let adjustedUrl = url;
+    let adjustedUrl = url.replace(/:8443(?=[\/?#]|$)/g, '');
     
     if (action === 'download') {
       // Use Download Server custom host if configured
@@ -4305,7 +4318,8 @@ export default function App() {
     const type = isLive ? 'live' : (isSeries ? 'series' : 'movie');
     
     // Correct Xtream URL format: http://host:port/type/user/pass/id.ext
-    const url = `${host}/${type}/${creds.username}/${creds.password}/${streamId}.${ext}`;
+    const rawUrl = `${host}/${type}/${creds.username}/${creds.password}/${streamId}.${ext}`;
+    const url = rawUrl.replace(/:8443(?=[\/?#]|$)/g, '');
     
     // Track premium playback analytics
     if (action === 'web_play' || action === 'play' || (action === 'download' && isConfirmed)) {
