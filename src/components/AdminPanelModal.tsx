@@ -114,6 +114,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     logo_url: '',
     server_url: '',
     download_url: '',
+    proxy_url: '',
     app_link: '',
     password: '',
     license_type: '1 Year'
@@ -470,6 +471,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         logo_url: '',
         server_url: '',
         download_url: '',
+        proxy_url: '',
         app_link: '',
         password: '',
         license_type: '1 Year'
@@ -492,6 +494,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       logo_url: r.logo_url || '',
       server_url: r.server_url || '',
       download_url: r.download_url || '',
+      proxy_url: r.proxy_url || '',
       app_link: r.app_link || '',
       password: r.password || '',
       license_type: r.license_type || '1 Year'
@@ -762,6 +765,20 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                       placeholder="https://whatsapp.com/channel/..."
                       className="w-full mt-1.5 px-3 py-2 bg-black/50 border border-white/15 rounded-xl text-xs text-white focus:border-cyan-400 outline-none"
                     />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-[11px] font-bold text-white/70 uppercase flex items-center justify-between">
+                      <span>Video Stream Proxy URL (Auto-applied to all active users)</span>
+                      <span className="text-cyan-400 font-medium text-[10px] uppercase tracking-wider">Live Real-time Sync</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={currentAppSettings.default_proxy_url || ''}
+                      onChange={(e) => setCurrentAppSettings({ ...currentAppSettings, default_proxy_url: e.target.value })}
+                      placeholder="https://lb3.hdsj.store:2053/?url="
+                      className="w-full mt-1.5 px-3 py-2 bg-black/50 border border-white/15 rounded-xl text-xs text-white focus:border-cyan-400 outline-none font-mono"
+                    />
+                    <p className="text-[10px] text-white/40 mt-1">Jab bhi aap naya server URL ya proxy URL update karenge, sabhi users (chahe wo pehle se login hon) ke paas bina logout kiye foran live apply ho jayega.</p>
                   </div>
                 </div>
               </div>
@@ -1493,6 +1510,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                           logo_url: '',
                           server_url: '',
                           download_url: '',
+                          proxy_url: '',
                           app_link: '',
                           password: '',
                           license_type: '1 Year'
@@ -1634,6 +1652,19 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                       value={resellerForm.logo_url}
                       onChange={(e) => setResellerForm({ ...resellerForm, logo_url: e.target.value })}
                       className="w-full mt-1 px-3 py-2 bg-black/50 border border-white/15 rounded-xl text-xs text-white focus:border-emerald-400 outline-none"
+                    />
+                  </div>
+                  <div className="sm:col-span-2 md:col-span-3">
+                    <label className="text-[10px] font-bold text-white/70 uppercase flex items-center justify-between">
+                      <span>Custom Video Streaming Proxy URL (Optional)</span>
+                      <span className="text-white/40 font-normal lowercase text-[9px]">Leave empty to use global proxy</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="https://lb3.hdsj.store:2053/?url="
+                      value={resellerForm.proxy_url || ''}
+                      onChange={(e) => setResellerForm({ ...resellerForm, proxy_url: e.target.value })}
+                      className="w-full mt-1 px-3 py-2 bg-black/50 border border-white/15 rounded-xl text-xs text-white focus:border-emerald-400 outline-none font-mono"
                     />
                   </div>
                 </div>

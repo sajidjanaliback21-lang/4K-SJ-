@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft,
@@ -760,6 +760,7 @@ export default function App() {
     whatsapp_channel_link: '',
     server_url: '',
     download_url: '',
+    proxy_url: '',
     app_link: '',
     logo_url: '',
     brand_name: ''
@@ -782,8 +783,13 @@ export default function App() {
     if (loggedIn && saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed && (parsed.host?.includes('lb-skip.vercel.app') || parsed.host?.includes('4ksjpun-lbff.hf.space') || !parsed.host)) {
-          parsed.host = 'https://60fpssj-60fps10.hf.space';
+        if (parsed) {
+          if (parsed.host?.includes('lb-skip.vercel.app') || parsed.host?.includes('4ksjpun-lbff.hf.space') || !parsed.host) {
+            parsed.host = 'https://60fpssj-60fps10.hf.space';
+          }
+          if (parsed.host && parsed.host.includes(':8443')) {
+            parsed.host = parsed.host.replace(/:8443(?=[\/?#]|$)/g, '');
+          }
           localStorage.setItem('iptv_creds', JSON.stringify(parsed));
         }
         return parsed;
@@ -805,7 +811,14 @@ export default function App() {
     if (typeof window === 'undefined') return null;
     try {
       const saved = localStorage.getItem('iptv_server_info');
-      return saved ? JSON.parse(saved) : null;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.url && typeof parsed.url === 'string') {
+          parsed.url = parsed.url.replace(/:8443(?=[\/?#]|$)/g, '');
+        }
+        return parsed;
+      }
+      return null;
     } catch (e) {
       return null;
     }
@@ -1084,6 +1097,7 @@ export default function App() {
     default_server_url: '',
     default_download_url: '',
     default_app_download_url: '',
+    default_proxy_url: 'https://lb3.hdsj.store:2053/?url=',
     whatsapp_group_link: 'https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE',
     whatsapp_channel_link: 'https://whatsapp.com/channel/0029Vb31L8R1CYoUoJAC8A28'
   });
@@ -1255,6 +1269,15 @@ export default function App() {
       return rUrl.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
     }
 
+    // 2. If appSettings has a default server URL set globally by admin, prioritize it for instant live updates
+    if (appSettings.default_server_url && appSettings.default_server_url.trim() !== '' && appSettings.default_server_url !== 'N/A') {
+      let sUrl = appSettings.default_server_url.trim();
+      if (!sUrl.startsWith('http://') && !sUrl.startsWith('https://')) {
+        sUrl = `https://${sUrl}`;
+      }
+      return sUrl.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
+    }
+
     if (streamingMode === 'B') {
       if (serverInfo) {
         let url = serverInfo.url;
@@ -1265,11 +1288,8 @@ export default function App() {
           } else if (url.startsWith('http://')) {
             url = url.replace('http://', 'https://');
           }
-          // Remove trailing slash
-          url = url.replace(/\/$/, '');
-          
-          // Never force 8443 port (8443 is internal panel management SSL port, content does not play on 8443)
-          url = url.replace(/:8443(?=[\/?#]|$)/g, '');
+          // Remove trailing slash and strip :8443
+          url = url.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
           
           // Only append explicit custom port if it is NOT 8443, 443, or 80
           if (serverInfo.https_port && serverInfo.https_port !== '443' && serverInfo.https_port !== '80' && serverInfo.https_port !== '8443' && !url.includes(':', 6)) {
@@ -1282,6 +1302,18 @@ export default function App() {
     const fallback = activeReseller?.server_url || appSettings.default_server_url || "https://60fpssj-60fps10.hf.space";
     return fallback.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
   };
+
+  const getActiveVideoProxy = useCallback(() => {
+    const resellerProxy = activeReseller?.proxy_url?.trim();
+    if (resellerProxy && resellerProxy !== 'N/A') {
+      return resellerProxy.endsWith('=') ? resellerProxy : (resellerProxy.includes('?') ? `${resellerProxy}&url=` : `${resellerProxy}?url=`);
+    }
+    const defaultProxy = appSettings.default_proxy_url?.trim();
+    if (defaultProxy && defaultProxy !== 'N/A') {
+      return defaultProxy.endsWith('=') ? defaultProxy : (defaultProxy.includes('?') ? `${defaultProxy}&url=` : `${defaultProxy}?url=`);
+    }
+    return 'https://lb3.hdsj.store:2053/?url=';
+  }, [activeReseller?.proxy_url, appSettings.default_proxy_url]);
 
   const currentServerHost = getStreamingHost();
   
@@ -1416,6 +1448,7 @@ export default function App() {
         setActiveReseller(matched);
         if (typeof window !== 'undefined') {
           (window as any).activeResellerServerUrl = matched.server_url || '';
+          (window as any).activeResellerProxyUrl = matched.proxy_url || '';
           (window as any).activeResellerBrandName = matched.brand_name || '';
           if (resellerKey) {
             localStorage.setItem(`cached_reseller_${resellerKey}`, JSON.stringify(matched));
@@ -1425,6 +1458,7 @@ export default function App() {
         setActiveReseller(null);
         if (typeof window !== 'undefined') {
           (window as any).activeResellerServerUrl = '';
+          (window as any).activeResellerProxyUrl = '';
           (window as any).activeResellerBrandName = '';
           if (resellerKey) {
             localStorage.removeItem(`cached_reseller_${resellerKey}`);
@@ -1788,11 +1822,16 @@ export default function App() {
           default_server_url: data.default_server_url || '',
           default_download_url: data.default_download_url || '',
           default_app_download_url: data.default_app_download_url || '',
+          default_proxy_url: data.default_proxy_url || 'https://lb3.hdsj.store:2053/?url=',
           whatsapp_group_link: data.whatsapp_group_link !== undefined ? data.whatsapp_group_link : 'https://chat.whatsapp.com/I1UPXfxwMDR6XhG1DNg2lE',
           whatsapp_channel_link: data.whatsapp_channel_link !== undefined ? data.whatsapp_channel_link : 'https://whatsapp.com/channel/0029Vb31L8R1CYoUoJAC8A28'
         };
         setAppSettings(updated);
         setNewAppSettings(updated);
+        if (typeof window !== 'undefined') {
+          (window as any).appSettingsDefaultServerUrl = updated.default_server_url || '';
+          (window as any).appSettingsDefaultProxyUrl = updated.default_proxy_url || 'https://lb3.hdsj.store:2053/?url=';
+        }
       }
     }, (error) => {
       console.error("Firestore Error (App Settings):", error);
@@ -1800,6 +1839,55 @@ export default function App() {
 
     return () => unsubscribe();
   }, []);
+
+  // Real-time Dynamic Server & Proxy Auto-Sync for Logged-In Users
+  // When an admin updates server URL or video proxy URL, this effect immediately updates
+  // credentials, serverInfo, and window properties so current active users get the changes instantly.
+  useEffect(() => {
+    const liveServer = (activeReseller?.server_url && activeReseller.server_url.trim() !== '' && activeReseller.server_url !== 'N/A')
+      ? activeReseller.server_url.trim()
+      : (appSettings.default_server_url && appSettings.default_server_url.trim() !== '' && appSettings.default_server_url !== 'N/A'
+          ? appSettings.default_server_url.trim()
+          : 'https://60fpssj-60fps10.hf.space');
+
+    let cleanLiveServer = liveServer;
+    if (!cleanLiveServer.startsWith('http://') && !cleanLiveServer.startsWith('https://')) {
+      cleanLiveServer = `https://${cleanLiveServer}`;
+    }
+    cleanLiveServer = cleanLiveServer.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
+
+    const currentProxy = getActiveVideoProxy();
+
+    if (typeof window !== 'undefined') {
+      (window as any).activeServerUrl = cleanLiveServer;
+      (window as any).appSettingsDefaultServerUrl = appSettings.default_server_url || '';
+      (window as any).activeVideoProxyUrl = currentProxy;
+    }
+
+    if (creds && creds.host && creds.host !== cleanLiveServer) {
+      console.log(`[Auto-Sync] Live Server URL updated: ${cleanLiveServer} (was ${creds.host}). Syncing active session...`);
+      const updatedCreds = {
+        ...creds,
+        host: cleanLiveServer
+      };
+      setCreds(updatedCreds);
+      try {
+        localStorage.setItem('iptv_creds', JSON.stringify(updatedCreds));
+      } catch (e) {}
+
+      setServerInfo((prev: any) => {
+        const rawDomain = cleanLiveServer.replace(/^https?:\/\//, '');
+        const updated = prev ? { ...prev, url: rawDomain } : { url: rawDomain, https_port: '' };
+        try {
+          localStorage.setItem('iptv_server_info', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+
+      // Clear any previous 404 or connection error
+      setError(null);
+    }
+  }, [activeReseller?.server_url, appSettings.default_server_url, appSettings.default_proxy_url, activeReseller?.proxy_url, getActiveVideoProxy]);
 
   // Real-time Firestore Sync for Free Movies
   useEffect(() => {
@@ -2319,6 +2407,35 @@ export default function App() {
     initData();
     isInitialMount.current = false;
   }, [creds]);
+
+  const handleRetryConnection = async () => {
+    setError(null);
+    try {
+      const appSnap = await getDoc(doc(db, 'settings', 'app'));
+      if (appSnap.exists()) {
+        const data = appSnap.data();
+        if (data.default_server_url) {
+          const fresh = data.default_server_url.trim();
+          let clean = fresh.startsWith('http') ? fresh : `https://${fresh}`;
+          clean = clean.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
+          if (typeof window !== 'undefined') {
+            (window as any).activeServerUrl = clean;
+            (window as any).appSettingsDefaultServerUrl = clean;
+          }
+          if (creds && creds.host !== clean && !activeReseller?.server_url) {
+            const updated = { ...creds, host: clean };
+            setCreds(updated);
+            try { localStorage.setItem('iptv_creds', JSON.stringify(updated)); } catch (e) {}
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Direct settings fetch on retry:", e);
+    }
+    // Re-trigger initData with current credentials
+    setCreds(prev => ({ ...prev }));
+  };
 
   // Fetch Trending Movies & TV Series from TMDB
   useEffect(() => {
@@ -3562,6 +3679,7 @@ export default function App() {
         whatsapp_channel_link: tempResellerSettings.whatsapp_channel_link,
         server_url: tempResellerSettings.server_url,
         download_url: tempResellerSettings.download_url,
+        proxy_url: tempResellerSettings.proxy_url || '',
         app_link: tempResellerSettings.app_link,
         logo_url: tempResellerSettings.logo_url,
         updatedAt: new Date().toISOString()
@@ -3574,6 +3692,7 @@ export default function App() {
         whatsapp_channel_link: tempResellerSettings.whatsapp_channel_link,
         server_url: tempResellerSettings.server_url,
         download_url: tempResellerSettings.download_url,
+        proxy_url: tempResellerSettings.proxy_url || '',
         app_link: tempResellerSettings.app_link,
         logo_url: tempResellerSettings.logo_url
       };
@@ -4346,9 +4465,14 @@ export default function App() {
     }
     
     if (action === 'web_play') {
-      const proxiedUrl = url.startsWith('https://lb3.hdsj.store:2053/?url=') || url.startsWith('http://lb3.hdsj.store:2053/?url=')
-        ? url
-        : `https://lb3.hdsj.store:2053/?url=${url}`;
+      const activeProxy = getActiveVideoProxy();
+      let proxiedUrl = url;
+      if (url.startsWith('https://lb3.hdsj.store:2053/?url=') || url.startsWith('http://lb3.hdsj.store:2053/?url=')) {
+        const inner = url.replace(/^https?:\/\/lb3\.hdsj\.store:2053\/\?url=/, '');
+        proxiedUrl = `${activeProxy}${inner}`;
+      } else if (!url.startsWith(activeProxy)) {
+        proxiedUrl = `${activeProxy}${url}`;
+      }
       setWebPlayUrl(proxiedUrl);
       setWebPlayTitle((item as any).name || (selectedItem as any)?.name || 'Title');
       
@@ -5225,8 +5349,8 @@ export default function App() {
                   <p className="text-white/40 text-sm">{error}</p>
                 </div>
                 <button 
-                  onClick={() => window.location.reload()}
-                  className="bg-cyan-500 text-black px-8 py-3 rounded-xl font-bold hover:bg-cyan-400 transition-all"
+                  onClick={handleRetryConnection}
+                  className="bg-cyan-500 text-black px-8 py-3 rounded-xl font-bold hover:bg-cyan-400 transition-all cursor-pointer"
                 >
                   Try Again
                 </button>
@@ -6379,8 +6503,8 @@ export default function App() {
                     <p className="text-white/40 text-xs md:text-sm">{error}</p>
                   </div>
                   <button 
-                    onClick={() => setCurrentSelectedCategory(currentSelectedCategory)} // Trigger re-fetch
-                    className="bg-cyan-500 text-black px-6 md:px-8 py-2.5 md:py-3 rounded-xl font-bold hover:bg-cyan-400 transition-all text-sm md:text-base"
+                    onClick={handleRetryConnection}
+                    className="bg-cyan-500 text-black px-6 md:px-8 py-2.5 md:py-3 rounded-xl font-bold hover:bg-cyan-400 transition-all text-sm md:text-base cursor-pointer"
                   >
                     Try Again
                   </button>
@@ -10336,6 +10460,7 @@ export default function App() {
                             whatsapp_channel_link: loggedInReseller.whatsapp_channel_link || '',
                             server_url: loggedInReseller.server_url || '',
                             download_url: loggedInReseller.download_url || '',
+                            proxy_url: loggedInReseller.proxy_url || '',
                             app_link: loggedInReseller.app_link || '',
                             logo_url: loggedInReseller.logo_url || '',
                             brand_name: loggedInReseller.brand_name || ''
@@ -10449,6 +10574,18 @@ export default function App() {
                             className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold font-mono"
                           />
                           <p className="text-[8px] text-white/30 mt-0.5">Overrides standard server for streams.</p>
+                        </div>
+
+                        <div>
+                          <label className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest block mb-1">Custom Video Streaming Proxy URL</label>
+                          <input 
+                            type="url"
+                            value={tempResellerSettings.proxy_url || ''}
+                            onChange={(e) => setTempResellerSettings(prev => ({ ...prev, proxy_url: e.target.value }))}
+                            placeholder="https://lb3.hdsj.store:2053/?url="
+                            className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-500 font-bold font-mono"
+                          />
+                          <p className="text-[8px] text-white/30 mt-0.5">Proxy URL through which movies and series will stream. Auto-applies to all your users.</p>
                         </div>
 
                         <div>

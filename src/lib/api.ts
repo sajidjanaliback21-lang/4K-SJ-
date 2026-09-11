@@ -8,19 +8,40 @@ export const DEFAULT_CREDENTIALS: XtreamCredentials = {
 };
 
 const sanitizeHost = (host: string): string => {
-  if (host && host.startsWith('http') && !host.includes('lb-skip.vercel.app') && !host.includes('4ksjpun-lbff.hf.space')) {
-    return host;
-  }
-  if (typeof window !== 'undefined' && (window as any).activeResellerServerUrl) {
-    const resellerHost = ((window as any).activeResellerServerUrl || '').trim();
-    if (resellerHost && resellerHost !== 'N/A') {
-      return resellerHost.startsWith('http') ? resellerHost : `https://${resellerHost}`;
+  // 1. If an active live server URL is set globally (via real-time Firestore sync for active reseller or global settings), ALWAYS prioritize it!
+  if (typeof window !== 'undefined') {
+    if ((window as any).activeServerUrl) {
+      const live = ((window as any).activeServerUrl || '').trim();
+      if (live && live !== 'N/A') {
+        const clean = live.startsWith('http') ? live : `https://${live}`;
+        return clean.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
+      }
+    }
+    if ((window as any).activeResellerServerUrl) {
+      const resellerHost = ((window as any).activeResellerServerUrl || '').trim();
+      if (resellerHost && resellerHost !== 'N/A') {
+        const clean = resellerHost.startsWith('http') ? resellerHost : `https://${resellerHost}`;
+        return clean.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
+      }
+    }
+    if ((window as any).appSettingsDefaultServerUrl) {
+      const defaultHost = ((window as any).appSettingsDefaultServerUrl || '').trim();
+      if (defaultHost && defaultHost !== 'N/A') {
+        const clean = defaultHost.startsWith('http') ? defaultHost : `https://${defaultHost}`;
+        return clean.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
+      }
     }
   }
-  if (!host || host.includes('lb-skip.vercel.app') || host.includes('4ksjpun-lbff.hf.space')) {
+
+  // 2. Otherwise sanitize the passed host
+  let cleanHost = host || '';
+  if (!cleanHost || cleanHost.includes('lb-skip.vercel.app') || cleanHost.includes('4ksjpun-lbff.hf.space')) {
     return 'https://60fpssj-60fps10.hf.space';
   }
-  return host;
+  if (!cleanHost.startsWith('http://') && !cleanHost.startsWith('https://')) {
+    cleanHost = `https://${cleanHost}`;
+  }
+  return cleanHost.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
 };
 
 const proxyRequest = async (params: any, retries = 3, backoff = 1000): Promise<any> => {

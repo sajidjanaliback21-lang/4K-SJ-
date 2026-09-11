@@ -12,6 +12,7 @@ import { ShieldCheck, Shield, Cpu, Globe, Sliders, X, SkipForward, List, Tv, Dow
 import { resolveEpisodeInfo } from '../lib/tmdb';
 
 interface VideoPlayerProps {
+  proxyUrl?: string;
   options: {
     sources: { src: string; type: string }[];
     autoplay?: boolean;
@@ -191,7 +192,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onSelectEpisode,
   onDownloadEpisode,
   tmdbEpisodesMap,
-  tmdbId
+  tmdbId,
+  proxyUrl
 }) => {
   const artRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<Artplayer | null>(null);
@@ -476,11 +478,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const trimmed = url.trim();
     if (!trimmed) return '';
 
-    // If already routed through our proxy URL, return as-is
-    if (trimmed.startsWith('https://lb3.hdsj.store:2053/?url=') || trimmed.startsWith('http://lb3.hdsj.store:2053/?url=')) {
-      return trimmed;
-    }
-
     // Do not proxy if it's an iframe embed (YouTube, Vimeo, Blogger) or configured as embed / webpage
     if (isEmbeddable(trimmed) || options.is_embed || options.is_webpage) {
       return trimmed;
@@ -491,7 +488,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return trimmed;
     }
 
-    return `https://lb3.hdsj.store:2053/?url=${trimmed}`;
+    const currentProxy = (proxyUrl || (typeof window !== 'undefined' && (window as any).activeVideoProxyUrl) || 'https://lb3.hdsj.store:2053/?url=').trim();
+
+    // If already routed through our active proxy URL, return as-is
+    if (trimmed.startsWith(currentProxy)) {
+      return trimmed;
+    }
+
+    // If already wrapped by another/previous proxy URL, extract raw URL and re-wrap with current proxy
+    if (trimmed.includes('?url=')) {
+      const actualMediaUrl = trimmed.substring(trimmed.indexOf('?url=') + 5);
+      if (actualMediaUrl) {
+        return `${currentProxy}${actualMediaUrl}`;
+      }
+    }
+
+    return `${currentProxy}${trimmed}`;
   };
 
   const getAutoplayUrl = (url: string) => {
