@@ -473,6 +473,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
+  const isEmbed = options.is_embed || false;
+
+  const isEmbeddable = (url: string) => {
+    if (isEmbed || options.is_embed || options.is_webpage) return true;
+    if (!url || typeof url !== 'string') return false;
+    const lowerUrl = url.toLowerCase();
+    return lowerUrl.includes('blogger.com') || 
+           lowerUrl.includes('youtube.com/embed') || 
+           lowerUrl.includes('dailymotion.com/embed') ||
+           lowerUrl.includes('vimeo.com/video') ||
+           lowerUrl.includes('/embed/');
+  };
+
   const getProxiedUrl = (url: string) => {
     if (!url || typeof url !== 'string') return '';
     const trimmed = url.trim();
@@ -551,7 +564,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const source = options.sources[0];
   const originalUrl = source?.src || '';
   const sourceUrl = getProxiedUrl(originalUrl);
-  const isEmbed = options.is_embed || false;
 
   const [isAntiPopupActive, setIsAntiPopupActive] = useState(() => {
     const saved = localStorage.getItem('anti_popup_enabled');
@@ -579,16 +591,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const isMpd = originalUrl.toLowerCase().includes('.mpd') || source?.type === 'application/dash+xml' || source?.type === 'dash';
     return !!(options.isLive || isHls || isTs || isMpd || originalUrl?.includes('/live/'));
   }, [originalUrl, options.isLive, source]);
-
-  const isEmbeddable = (url: string) => {
-    if (isEmbed) return true;
-    const lowerUrl = url.toLowerCase();
-    return lowerUrl.includes('blogger.com') || 
-           lowerUrl.includes('youtube.com/embed') || 
-           lowerUrl.includes('dailymotion.com/embed') ||
-           lowerUrl.includes('vimeo.com/video') ||
-           lowerUrl.includes('/embed/');
-  };
 
   const cleanAllActivePlayers = async () => {
     // Clear Keep-Alive Interval if active
