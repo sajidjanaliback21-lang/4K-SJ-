@@ -501,6 +501,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return trimmed;
     }
 
+    // NEVER proxy Live TV channels, live streams, or HLS/DASH manifests
+    // Live TV streams must play directly from the server
+    const lower = trimmed.toLowerCase();
+    if (
+      options.isLive ||
+      lower.includes('/live/') ||
+      lower.includes('.m3u8') ||
+      lower.includes('.mpd') ||
+      lower.includes('.ts') ||
+      source?.type === 'application/x-mpegURL' ||
+      source?.type === 'video/mp2t' ||
+      source?.type === 'application/dash+xml' ||
+      source?.type === 'dash'
+    ) {
+      return trimmed;
+    }
+
     const currentProxy = (proxyUrl || (typeof window !== 'undefined' && (window as any).activeVideoProxyUrl) || 'https://lb3.hdsj.store:2053/?url=').trim();
 
     // If already routed through our active proxy URL, return as-is

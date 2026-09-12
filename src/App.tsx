@@ -4467,11 +4467,14 @@ export default function App() {
     if (action === 'web_play') {
       const activeProxy = getActiveVideoProxy();
       let proxiedUrl = url;
-      if (url.startsWith('https://lb3.hdsj.store:2053/?url=') || url.startsWith('http://lb3.hdsj.store:2053/?url=')) {
-        const inner = url.replace(/^https?:\/\/lb3\.hdsj\.store:2053\/\?url=/, '');
-        proxiedUrl = `${activeProxy}${inner}`;
-      } else if (!url.startsWith(activeProxy)) {
-        proxiedUrl = `${activeProxy}${url}`;
+      // Only proxy for movies and web series (VOD), NEVER proxy Live TV streams
+      if (!isLive && !url.includes('/live/') && !url.includes('.m3u8')) {
+        if (url.startsWith('https://lb3.hdsj.store:2053/?url=') || url.startsWith('http://lb3.hdsj.store:2053/?url=')) {
+          const inner = url.replace(/^https?:\/\/lb3\.hdsj\.store:2053\/\?url=/, '');
+          proxiedUrl = `${activeProxy}${inner}`;
+        } else if (!url.startsWith(activeProxy)) {
+          proxiedUrl = `${activeProxy}${url}`;
+        }
       }
       setWebPlayUrl(proxiedUrl);
       setWebPlayTitle((item as any).name || (selectedItem as any)?.name || 'Title');
