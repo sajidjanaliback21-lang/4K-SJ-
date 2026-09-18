@@ -10,6 +10,7 @@ import shaka from 'shaka-player';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShieldCheck, Shield, Cpu, Globe, Sliders, X, SkipForward, List, Tv, Download, Gauge, RotateCcw, Pencil, Check, Zap, ExternalLink } from 'lucide-react';
 import { resolveEpisodeInfo } from '../lib/tmdb';
+import { isKnownHttpRedirect, markUrlAsHttpRedirect, getActiveVideoProxy } from '../lib/streamProxy';
 
 interface VideoPlayerProps {
   proxyUrl?: string;
@@ -518,7 +519,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return trimmed;
     }
 
-    const currentProxy = (proxyUrl || (typeof window !== 'undefined' && (window as any).activeVideoProxyUrl) || 'https://lb3.hdsj.store:2053/?url=').trim();
+    const currentProxy = (proxyUrl || (typeof window !== 'undefined' && (window as any).activeVideoProxyUrl) || getActiveVideoProxy() || 'https://lb3.hdsj.store:2053/?url=').trim();
 
     // If already routed through our active proxy URL, return as-is
     if (trimmed.startsWith(currentProxy)) {
@@ -533,7 +534,22 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
     }
 
-    return `${currentProxy}${trimmed}`;
+    // Rule 1: Pure HTTP link -> ALWAYS wrap with proxy!
+    if (trimmed.startsWith('http://')) {
+      return `${currentProxy}${trimmed}`;
+    }
+
+    // Rule 2 & 3: HTTPS link:
+    if (trimmed.startsWith('https://')) {
+      // If previously detected as converting/redirecting to HTTP -> proxy the FIRST link!
+      if (isKnownHttpRedirect(trimmed)) {
+        return `${currentProxy}${trimmed}`;
+      }
+      // Pure HTTPS stream without HTTP redirect -> direct play WITHOUT proxy!
+      return trimmed;
+    }
+
+    return trimmed;
   };
 
   const getAutoplayUrl = (url: string) => {
@@ -1976,12 +1992,54 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     art.on('view:contextmenu', (e: MouseEvent) => e.preventDefault());
 
     // Handle native HTML5 video errors for non-live streams dynamically to prevent resetting to 00:00
+    let proxyFallbackAttempted = false;
     const onNativeVideoError = (e: Event) => {
       console.warn('Native video element error fired:', e);
       const video = art.template.$video;
       const error = video.error;
       const isLive = options.isLive !== undefined ? options.isLive : (originalUrl.toLowerCase().includes('.m3u8') || originalUrl.toLowerCase().includes('.ts') || originalUrl.toLowerCase().includes('.mpd'));
       
+      const currentProxy = (proxyUrl || (typeof window !== 'undefined' && (window as any).activeVideoProxyUrl) || getActiveVideoProxy() || 'https://lb3.hdsj.store:2053/?url=').trim();
+      const currentPlayingUrl = (art.url || sourceUrl || originalUrl || '').trim();
+      const isAlreadyProxied = currentPlayingUrl.startsWith(currentProxy);
+
+      // Smart Proxy Recovery:
+      // If an unproxied direct stream fails (e.g. HTTPS front-link redirected to HTTP causing browser Mixed Content block):
+      // Automatically mark it, wrap the FIRST ORIGINAL LINK with our proxy, and seamlessly resume playback!
+      if (
+        !isLive &&
+        !proxyFallbackAttempted &&
+        !isAlreadyProxied &&
+        !isEmbeddable(originalUrl) &&
+        !options.skipProxy &&
+        (originalUrl.startsWith('https://') || originalUrl.startsWith('http://'))
+      ) {
+        proxyFallbackAttempted = true;
+        console.warn('[SmartProxy] Playback error on direct stream. Wrapping FIRST link with proxy:', originalUrl);
+        markUrlAsHttpRedirect(originalUrl);
+
+        let cleanFirstLink = originalUrl;
+        if (cleanFirstLink.includes('?url=')) {
+          cleanFirstLink = cleanFirstLink.substring(cleanFirstLink.indexOf('?url=') + 5);
+        }
+        const proxiedFirstUrl = `${currentProxy}${cleanFirstLink}`;
+
+        art.notice.show = 'Redirect detected! Routing via Secure Proxy...';
+        setLoadingText('SECURING CONNECTION PROXY...');
+        setIsLoading(true);
+
+        const savedTime = video.currentTime || dropTime || 0;
+        art.switchUrl(proxiedFirstUrl).then(() => {
+          if (savedTime > 0) {
+            art.video.currentTime = savedTime;
+          }
+          art.play().catch(() => {});
+        }).catch((err) => {
+          console.error('[SmartProxy] Failed to switch to proxied stream:', err);
+        });
+        return;
+      }
+
       if (error && !isLive && video.currentTime > 0) {
         console.warn(`Native error code ${error.code} detected. Recovering connection from second: ${video.currentTime}`);
         art.notice.show = 'Restoring connection...';
@@ -1998,6 +2056,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
     };
     art.template.$video.addEventListener('error', onNativeVideoError, true);
+    art.on('video:error', onNativeVideoError);
 
     // Add Seek Indicators Layers with enhanced animations
     art.layers.add({
