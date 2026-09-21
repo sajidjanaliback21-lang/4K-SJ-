@@ -10,7 +10,7 @@ import shaka from 'shaka-player';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShieldCheck, Shield, Cpu, Globe, Sliders, X, SkipForward, List, Tv, Download, Gauge, RotateCcw, Pencil, Check, Zap, ExternalLink } from 'lucide-react';
 import { resolveEpisodeInfo } from '../lib/tmdb';
-import { isKnownHttpRedirect, markUrlAsHttpRedirect, getActiveVideoProxy } from '../lib/streamProxy';
+import { getActiveVideoProxy } from '../lib/streamProxy';
 
 interface VideoPlayerProps {
   proxyUrl?: string;
@@ -526,26 +526,24 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return trimmed;
     }
 
-    // If already wrapped by another/previous proxy URL, extract raw URL and re-wrap with current proxy
+    // If already wrapped by another/previous proxy URL, extract raw URL
     if (trimmed.includes('?url=')) {
       const actualMediaUrl = trimmed.substring(trimmed.indexOf('?url=') + 5);
-      if (actualMediaUrl) {
+      if (actualMediaUrl.startsWith('http://')) {
         return `${currentProxy}${actualMediaUrl}`;
+      } else {
+        return actualMediaUrl;
       }
     }
 
-    // Rule 1: Pure HTTP link -> ALWAYS wrap with proxy!
+    // STRICT USER DIRECTIVE:
+    // Proxy ONLY applies to http:// links!
     if (trimmed.startsWith('http://')) {
       return `${currentProxy}${trimmed}`;
     }
 
-    // Rule 2 & 3: HTTPS link:
+    // Direct https:// stream -> NEVER wrap with proxy! Direct playback with original link!
     if (trimmed.startsWith('https://')) {
-      // If previously detected as converting/redirecting to HTTP -> proxy the FIRST link!
-      if (isKnownHttpRedirect(trimmed)) {
-        return `${currentProxy}${trimmed}`;
-      }
-      // Pure HTTPS stream without HTTP redirect -> direct play WITHOUT proxy!
       return trimmed;
     }
 
@@ -2004,19 +2002,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const isAlreadyProxied = currentPlayingUrl.startsWith(currentProxy);
 
       // Smart Proxy Recovery:
-      // If an unproxied direct stream fails (e.g. HTTPS front-link redirected to HTTP causing browser Mixed Content block):
-      // Automatically mark it, wrap the FIRST ORIGINAL LINK with our proxy, and seamlessly resume playback!
+      // If an unproxied direct HTTP stream fails due to browser Mixed Content block:
+      // Wrap with proxy and resume playback!
       if (
         !isLive &&
         !proxyFallbackAttempted &&
         !isAlreadyProxied &&
         !isEmbeddable(originalUrl) &&
         !options.skipProxy &&
-        (originalUrl.startsWith('https://') || originalUrl.startsWith('http://'))
+        originalUrl.startsWith('http://')
       ) {
         proxyFallbackAttempted = true;
-        console.warn('[SmartProxy] Playback error on direct stream. Wrapping FIRST link with proxy:', originalUrl);
-        markUrlAsHttpRedirect(originalUrl);
+        console.warn('[SmartProxy] Playback error on HTTP stream. Routing via proxy:', originalUrl);
 
         let cleanFirstLink = originalUrl;
         if (cleanFirstLink.includes('?url=')) {
@@ -2024,7 +2021,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
         const proxiedFirstUrl = `${currentProxy}${cleanFirstLink}`;
 
-        art.notice.show = 'Redirect detected! Routing via Secure Proxy...';
+        art.notice.show = 'Routing HTTP stream via Secure Proxy...';
         setLoadingText('SECURING CONNECTION PROXY...');
         setIsLoading(true);
 

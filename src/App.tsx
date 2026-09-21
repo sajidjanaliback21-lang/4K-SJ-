@@ -77,7 +77,7 @@ import { db, auth } from './firebase';
 import { doc, onSnapshot, setDoc, getDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { fetchTmdbDetails, TmdbDetails, fetchTrendingMovies, fetchTrendingSeries, TmdbTrendingItem, cleanMediaTitle, fetchTmdbDetailsById, getStoredTmdbDetails, getStoredTmdbDetailsById, getLanguageTags, getLanguageBadge, TRENDING_REGIONS, TrendingRegion, OTT_PLATFORMS, OttPlatform, fetchPlatformMedia, searchTmdbItems, resolveEpisodeInfo, fetchTmdbAllSeasonsEpisodes, getStoredTmdbSeasonEpisodes } from './lib/tmdb';
-import { isKnownHttpRedirect, markUrlAsHttpRedirect, checkIfStreamRedirectsToHttp, getSmartStreamUrl } from './lib/streamProxy';
+import { getActiveVideoProxy } from './lib/streamProxy';
 
 const RegionFlag = ({ code, className = "w-5 h-3.5" }: { code: string; className?: string }) => {
   if (code === 'ALL') {
@@ -4496,29 +4496,14 @@ export default function App() {
           rawTarget = url.substring(activeProxy.length);
         }
 
-        // Rule 1: If raw link is http:// -> Always wrap with proxy
+        // STRICT USER MANDATE:
+        // - Proxy ONLY applies to http:// links (to prevent browser mixed content block)
+        // - If link is https://, NEVER apply proxy! Player must receive original direct link!
         if (rawTarget.startsWith('http://')) {
           targetPlayUrl = `${activeProxy}${rawTarget}`;
-        } else if (rawTarget.startsWith('https://')) {
-          // Rule 2 & 3: If raw link is https://, check if it converts/redirects to http://
-          if (isKnownHttpRedirect(rawTarget)) {
-            // Known to redirect to http -> wrap FIRST link with proxy
-            targetPlayUrl = `${activeProxy}${rawTarget}`;
-          } else {
-            try {
-              // Pre-check if this HTTPS stream converts to HTTP
-              const redirectsToHttp = await checkIfStreamRedirectsToHttp(rawTarget);
-              if (redirectsToHttp) {
-                // Wrap the FIRST link with proxy
-                targetPlayUrl = `${activeProxy}${rawTarget}`;
-              } else {
-                // Pure HTTPS (does not convert to HTTP) -> Direct stream, NO PROXY
-                targetPlayUrl = rawTarget;
-              }
-            } catch (e) {
-              targetPlayUrl = rawTarget;
-            }
-          }
+        } else {
+          // Pure direct https link
+          targetPlayUrl = rawTarget;
         }
       }
 
