@@ -221,9 +221,36 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["username", "title", "mediaType", "status"]
+    },
+    "app_downloads": {
+      "title": "App Downloads",
+      "description": "Downloadable applications with downloader codes for Android TV, FireStick and Mobile",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "logo_url": { "type": "string" },
+        "download_url": { "type": "string" },
+        "downloader_code": { "type": "string" },
+        "version": { "type": "string" },
+        "description": { "type": "string" },
+        "device_type": { "type": "string" },
+        "is_default": { "type": "boolean" },
+        "allowed_reseller_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "order": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "download_url"]
     }
   },
   "firestore": {
+    "/app_downloads/{appId}": {
+      "schema": "app_downloads",
+      "description": "Collection of downloadable applications and codes"
+    },
     "/media_requests/{requestId}": {
       "schema": "media_requests",
       "description": "User requests for movies and series"

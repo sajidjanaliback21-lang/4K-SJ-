@@ -106,3 +106,19 @@ export interface ContinueWatchingItem {
   episodeTitle?: string;
   playUrl?: string;
 }
+
+export interface AppDownloadItem {
+  id: string;
+  name: string;
+  logo_url: string;
+  download_url: string;
+  downloader_code?: string;
+  version?: string;
+  description?: string;
+  device_type?: string;
+  is_default?: boolean;
+  allowed_reseller_ids?: string[];
+  order?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}

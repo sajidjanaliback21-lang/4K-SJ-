@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, Settings, Film, Tv, Radio, Users, MessageSquare, Plus, Trash2, Edit2, 
   Save, RefreshCw, Upload, Check, Copy, ExternalLink, Shield, Sparkles, Key, 
-  Layers, Globe, CheckCircle2, AlertCircle, Search, Eye
+  Layers, Globe, CheckCircle2, AlertCircle, Search, Eye, Download, Smartphone, Flame, Loader2
 } from 'lucide-react';
 import { doc, setDoc, addDoc, updateDoc, deleteDoc, collection } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -19,6 +19,7 @@ interface AdminPanelModalProps {
   liveEvents: any[];
   resellers: any[];
   mediaRequests?: any[];
+  appDownloads?: any[];
 }
 
 export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
@@ -31,8 +32,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   liveEvents,
   resellers,
   mediaRequests = [],
+  appDownloads = [],
 }) => {
-  const [activeTab, setActiveTab] = useState<'app' | 'free_movies' | 'free_series' | 'live_events' | 'resellers' | 'requests'>('app');
+  const [activeTab, setActiveTab] = useState<'app' | 'free_movies' | 'free_series' | 'live_events' | 'resellers' | 'requests' | 'apps'>('app');
   
   // App Settings state
   const [currentAppSettings, setCurrentAppSettings] = useState({ ...appSettings });
@@ -119,6 +121,22 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     password: '',
     license_type: '1 Year'
   });
+
+  // App Downloads Form State
+  const [editingAppId, setEditingAppId] = useState<string | null>(null);
+  const [appForm, setAppForm] = useState({
+    name: '',
+    logo_url: '',
+    download_url: '',
+    downloader_code: '',
+    version: '',
+    description: '',
+    device_type: 'android_tv',
+    is_default: true,
+    allowed_reseller_ids: [] as string[]
+  });
+  const [isSavingApp, setIsSavingApp] = useState(false);
+  const [appSaveMsg, setAppSaveMsg] = useState<string | null>(null);
 
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
@@ -540,6 +558,109 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     }));
   };
 
+  // App Downloads CRUD
+  const handleSaveApp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!appForm.name.trim() || !appForm.download_url.trim()) {
+      alert('Please provide both Application Name and Download URL.');
+      return;
+    }
+    setIsSavingApp(true);
+    try {
+      if (editingAppId) {
+        await updateDoc(doc(db, 'app_downloads', editingAppId), {
+          ...appForm,
+          name: appForm.name.trim(),
+          download_url: appForm.download_url.trim(),
+          downloader_code: appForm.downloader_code.trim(),
+          updatedAt: new Date().toISOString()
+        });
+        setAppSaveMsg('Application updated successfully!');
+      } else {
+        await addDoc(collection(db, 'app_downloads'), {
+          ...appForm,
+          name: appForm.name.trim(),
+          download_url: appForm.download_url.trim(),
+          downloader_code: appForm.downloader_code.trim(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+        setAppSaveMsg('Application added successfully!');
+      }
+      setTimeout(() => setAppSaveMsg(null), 3000);
+      setEditingAppId(null);
+      setAppForm({
+        name: '',
+        logo_url: '',
+        download_url: '',
+        downloader_code: '',
+        version: '',
+        description: '',
+        device_type: 'android_tv',
+        is_default: true,
+        allowed_reseller_ids: []
+      });
+    } catch (err: any) {
+      console.error('Error saving app download:', err);
+      alert('Failed to save application: ' + err.message);
+    } finally {
+      setIsSavingApp(false);
+    }
+  };
+
+  const handleEditApp = (app: any) => {
+    setEditingAppId(app.id);
+    setAppForm({
+      name: app.name || '',
+      logo_url: app.logo_url || '',
+      download_url: app.download_url || '',
+      downloader_code: app.downloader_code || '',
+      version: app.version || '',
+      description: app.description || '',
+      device_type: app.device_type || 'android_tv',
+      is_default: app.is_default !== false,
+      allowed_reseller_ids: Array.isArray(app.allowed_reseller_ids) ? app.allowed_reseller_ids : []
+    });
+  };
+
+  const handleDeleteApp = async (appId: string) => {
+    if (!confirm('Are you sure you want to delete this application?')) return;
+    try {
+      await deleteDoc(doc(db, 'app_downloads', appId));
+    } catch (err: any) {
+      console.error('Error deleting application:', err);
+      alert('Failed to delete application: ' + err.message);
+    }
+  };
+
+  const handleCancelEditApp = () => {
+    setEditingAppId(null);
+    setAppForm({
+      name: '',
+      logo_url: '',
+      download_url: '',
+      downloader_code: '',
+      version: '',
+      description: '',
+      device_type: 'android_tv',
+      is_default: true,
+      allowed_reseller_ids: []
+    });
+  };
+
+  const toggleResellerForApp = (resellerId: string, subdomain?: string) => {
+    setAppForm(prev => {
+      const idsToCheck = [resellerId, subdomain].filter(Boolean) as string[];
+      const exists = idsToCheck.some(id => prev.allowed_reseller_ids.includes(id));
+      return {
+        ...prev,
+        allowed_reseller_ids: exists
+          ? prev.allowed_reseller_ids.filter(id => !idsToCheck.includes(id))
+          : Array.from(new Set([...prev.allowed_reseller_ids, ...idsToCheck]))
+      };
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 md:p-6 overflow-hidden">
       {/* Backdrop */}
@@ -596,6 +717,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             { id: 'free_series', label: 'Web Series', icon: Tv, count: freeSeries.length },
             { id: 'live_events', label: 'Live Events', icon: Radio, count: liveEvents.length },
             { id: 'resellers', label: 'Resellers', icon: Users, count: resellers.length },
+            { id: 'apps', label: 'App Downloads', icon: Download, count: appDownloads.length },
             { id: 'requests', label: 'User Requests', icon: MessageSquare, count: mediaRequests.length },
           ].map((tab) => {
             const Icon = tab.icon;
@@ -1824,6 +1946,400 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                     );
                   })}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 7: APP DOWNLOADS & DOWNLOADER CODES */}
+          {activeTab === 'apps' && (
+            <div className="space-y-6">
+              {/* Header Info */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/5">
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-wider text-cyan-400 flex items-center gap-2">
+                    <Download size={16} />
+                    <span>Manage Applications & Downloader Codes ({appDownloads.length})</span>
+                  </h3>
+                  <p className="text-xs text-white/50 mt-0.5">
+                    Post APK download links, custom logos, and FireStick 6-digit Downloader codes for your users & resellers.
+                  </p>
+                </div>
+
+                {appSaveMsg && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 text-xs font-bold border border-emerald-500/30"
+                  >
+                    <CheckCircle2 size={14} />
+                    <span>{appSaveMsg}</span>
+                  </motion.div>
+                )}
+              </div>
+
+              {/* Form Container */}
+              <form onSubmit={handleSaveApp} className="p-4 sm:p-5 rounded-2xl bg-slate-900/60 border border-white/10 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                    {editingAppId ? <Edit2 size={14} className="text-amber-400" /> : <Plus size={14} className="text-cyan-400" />}
+                    <span>{editingAppId ? 'Edit Application Details' : 'Add New Application'}</span>
+                  </h4>
+                  {editingAppId && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEditApp}
+                      className="text-xs text-white/50 hover:text-white underline cursor-pointer"
+                    >
+                      Cancel Edit
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                  {/* App Name */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-white/70 uppercase mb-1">
+                      Application Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. SJ IPTV Official Player"
+                      value={appForm.name}
+                      onChange={(e) => setAppForm({ ...appForm, name: e.target.value })}
+                      className="w-full px-3 py-2 bg-black/60 border border-white/10 rounded-xl text-xs text-white placeholder-white/30 focus:border-cyan-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Logo URL */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-white/70 uppercase mb-1">
+                      App Logo / Icon URL
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="url"
+                        placeholder="https://example.com/logo.png"
+                        value={appForm.logo_url}
+                        onChange={(e) => setAppForm({ ...appForm, logo_url: e.target.value })}
+                        className="flex-1 px-3 py-2 bg-black/60 border border-white/10 rounded-xl text-xs text-white placeholder-white/30 focus:border-cyan-500 focus:outline-none"
+                      />
+                      {appForm.logo_url && (
+                        <img
+                          src={appForm.logo_url}
+                          alt="preview"
+                          className="w-8 h-8 rounded-lg object-contain bg-black/50 border border-white/10 shrink-0"
+                          onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Version */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-white/70 uppercase mb-1">
+                      Version / Tag (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. v3.5.0 or Latest"
+                      value={appForm.version}
+                      onChange={(e) => setAppForm({ ...appForm, version: e.target.value })}
+                      className="w-full px-3 py-2 bg-black/60 border border-white/10 rounded-xl text-xs text-white placeholder-white/30 focus:border-cyan-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Download URL */}
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-bold text-white/70 uppercase mb-1">
+                      APK / App Download URL *
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="url"
+                        required
+                        placeholder="https://example.com/app.apk"
+                        value={appForm.download_url}
+                        onChange={(e) => setAppForm({ ...appForm, download_url: e.target.value })}
+                        className="flex-1 px-3 py-2 bg-black/60 border border-white/10 rounded-xl text-xs text-white placeholder-white/30 focus:border-cyan-500 focus:outline-none"
+                      />
+                      {appForm.download_url && (
+                        <a
+                          href={appForm.download_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 rounded-xl bg-white/5 hover:bg-white/15 text-cyan-300 border border-white/10 shrink-0"
+                          title="Test Link"
+                        >
+                          <ExternalLink size={14} />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* FireStick Downloader Code */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-amber-400 uppercase mb-1 flex items-center gap-1">
+                      <Flame size={12} className="text-amber-400" />
+                      <span>Downloader Code (FireStick)</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 782190"
+                      value={appForm.downloader_code}
+                      onChange={(e) => setAppForm({ ...appForm, downloader_code: e.target.value })}
+                      className="w-full px-3 py-2 bg-black/60 border border-amber-500/30 rounded-xl text-xs text-amber-300 font-mono font-bold placeholder-white/30 focus:border-amber-400 focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Device Type Selector */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-white/70 uppercase mb-1">
+                      Optimized For Device
+                    </label>
+                    <select
+                      value={appForm.device_type}
+                      onChange={(e) => setAppForm({ ...appForm, device_type: e.target.value })}
+                      className="w-full px-3 py-2 bg-black/60 border border-white/10 rounded-xl text-xs text-white focus:border-cyan-500 focus:outline-none"
+                    >
+                      <option value="android_tv">Android TV & FireStick</option>
+                      <option value="mobile">Mobile & Tablet (Android)</option>
+                      <option value="all">All Devices (Universal)</option>
+                      <option value="windows">Windows / PC</option>
+                    </select>
+                  </div>
+
+                  {/* Description */}
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-bold text-white/70 uppercase mb-1">
+                      Short Description / Installation Notes
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Recommended player for 4K streaming and sports with fast EPG."
+                      value={appForm.description}
+                      onChange={(e) => setAppForm({ ...appForm, description: e.target.value })}
+                      className="w-full px-3 py-2 bg-black/60 border border-white/10 rounded-xl text-xs text-white placeholder-white/30 focus:border-cyan-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Reseller Visibility & Permission Controls */}
+                <div className="pt-3 border-t border-white/5 space-y-3">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-black/40 border border-white/5">
+                    <div>
+                      <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <Globe size={14} className="text-cyan-400" />
+                        <span>Global Application (Show on All Resellers & Main Website)</span>
+                      </div>
+                      <p className="text-[11px] text-white/40 mt-0.5">
+                        Always visible on the Main Website. If enabled, also appears on all resellers. If disabled, appears on Main Website + only the selected resellers below.
+                      </p>
+                    </div>
+
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={appForm.is_default}
+                        onChange={(e) => setAppForm({ ...appForm, is_default: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                    </label>
+                  </div>
+
+                  {/* Selective Resellers list (if not default) */}
+                  {!appForm.is_default && (
+                    <div className="p-3.5 rounded-xl bg-black/40 border border-cyan-500/20 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <Users size={13} />
+                          <span>Select Resellers Allowed to Display this App:</span>
+                        </label>
+
+                        {resellers.length > 0 && (
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setAppForm({ ...appForm, allowed_reseller_ids: Array.from(new Set(resellers.flatMap(r => [r.id, r.subdomain].filter(Boolean)))) })}
+                              className="text-[10px] text-cyan-400 hover:underline cursor-pointer"
+                            >
+                              Select All
+                            </button>
+                            <span className="text-white/20">•</span>
+                            <button
+                              type="button"
+                              onClick={() => setAppForm({ ...appForm, allowed_reseller_ids: [] })}
+                              className="text-[10px] text-white/40 hover:underline cursor-pointer"
+                            >
+                              Deselect All
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {resellers.length === 0 ? (
+                        <p className="text-xs text-white/40 py-2">No resellers created yet. Add resellers in the Resellers tab.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1 max-h-48 overflow-y-auto pr-1">
+                          {resellers.map((r) => {
+                            const resId = r.id || r.subdomain;
+                            const isChecked = appForm.allowed_reseller_ids.includes(resId) || (r.subdomain && appForm.allowed_reseller_ids.includes(r.subdomain));
+                            return (
+                              <label
+                                key={r.id}
+                                className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                                  isChecked 
+                                    ? 'bg-cyan-500/10 border-cyan-500/40 text-white font-semibold' 
+                                    : 'bg-black/30 border-white/5 text-white/60 hover:text-white'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => toggleResellerForApp(r.id, r.subdomain)}
+                                  className="rounded border-white/20 text-cyan-500 focus:ring-0"
+                                />
+                                <span className="truncate">{r.brand_name || r.subdomain}</span>
+                                <span className="text-[10px] text-white/40">({r.subdomain})</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Form Buttons */}
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  {editingAppId && (
+                    <button
+                      type="button"
+                      onClick={handleCancelEditApp}
+                      className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 text-xs font-bold transition-all cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={isSavingApp}
+                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-500 text-white font-bold text-xs shadow-lg shadow-cyan-500/30 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingApp ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Save size={14} />
+                    )}
+                    <span>{editingAppId ? 'Update Application' : 'Save Application'}</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* List of Configured Applications */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-white/70 flex items-center justify-between">
+                  <span>Current Applications ({appDownloads.length})</span>
+                  <span className="text-[11px] font-normal text-white/40">Click edit to update or change reseller access</span>
+                </h4>
+
+                {appDownloads.length === 0 ? (
+                  <div className="p-8 text-center bg-slate-900/30 rounded-2xl border border-white/5 text-white/40 text-xs">
+                    No applications added yet. Use the form above to post your first app download and Downloader code.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                    {appDownloads.map((app) => {
+                      const hasDownloaderCode = !!app.downloader_code && app.downloader_code.trim() !== '';
+                      return (
+                        <div
+                          key={app.id}
+                          className="p-4 rounded-xl bg-slate-900/60 border border-white/10 flex flex-col justify-between gap-3 hover:border-cyan-500/30 transition-all"
+                        >
+                          <div className="flex items-start gap-3">
+                            {app.logo_url ? (
+                              <img
+                                src={app.logo_url}
+                                alt={app.name}
+                                className="w-12 h-12 rounded-xl object-contain bg-black/60 border border-white/15 p-1 shrink-0"
+                                onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                              />
+                            ) : (
+                              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-600 to-blue-600 flex items-center justify-center text-white font-black text-lg shrink-0">
+                                {app.name?.charAt(0) || 'A'}
+                              </div>
+                            )}
+
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h5 className="text-xs font-bold text-white truncate">{app.name}</h5>
+                                {app.version && (
+                                  <span className="px-1.5 py-0.5 rounded bg-white/10 text-cyan-300 text-[10px] font-mono">
+                                    {app.version}
+                                  </span>
+                                )}
+                              </div>
+
+                              <p className="text-[11px] text-white/40 line-clamp-1 mt-0.5">
+                                {app.description || 'No description provided.'}
+                              </p>
+
+                              {/* Downloader Code Badge */}
+                              {hasDownloaderCode && (
+                                <div className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-mono font-bold">
+                                  <Flame size={12} className="text-amber-400" />
+                                  <span>Downloader: {app.downloader_code}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Reseller Permissions Status & Actions */}
+                          <div className="flex items-center justify-between border-t border-white/5 pt-2.5 text-xs">
+                            <div className="flex items-center gap-1.5">
+                              {app.is_default !== false ? (
+                                <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30">
+                                  ✓ Main Site + All Resellers
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 text-[10px] font-bold border border-cyan-500/30">
+                                  Main Site + {Array.isArray(app.allowed_reseller_ids) ? app.allowed_reseller_ids.length : 0} Resellers
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              <a
+                                href={app.download_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1.5 rounded-lg bg-white/5 hover:bg-cyan-500/20 text-white/50 hover:text-cyan-300 border border-white/5 cursor-pointer"
+                                title="Download Link"
+                              >
+                                <ExternalLink size={13} />
+                              </a>
+                              <button
+                                onClick={() => handleEditApp(app)}
+                                className="p-1.5 rounded-lg bg-white/5 hover:bg-amber-500/20 text-white/50 hover:text-amber-400 border border-white/5 cursor-pointer"
+                                title="Edit App"
+                              >
+                                <Edit2 size={13} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteApp(app.id)}
+                                className="p-1.5 rounded-lg bg-white/5 hover:bg-rose-500/20 text-white/50 hover:text-rose-400 border border-white/5 cursor-pointer"
+                                title="Delete App"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           )}

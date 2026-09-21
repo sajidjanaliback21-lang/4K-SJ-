@@ -65,12 +65,14 @@ import {
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { xtreamApi, DEFAULT_CREDENTIALS } from './lib/api';
-import { XtreamCredentials, Category, Stream, Series, LiveStream, ContinueWatchingItem } from './types';
+import { XtreamCredentials, Category, Stream, Series, LiveStream, ContinueWatchingItem, AppDownloadItem } from './types';
 import axios from 'axios';
 import VideoPlayer from './components/VideoPlayer';
 import ContinueWatchingRow from './components/ContinueWatchingRow';
 import AdminPanelModal from './components/AdminPanelModal';
 import IntroLoading from './components/IntroLoading';
+import DownloadAppsModal from './components/DownloadAppsModal';
+import FloatingDownloadSticker from './components/FloatingDownloadSticker';
 import { db, auth } from './firebase';
 import { doc, onSnapshot, setDoc, getDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
@@ -1637,6 +1639,10 @@ export default function App() {
   const [requestSubmitting, setRequestSubmitting] = useState<boolean>(false);
   const [requestSuccessMessage, setRequestSuccessMessage] = useState<string>('');
   
+  // App Downloads State
+  const [appDownloads, setAppDownloads] = useState<AppDownloadItem[]>([]);
+  const [isDownloadAppsModalOpen, setIsDownloadAppsModalOpen] = useState<boolean>(false);
+
   // Analytics State Hooks
   const [userActivities, setUserActivities] = useState<any[]>([]);
   const [mediaStats, setMediaStats] = useState<any[]>([]);
@@ -1956,7 +1962,18 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Real-time Firestore Sync for App Downloads
+  useEffect(() => {
+    const appsRef = collection(db, 'app_downloads');
+    const unsubscribe = onSnapshot(appsRef, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as AppDownloadItem[];
+      setAppDownloads(docs);
+    }, (error) => {
+      console.error("Firestore Error (App Downloads):", error);
+    });
 
+    return () => unsubscribe();
+  }, []);
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -5428,34 +5445,6 @@ export default function App() {
                         </span>
                         <ChevronDown size={14} className="text-white/60 group-hover:translate-y-0.5 transition-transform" />
                       </button>
-
-                      {currentAppLink && (
-                        <motion.a
-                          href={currentAppLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          initial={{ opacity: 0, scale: 0.92 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.97 }}
-                          className="relative overflow-hidden flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-emerald-500 via-teal-600 to-cyan-600 text-white font-black uppercase tracking-wider text-[10px] sm:text-xs rounded-full shadow-[0_0_20px_rgba(16,185,129,0.45)] hover:shadow-[0_0_30px_rgba(52,211,153,0.7)] border border-white/20 transition-all duration-300 cursor-pointer select-none group"
-                        >
-                          {/* Premium continuous shine sweeping effect */}
-                          <div className="absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full animate-premium-shine" />
-
-                          {/* Beautiful live pulsing indicator point */}
-                          <span className="relative flex h-2 w-2">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-200"></span>
-                          </span>
-
-                          <Download size={14} className="text-white group-hover:translate-y-0.5 transition-transform duration-300" />
-                          
-                          <span className="relative z-10 text-white font-display font-black tracking-widest text-[9px] sm:text-[11px] drop-shadow-md">
-                            Download App
-                          </span>
-                        </motion.a>
-                      )}
                     </div>
                   </div>
                   
@@ -9765,6 +9754,7 @@ export default function App() {
             liveEvents={liveEvents}
             resellers={resellers}
             mediaRequests={mediaRequests}
+            appDownloads={appDownloads}
           />
         )}
       </AnimatePresence>
@@ -10828,6 +10818,24 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Floating Download APK Sticker on the right side */}
+      {!playingFreeMovie && !playingFreeSeries && (
+        <FloatingDownloadSticker
+          onClick={() => setIsDownloadAppsModalOpen(true)}
+          hasCodes={appDownloads.some(a => !!a.downloader_code && a.downloader_code.trim() !== '')}
+        />
+      )}
+
+      {/* Dedicated Download Applications & Downloader Codes Modal */}
+      <DownloadAppsModal
+        isOpen={isDownloadAppsModalOpen}
+        onClose={() => setIsDownloadAppsModalOpen(false)}
+        apps={appDownloads}
+        activeReseller={activeReseller}
+        defaultDownloadUrl={activeReseller?.download_url || appSettings.default_download_url || currentAppLink}
+        defaultServerUrl={activeReseller?.server_url || appSettings.default_server_url}
+      />
     </div>
   );
 }
