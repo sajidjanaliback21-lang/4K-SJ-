@@ -59,6 +59,8 @@
         "show_live_viewer_count": { "type": "boolean", "description": "Show Live Viewer Count using Socket.io" },
         "password": { "type": "string", "description": "Optional password to lock access to this movie" },
         "available_for_resellers": { "type": "boolean" },
+        "expires_at": { "type": "string", "description": "ISO timestamp when this movie expires and becomes hidden from users" },
+        "duration_days": { "type": "string", "description": "Duration in days or preset before expiry" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "poster_url", "play_url"]
@@ -79,6 +81,8 @@
         "show_live_viewer_count": { "type": "boolean", "description": "Show Live Viewer Count using Socket.io" },
         "password": { "type": "string", "description": "Optional password to lock access to this series" },
         "available_for_resellers": { "type": "boolean" },
+        "expires_at": { "type": "string", "description": "ISO timestamp when this series expires and becomes hidden from users" },
+        "duration_days": { "type": "string", "description": "Duration in days or preset before expiry" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "poster_url", "play_url"]
@@ -222,6 +226,22 @@
       },
       "required": ["username", "title", "mediaType", "status"]
     },
+    "reseller_visits": {
+      "title": "Reseller Visits",
+      "description": "Daily and total visitor traffic analytics for reseller domains and portals",
+      "type": "object",
+      "properties": {
+        "resellerId": { "type": "string" },
+        "subdomain": { "type": "string" },
+        "brand_name": { "type": "string" },
+        "totalVisits": { "type": "number" },
+        "todayVisits": { "type": "number" },
+        "todayDate": { "type": "string" },
+        "lastVisit": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["resellerId", "totalVisits"]
+    },
     "app_downloads": {
       "title": "App Downloads",
       "description": "Downloadable applications with downloader codes for Android TV, FireStick and Mobile",
@@ -258,6 +278,10 @@
     "/resellers/{resellerId}": {
       "schema": "resellers",
       "description": "Collection of resellers configurations"
+    },
+    "/reseller_visits/{resellerId}": {
+      "schema": "reseller_visits",
+      "description": "Collection of daily and total reseller traffic metrics"
     },
     "/settings/psl": {
       "schema": "settings",

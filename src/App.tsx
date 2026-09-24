@@ -73,8 +73,9 @@ import AdminPanelModal from './components/AdminPanelModal';
 import IntroLoading from './components/IntroLoading';
 import DownloadAppsModal from './components/DownloadAppsModal';
 import FloatingDownloadSticker from './components/FloatingDownloadSticker';
+import { MediaCountdownBadge, calculateTimeRemaining } from './components/MediaCountdownBadge';
 import { db, auth } from './firebase';
-import { doc, onSnapshot, setDoc, getDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc, where, writeBatch } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, getDoc, getDocFromServer, collection, addDoc, deleteDoc, query, orderBy, updateDoc, where, writeBatch, limit } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { fetchTmdbDetails, TmdbDetails, fetchTrendingMovies, fetchTrendingSeries, TmdbTrendingItem, cleanMediaTitle, fetchTmdbDetailsById, getStoredTmdbDetails, getStoredTmdbDetailsById, getLanguageTags, getLanguageBadge, TRENDING_REGIONS, TrendingRegion, OTT_PLATFORMS, OttPlatform, fetchPlatformMedia, searchTmdbItems, resolveEpisodeInfo, fetchTmdbAllSeasonsEpisodes, getStoredTmdbSeasonEpisodes } from './lib/tmdb';
 import { getActiveVideoProxy } from './lib/streamProxy';
@@ -1037,9 +1038,22 @@ export default function App() {
   const [isLiveEventsLoading, setIsLiveEventsLoading] = useState(true);
   const [editingLiveEventId, setEditingLiveEventId] = useState<string | null>(null);
 
-  // Computed lists filtered for resellers if accessed via a reseller domain/referrer/parameter
-  const displayedFreeMovies = freeMovies.filter((movie: any) => !getResellerKey() || movie.available_for_resellers !== false);
-  const displayedFreeSeries = freeSeries.filter((series: any) => !getResellerKey() || series.available_for_resellers !== false);
+  // Helper to check if a media item's timer has expired
+  const isItemExpired = (item: any) => {
+    if (!item?.expires_at) return false;
+    try {
+      const expTime = new Date(item.expires_at).getTime();
+      return !isNaN(expTime) && expTime <= Date.now();
+    } catch {
+      return false;
+    }
+  };
+
+  // Computed lists filtered for resellers and filtered out expired content (hidden automatically when timer hits zero)
+  const displayedFreeMovies = freeMovies
+    .filter((movie: any) => (!getResellerKey() || movie.available_for_resellers !== false) && !isItemExpired(movie));
+  const displayedFreeSeries = freeSeries
+    .filter((series: any) => (!getResellerKey() || series.available_for_resellers !== false) && !isItemExpired(series));
   const displayedLiveEvents = liveEvents.filter((item: any) => !getResellerKey() || item.available_for_resellers !== false);
   const [activeLiveChannelIndex, setActiveLiveChannelIndex] = useState<number>(0);
   const [newLiveEvent, setNewLiveEvent] = useState<{
@@ -1477,6 +1491,13 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Track traffic when active reseller is detected
+  useEffect(() => {
+    if (activeReseller && activeReseller.id) {
+      trackResellerVisit(activeReseller);
+    }
+  }, [activeReseller?.id]);
+
   useEffect(() => {
     const handleStorage = () => {
       setIsAntiPopupActive(localStorage.getItem('anti_popup_enabled') !== 'false');
@@ -1646,10 +1667,58 @@ export default function App() {
   // Analytics State Hooks
   const [userActivities, setUserActivities] = useState<any[]>([]);
   const [mediaStats, setMediaStats] = useState<any[]>([]);
+  const [playbackLogs, setPlaybackLogs] = useState<any[]>([]);
+  const [resellerVisits, setResellerVisits] = useState<any[]>([]);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsSearchQuery, setAnalyticsSearchQuery] = useState('');
   const [analyticsCategoryFilter, setAnalyticsCategoryFilter] = useState<'all' | 'movie' | 'series' | 'live_event'>('all');
   const [analyticsSubTab, setAnalyticsSubTab] = useState<'users' | 'media'>('media');
+
+  // Reseller Traffic Tracking
+  const trackResellerVisit = async (reseller: any) => {
+    if (!reseller || !reseller.id) return;
+    if (typeof window === 'undefined') return;
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const visitSessionKey = `reseller_visit_${reseller.id}_${todayStr}`;
+    if (sessionStorage.getItem(visitSessionKey)) {
+      return; // Already recorded for this session today
+    }
+
+    try {
+      sessionStorage.setItem(visitSessionKey, 'true');
+      const visitDocRef = doc(db, 'reseller_visits', reseller.id);
+      const snap = await getDoc(visitDocRef).catch(() => null);
+
+      let totalVisits = 1;
+      let todayVisits = 1;
+
+      if (snap && snap.exists()) {
+        const data = snap.data();
+        totalVisits = (Number(data.totalVisits) || 0) + 1;
+        if (data.todayDate === todayStr) {
+          todayVisits = (Number(data.todayVisits) || 0) + 1;
+        } else {
+          todayVisits = 1; // Brand new day
+        }
+      }
+
+      await setDoc(visitDocRef, {
+        resellerId: reseller.id,
+        subdomain: reseller.subdomain || '',
+        brand_name: reseller.brand_name || 'Reseller Portal',
+        totalVisits,
+        todayVisits,
+        todayDate: todayStr,
+        lastVisit: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      console.log(`[ResellerTraffic] Tracked visit for ${reseller.brand_name} (${reseller.subdomain}) - Today: ${todayVisits}, Total: ${totalVisits}`);
+    } catch (e) {
+      console.warn("[ResellerTraffic] Failed to track visit:", e);
+    }
+  };
 
   // Analytics Tracking Functions
   const trackUserActivity = async (username: string) => {
@@ -1774,9 +1843,29 @@ export default function App() {
       setAnalyticsLoading(false);
     });
 
+    // 3. Playback logs query (recent 150 items)
+    const logsQuery = query(collection(db, 'playback_logs'), orderBy('timestamp', 'desc'), limit(150));
+    const unsubscribeLogs = onSnapshot(logsQuery, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPlaybackLogs(list);
+    }, (err) => {
+      console.error("Error loading playback logs", err);
+    });
+
+    // 4. Reseller visits query
+    const visitsQuery = collection(db, 'reseller_visits');
+    const unsubscribeVisits = onSnapshot(visitsQuery, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setResellerVisits(list);
+    }, (err) => {
+      console.error("Error loading reseller visits", err);
+    });
+
     return () => {
       if (unsubscribeUsers) unsubscribeUsers();
       if (unsubscribeStats) unsubscribeStats();
+      if (unsubscribeLogs) unsubscribeLogs();
+      if (unsubscribeVisits) unsubscribeVisits();
     };
   }, [isAdminLoggedIn]);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -6248,16 +6337,25 @@ export default function App() {
                                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
                                 referrerPolicy="no-referrer"
                               />
-                              {/* Language Badge Overlay */}
+                              {/* Language Badge Overlay (Top Right) */}
                               {(() => {
                                 const badge = getLanguageBadge(movie.name);
                                 return badge ? (
-                                  <span className="absolute top-2 right-2 z-20 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-[8px] sm:text-[8.5px] font-black uppercase tracking-wider text-white shadow-[0_2px_12px_rgba(0,0,0,0.8)] group-hover:scale-105 group-hover:border-white/30 group-hover:bg-black/95 transition-all duration-300 pointer-events-none whitespace-nowrap overflow-hidden max-w-[85%]">
-                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${badge.barColor || 'bg-cyan-400'}`} />
-                                    <span className={`truncate leading-none ${badge.color}`}>{badge.label}</span>
-                                  </span>
+                                  <div className="absolute top-2.5 right-2.5 z-20 pointer-events-none">
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-[8.5px] font-black uppercase tracking-wider text-white shadow-[0_2px_12px_rgba(0,0,0,0.8)] group-hover:scale-105 group-hover:border-white/30 group-hover:bg-black/95 transition-all duration-300">
+                                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${badge.barColor || 'bg-cyan-400'}`} />
+                                      <span className={`leading-none ${badge.color}`}>{badge.label}</span>
+                                    </span>
+                                  </div>
                                 ) : null;
                               })()}
+
+                              {/* Live Availability Luxury Digital Countdown (Top Left) */}
+                              {movie.expires_at && (
+                                <div className="absolute top-2.5 left-2.5 z-20 pointer-events-none">
+                                  <MediaCountdownBadge expiresAt={movie.expires_at} size="sm" />
+                                </div>
+                              )}
                               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-5">
                                 <h4 className="text-white font-black text-xs sm:text-sm italic tracking-tighter line-clamp-2 uppercase leading-tight mb-2 group-hover:text-cyan-400 transition-colors">{movie.name}</h4>
                                 <div className="flex items-center gap-2">
@@ -6305,16 +6403,25 @@ export default function App() {
                                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
                                 referrerPolicy="no-referrer"
                               />
-                              {/* Language Badge Overlay */}
+                              {/* Language Badge Overlay (Top Right) */}
                               {(() => {
                                 const badge = getLanguageBadge(series.name);
                                 return badge ? (
-                                  <span className="absolute top-2 right-2 z-20 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-[8px] sm:text-[8.5px] font-black uppercase tracking-wider text-white shadow-[0_2px_12px_rgba(0,0,0,0.8)] group-hover:scale-105 group-hover:border-white/30 group-hover:bg-black/95 transition-all duration-300 pointer-events-none whitespace-nowrap overflow-hidden max-w-[85%]">
-                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${badge.barColor || 'bg-cyan-400'}`} />
-                                    <span className={`truncate leading-none ${badge.color}`}>{badge.label}</span>
-                                  </span>
+                                  <div className="absolute top-2.5 right-2.5 z-20 pointer-events-none">
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-[8.5px] font-black uppercase tracking-wider text-white shadow-[0_2px_12px_rgba(0,0,0,0.8)] group-hover:scale-105 group-hover:border-white/30 group-hover:bg-black/95 transition-all duration-300">
+                                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${badge.barColor || 'bg-cyan-400'}`} />
+                                      <span className={`leading-none ${badge.color}`}>{badge.label}</span>
+                                    </span>
+                                  </div>
                                 ) : null;
                               })()}
+
+                              {/* Live Availability Luxury Digital Countdown (Top Left) */}
+                              {series.expires_at && (
+                                <div className="absolute top-2.5 left-2.5 z-20 pointer-events-none">
+                                  <MediaCountdownBadge expiresAt={series.expires_at} size="sm" />
+                                </div>
+                              )}
                               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent flex flex-col justify-end p-5">
                                 <h4 className="text-white font-black text-xs sm:text-sm italic tracking-tighter line-clamp-2 uppercase leading-tight mb-2 group-hover:text-purple-400 transition-colors">{series.name}</h4>
                                 <div className="flex items-center gap-2">
@@ -9740,6 +9847,10 @@ export default function App() {
             resellers={resellers}
             mediaRequests={mediaRequests}
             appDownloads={appDownloads}
+            userActivities={userActivities}
+            mediaStats={mediaStats}
+            playbackLogs={playbackLogs}
+            resellerVisits={resellerVisits}
           />
         )}
       </AnimatePresence>

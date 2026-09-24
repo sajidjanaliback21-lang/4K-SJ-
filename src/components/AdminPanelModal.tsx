@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, Settings, Film, Tv, Radio, Users, MessageSquare, Plus, Trash2, Edit2, 
   Save, RefreshCw, Upload, Check, Copy, ExternalLink, Shield, Sparkles, Key, 
-  Layers, Globe, CheckCircle2, AlertCircle, Search, Eye, Download, Smartphone, Flame, Loader2
+  Layers, Globe, CheckCircle2, AlertCircle, Search, Eye, Download, Smartphone, Flame, Loader2,
+  BarChart3, Activity, TrendingUp, Calendar, Clock, ArrowUpRight, UserCheck, History, Play, Filter,
+  CheckCircle, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { doc, setDoc, addDoc, updateDoc, deleteDoc, collection } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -20,6 +22,10 @@ interface AdminPanelModalProps {
   resellers: any[];
   mediaRequests?: any[];
   appDownloads?: any[];
+  userActivities?: any[];
+  mediaStats?: any[];
+  playbackLogs?: any[];
+  resellerVisits?: any[];
 }
 
 export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
@@ -33,8 +39,69 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
   resellers,
   mediaRequests = [],
   appDownloads = [],
+  userActivities = [],
+  mediaStats = [],
+  playbackLogs = [],
+  resellerVisits = [],
 }) => {
-  const [activeTab, setActiveTab] = useState<'app' | 'free_movies' | 'free_series' | 'live_events' | 'resellers' | 'requests' | 'apps'>('app');
+  const [activeTab, setActiveTab] = useState<'app' | 'analytics' | 'free_movies' | 'free_series' | 'live_events' | 'resellers' | 'requests' | 'apps'>('app');
+  
+  // Analytics State
+  const [analyticsSubTab, setAnalyticsSubTab] = useState<'most_watched' | 'resellers_traffic' | 'live_logs' | 'users'>('most_watched');
+  const [analyticsCategoryFilter, setAnalyticsCategoryFilter] = useState<'all' | 'movie' | 'series' | 'live_event'>('all');
+  const [analyticsSearchQuery, setAnalyticsSearchQuery] = useState('');
+  const [expandedUsersId, setExpandedUsersId] = useState<string | null>(null);
+  const [selectedMediaViewers, setSelectedMediaViewers] = useState<{ title: string; category: string; views: number; users: string[] } | null>(null);
+
+  // Helper to calculate total views, viewers count, and viewers list for any movie, series, or live event
+  const getMediaViewsInfo = (item: any, category: 'movie' | 'series' | 'live_event') => {
+    const directId = item.id ? String(item.id).toLowerCase() : '';
+    const tmdbId = item.tmdb_id ? String(item.tmdb_id).toLowerCase() : '';
+    const rawName = (item.name || item.title || '').trim().toLowerCase();
+
+    let totalPlays = 0;
+    const userSet = new Set<string>();
+    let lastPlayedTime: string | null = null;
+
+    mediaStats.forEach((st: any) => {
+      if (st.category !== category) return;
+      const sItemId = String(st.itemId || '').toLowerCase();
+      const sItemName = String(st.itemName || '').trim().toLowerCase();
+
+      const isMatch =
+        (directId && (sItemId === directId || sItemId === `${category}_${directId}`)) ||
+        (tmdbId && (sItemId === tmdbId || sItemId === `${category}_${tmdbId}`)) ||
+        (rawName && (sItemName === rawName || sItemName.startsWith(rawName) || rawName.startsWith(sItemName)));
+
+      if (isMatch) {
+        totalPlays += (Number(st.totalPlays) || 0);
+        if (st.users && typeof st.users === 'object') {
+          Object.keys(st.users).forEach((u) => {
+            if (u && u !== 'null' && u !== 'undefined' && u !== 'anonymous') userSet.add(u);
+          });
+        }
+        if (st.lastPlayed) {
+          if (!lastPlayedTime || new Date(st.lastPlayed) > new Date(lastPlayedTime)) {
+            lastPlayedTime = st.lastPlayed;
+          }
+        }
+      }
+    });
+
+    const directCount = Number(item.views || item.watch_count || 0);
+    if (directCount > totalPlays) {
+      totalPlays = directCount;
+    }
+
+    const usersList = Array.from(userSet);
+
+    return {
+      views: totalPlays,
+      usersCount: usersList.length,
+      usersList,
+      lastPlayed: lastPlayedTime
+    };
+  };
   
   // App Settings state
   const [currentAppSettings, setCurrentAppSettings] = useState({ ...appSettings });
@@ -54,7 +121,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     iframe_cropping: false,
     show_live_viewer_count: false,
     password: '',
-    available_for_resellers: true
+    available_for_resellers: true,
+    expires_at: '',
+    duration_days: 'none' // 'none', '1', '2', '3', '4', '7', '14', '30', 'custom'
   });
   const [isFetchingMovieTmdb, setIsFetchingMovieTmdb] = useState(false);
   const [movieSearchQuery, setMovieSearchQuery] = useState('');
@@ -74,6 +143,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
     show_live_viewer_count: false,
     password: '',
     available_for_resellers: true,
+    expires_at: '',
+    duration_days: 'none',
     episodes: [] as Array<{ id: string; season: string; episode_num: string; title: string; play_url: string; download_url?: string }>
   });
   const [isFetchingSeriesTmdb, setIsFetchingSeriesTmdb] = useState(false);
@@ -222,15 +293,32 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       return;
     }
     try {
+      let finalExpiresAt = movieForm.expires_at || '';
+      
+      // Calculate expires_at if duration_days preset was selected
+      if (movieForm.duration_days && movieForm.duration_days !== 'none' && movieForm.duration_days !== 'custom') {
+        const days = parseFloat(movieForm.duration_days);
+        if (!isNaN(days) && days > 0) {
+          finalExpiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+        }
+      } else if (movieForm.duration_days === 'none') {
+        finalExpiresAt = '';
+      }
+
+      const moviePayload = {
+        ...movieForm,
+        expires_at: finalExpiresAt
+      };
+
       if (editingMovieId) {
         await updateDoc(doc(db, 'free_movies', editingMovieId), {
-          ...movieForm,
+          ...moviePayload,
           updatedAt: new Date().toISOString()
         });
         setEditingMovieId(null);
       } else {
         await addDoc(collection(db, 'free_movies'), {
-          ...movieForm,
+          ...moviePayload,
           createdAt: new Date().toISOString()
         });
       }
@@ -245,7 +333,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         iframe_cropping: false,
         show_live_viewer_count: false,
         password: '',
-        available_for_resellers: true
+        available_for_resellers: true,
+        expires_at: '',
+        duration_days: 'none'
       });
       alert(editingMovieId ? 'Movie updated!' : 'Movie added!');
     } catch (err: any) {
@@ -255,6 +345,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
   const handleEditMovieClick = (movie: any) => {
     setEditingMovieId(movie.id);
+    let durationSetting = movie.duration_days || (movie.expires_at ? 'custom' : 'none');
     setMovieForm({
       tmdb_id: movie.tmdb_id || '',
       name: movie.name || '',
@@ -266,7 +357,9 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       iframe_cropping: !!movie.iframe_cropping,
       show_live_viewer_count: !!movie.show_live_viewer_count,
       password: movie.password || '',
-      available_for_resellers: movie.available_for_resellers !== false
+      available_for_resellers: movie.available_for_resellers !== false,
+      expires_at: movie.expires_at || '',
+      duration_days: durationSetting
     });
   };
 
@@ -332,8 +425,21 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       return;
     }
     try {
+      let finalExpiresAt = seriesForm.expires_at || '';
+      
+      // Calculate expires_at if duration_days preset was selected
+      if (seriesForm.duration_days && seriesForm.duration_days !== 'none' && seriesForm.duration_days !== 'custom') {
+        const days = parseFloat(seriesForm.duration_days);
+        if (!isNaN(days) && days > 0) {
+          finalExpiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+        }
+      } else if (seriesForm.duration_days === 'none') {
+        finalExpiresAt = '';
+      }
+
       const finalSeries = {
         ...seriesForm,
+        expires_at: finalExpiresAt,
         episodes: (seriesForm.playlist_url && seriesForm.playlist_url.trim() !== '') ? [] : seriesForm.episodes
       };
       if (editingSeriesId) {
@@ -361,6 +467,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         show_live_viewer_count: false,
         password: '',
         available_for_resellers: true,
+        expires_at: '',
+        duration_days: 'none',
         episodes: []
       });
       alert(editingSeriesId ? 'Series updated!' : 'Series added!');
@@ -371,6 +479,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
 
   const handleEditSeriesClick = (series: any) => {
     setEditingSeriesId(series.id);
+    let durationSetting = series.duration_days || (series.expires_at ? 'custom' : 'none');
     setSeriesForm({
       tmdb_id: series.tmdb_id || '',
       name: series.name || '',
@@ -384,6 +493,8 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       show_live_viewer_count: !!series.show_live_viewer_count,
       password: series.password || '',
       available_for_resellers: series.available_for_resellers !== false,
+      expires_at: series.expires_at || '',
+      duration_days: durationSetting,
       episodes: Array.isArray(series.episodes) ? series.episodes : []
     });
   };
@@ -713,6 +824,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
         <div className="flex items-center gap-1.5 px-3 sm:px-6 py-2.5 bg-black/40 border-b border-white/5 overflow-x-auto no-scrollbar shrink-0">
           {[
             { id: 'app', label: 'App Settings', icon: Settings, count: null },
+            { id: 'analytics', label: 'Watch & Traffic Analytics', icon: BarChart3, count: mediaStats.length },
             { id: 'free_movies', label: 'Free Movies', icon: Film, count: freeMovies.length },
             { id: 'free_series', label: 'Web Series', icon: Tv, count: freeSeries.length },
             { id: 'live_events', label: 'Live Events', icon: Radio, count: liveEvents.length },
@@ -919,6 +1031,521 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
             </div>
           )}
 
+          {/* TAB: WATCH & TRAFFIC ANALYTICS */}
+          {activeTab === 'analytics' && (
+            <div className="space-y-6">
+              {/* KPI Counters Grid */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                {/* 1. Total Media Views */}
+                <div className="p-4 rounded-2xl bg-gradient-to-br from-cyan-950/40 via-slate-900/60 to-slate-950/80 border border-cyan-500/30 flex flex-col justify-between relative overflow-hidden group shadow-lg">
+                  <div className="absolute top-0 right-0 p-3 opacity-15 text-cyan-400 group-hover:opacity-25 transition-opacity">
+                    <Play size={44} />
+                  </div>
+                  <div className="flex items-center gap-2 text-cyan-400 text-xs font-bold uppercase tracking-wider mb-2">
+                    <TrendingUp size={15} />
+                    <span>Total Stream Plays</span>
+                  </div>
+                  <div>
+                    <div className="text-2xl sm:text-3xl font-black text-white">
+                      {mediaStats.reduce((acc, curr) => acc + (Number(curr.totalPlays) || 0), 0).toLocaleString()}
+                    </div>
+                    <p className="text-[10px] text-white/50 mt-1">Across all movies, series & events</p>
+                  </div>
+                </div>
+
+                {/* 2. Reseller Today Visits */}
+                <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-950/40 via-slate-900/60 to-slate-950/80 border border-emerald-500/30 flex flex-col justify-between relative overflow-hidden group shadow-lg">
+                  <div className="absolute top-0 right-0 p-3 opacity-15 text-emerald-400 group-hover:opacity-25 transition-opacity">
+                    <Activity size={44} />
+                  </div>
+                  <div className="flex items-center gap-2 text-emerald-400 text-xs font-bold uppercase tracking-wider mb-2">
+                    <Activity size={15} className="animate-pulse" />
+                    <span>Reseller Today Visits</span>
+                  </div>
+                  <div>
+                    <div className="text-2xl sm:text-3xl font-black text-emerald-400">
+                      {resellerVisits.reduce((acc, curr) => {
+                        const todayStr = new Date().toISOString().split('T')[0];
+                        const todayCount = (curr.todayDate === todayStr) ? (Number(curr.todayVisits) || 0) : 0;
+                        return acc + todayCount;
+                      }, 0).toLocaleString()}
+                    </div>
+                    <p className="text-[10px] text-white/50 mt-1">Daily active domain traffic</p>
+                  </div>
+                </div>
+
+                {/* 3. Reseller Total Visits */}
+                <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-950/40 via-slate-900/60 to-slate-950/80 border border-blue-500/30 flex flex-col justify-between relative overflow-hidden group shadow-lg">
+                  <div className="absolute top-0 right-0 p-3 opacity-15 text-blue-400 group-hover:opacity-25 transition-opacity">
+                    <Globe size={44} />
+                  </div>
+                  <div className="flex items-center gap-2 text-blue-400 text-xs font-bold uppercase tracking-wider mb-2">
+                    <Globe size={15} />
+                    <span>Total Reseller Visits</span>
+                  </div>
+                  <div>
+                    <div className="text-2xl sm:text-3xl font-black text-cyan-300">
+                      {resellerVisits.reduce((acc, curr) => acc + (Number(curr.totalVisits) || 0), 0).toLocaleString()}
+                    </div>
+                    <p className="text-[10px] text-white/50 mt-1">Kul visits across all portals</p>
+                  </div>
+                </div>
+
+                {/* 4. Active User Accounts */}
+                <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-950/40 via-slate-900/60 to-slate-950/80 border border-purple-500/30 flex flex-col justify-between relative overflow-hidden group shadow-lg">
+                  <div className="absolute top-0 right-0 p-3 opacity-15 text-purple-400 group-hover:opacity-25 transition-opacity">
+                    <Users size={44} />
+                  </div>
+                  <div className="flex items-center gap-2 text-purple-400 text-xs font-bold uppercase tracking-wider mb-2">
+                    <Users size={15} />
+                    <span>Active Users</span>
+                  </div>
+                  <div>
+                    <div className="text-2xl sm:text-3xl font-black text-purple-300">
+                      {userActivities.length.toLocaleString()}
+                    </div>
+                    <p className="text-[10px] text-white/50 mt-1">Logged-in user profiles</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sub-Tab Navigation Header */}
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-2xl bg-black/40 border border-white/10">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => setAnalyticsSubTab('most_watched')}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                      analyticsSubTab === 'most_watched'
+                        ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-[0_0_15px_rgba(6,182,212,0.3)]'
+                        : 'bg-white/5 text-white/60 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <Flame size={14} className={analyticsSubTab === 'most_watched' ? 'text-amber-300' : 'text-white/40'} />
+                    <span>Most Watched & Viewers</span>
+                    <span className="px-1.5 py-0.2 rounded-full bg-black/30 text-[10px]">{mediaStats.length}</span>
+                  </button>
+
+                  <button
+                    onClick={() => setAnalyticsSubTab('resellers_traffic')}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                      analyticsSubTab === 'resellers_traffic'
+                        ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                        : 'bg-white/5 text-white/60 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <Globe size={14} className={analyticsSubTab === 'resellers_traffic' ? 'text-emerald-300' : 'text-white/40'} />
+                    <span>Reseller Traffic (Domains)</span>
+                    <span className="px-1.5 py-0.2 rounded-full bg-black/30 text-[10px]">{resellers.length}</span>
+                  </button>
+
+                  <button
+                    onClick={() => setAnalyticsSubTab('live_logs')}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                      analyticsSubTab === 'live_logs'
+                        ? 'bg-gradient-to-r from-purple-500 to-pink-600 text-white shadow-[0_0_15px_rgba(168,85,247,0.3)]'
+                        : 'bg-white/5 text-white/60 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <History size={14} className={analyticsSubTab === 'live_logs' ? 'text-pink-300' : 'text-white/40'} />
+                    <span>Recent Watch History</span>
+                    <span className="px-1.5 py-0.2 rounded-full bg-black/30 text-[10px]">{playbackLogs.length}</span>
+                  </button>
+
+                  <button
+                    onClick={() => setAnalyticsSubTab('users')}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                      analyticsSubTab === 'users'
+                        ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)]'
+                        : 'bg-white/5 text-white/60 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    <UserCheck size={14} className={analyticsSubTab === 'users' ? 'text-amber-300' : 'text-white/40'} />
+                    <span>User Accounts</span>
+                    <span className="px-1.5 py-0.2 rounded-full bg-black/30 text-[10px]">{userActivities.length}</span>
+                  </button>
+                </div>
+
+                {/* Search Bar for Analytics */}
+                <div className="relative w-full sm:w-64">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+                  <input
+                    type="text"
+                    value={analyticsSearchQuery}
+                    onChange={(e) => setAnalyticsSearchQuery(e.target.value)}
+                    placeholder="Search by title, domain, user..."
+                    className="w-full pl-9 pr-3 py-1.5 bg-black/50 border border-white/15 rounded-xl text-xs text-white placeholder-white/40 focus:border-cyan-400 outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* SUB-PANEL 1: MOST WATCHED MEDIA & VIEWERS */}
+              {analyticsSubTab === 'most_watched' && (
+                <div className="space-y-4">
+                  {/* Category Filter Chips */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {[
+                      { id: 'all', label: 'All Content' },
+                      { id: 'movie', label: 'Movies' },
+                      { id: 'series', label: 'Web Series' },
+                      { id: 'live_event', label: 'Live Events & TV' },
+                    ].map((f) => (
+                      <button
+                        key={f.id}
+                        onClick={() => setAnalyticsCategoryFilter(f.id as any)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          analyticsCategoryFilter === f.id
+                            ? 'bg-cyan-500 text-black font-black shadow-md'
+                            : 'bg-white/5 text-white/60 hover:text-white hover:bg-white/10 border border-white/5'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* List / Cards of Most Watched Content */}
+                  {(() => {
+                    const filtered = mediaStats
+                      .filter((st) => {
+                        if (analyticsCategoryFilter !== 'all' && st.category !== analyticsCategoryFilter) return false;
+                        if (!analyticsSearchQuery) return true;
+                        const q = analyticsSearchQuery.toLowerCase();
+                        const titleMatch = (st.itemName || '').toLowerCase().includes(q);
+                        const userKeys = st.users ? Object.keys(st.users) : [];
+                        const userMatch = userKeys.some((u) => u.toLowerCase().includes(q));
+                        return titleMatch || userMatch;
+                      })
+                      .sort((a, b) => (Number(b.totalPlays) || 0) - (Number(a.totalPlays) || 0));
+
+                    if (filtered.length === 0) {
+                      return (
+                        <div className="p-8 text-center rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                          <Eye size={32} className="mx-auto text-white/30" />
+                          <p className="text-sm font-bold text-white/60">No media playback stats found</p>
+                          <p className="text-xs text-white/40">Watch count will automatically appear here when users play movies, web series, or live TV events.</p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-3">
+                        {filtered.map((st, index) => {
+                          const usersMap = st.users && typeof st.users === 'object' ? st.users : {};
+                          const usersList = Object.keys(usersMap).filter((u) => u && u !== 'null' && u !== 'undefined' && u !== 'anonymous');
+                          const isExpanded = expandedUsersId === (st.itemId || index.toString());
+
+                          // Rank styles
+                          let rankBadgeClass = "bg-white/10 text-white/70 border-white/15";
+                          if (index === 0) rankBadgeClass = "bg-amber-400 text-black border-amber-300 font-black shadow-[0_0_12px_rgba(251,191,36,0.5)]";
+                          else if (index === 1) rankBadgeClass = "bg-slate-300 text-black border-slate-200 font-black";
+                          else if (index === 2) rankBadgeClass = "bg-amber-700 text-white border-amber-600 font-black";
+
+                          return (
+                            <div
+                              key={st.itemId || index}
+                              className="p-4 rounded-2xl bg-slate-900/60 border border-white/10 hover:border-cyan-500/40 transition-all space-y-3"
+                            >
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  {/* Rank Badge */}
+                                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs border shrink-0 ${rankBadgeClass}`}>
+                                    #{index + 1}
+                                  </div>
+
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <h5 className="text-sm font-black text-white truncate">{st.itemName || 'Untitled Media'}</h5>
+                                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider shrink-0 ${
+                                        st.category === 'movie' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' :
+                                        st.category === 'series' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
+                                        'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                      }`}>
+                                        {st.category === 'movie' ? 'Movie' : st.category === 'series' ? 'Web Series' : 'Live Event'}
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-white/40 mt-0.5">
+                                      Last played: {st.lastPlayed ? new Date(st.lastPlayed).toLocaleString() : 'Recently'}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Counts */}
+                                <div className="flex items-center gap-3 shrink-0">
+                                  <div className="px-3.5 py-1.5 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 flex items-center gap-1.5">
+                                    <Play size={13} className="text-cyan-400 fill-cyan-400" />
+                                    <span className="text-sm font-black">{st.totalPlays || 0}</span>
+                                    <span className="text-[10px] text-cyan-400/80 font-bold uppercase">Plays</span>
+                                  </div>
+
+                                  <div className="px-3.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 flex items-center gap-1.5">
+                                    <Users size={13} className="text-emerald-400" />
+                                    <span className="text-sm font-black">{usersList.length}</span>
+                                    <span className="text-[10px] text-emerald-400/80 font-bold uppercase">{usersList.length === 1 ? 'Viewer' : 'Viewers'}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Viewers Usernames Section */}
+                              <div className="pt-2 border-t border-white/5">
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-white/50 flex items-center gap-1">
+                                    <UserCheck size={12} className="text-emerald-400" />
+                                    <span>Users Who Watched This ({usersList.length}):</span>
+                                  </span>
+
+                                  {usersList.length > 6 && (
+                                    <button
+                                      onClick={() => setExpandedUsersId(isExpanded ? null : (st.itemId || index.toString()))}
+                                      className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <span>{isExpanded ? 'Show Less' : `View All ${usersList.length} Users`}</span>
+                                      {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                                    </button>
+                                  )}
+                                </div>
+
+                                {usersList.length === 0 ? (
+                                  <p className="text-[11px] text-white/40 italic">Watched anonymously or before user authentication tracking.</p>
+                                ) : (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {(isExpanded ? usersList : usersList.slice(0, 8)).map((username, uIdx) => (
+                                      <span
+                                        key={uIdx}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/40 border border-white/10 text-white text-xs font-mono font-semibold hover:border-cyan-400/40 transition-colors"
+                                      >
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                                        <span>@{username}</span>
+                                      </span>
+                                    ))}
+                                    {!isExpanded && usersList.length > 8 && (
+                                      <button
+                                        onClick={() => setExpandedUsersId(st.itemId || index.toString())}
+                                        className="inline-flex items-center px-2 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 text-xs font-bold hover:bg-cyan-500/30 cursor-pointer"
+                                      >
+                                        +{usersList.length - 8} more
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* SUB-PANEL 2: RESELLER DOMAIN TRAFFIC */}
+              {analyticsSubTab === 'resellers_traffic' && (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 text-xs flex items-center gap-2">
+                    <Globe size={18} className="shrink-0 text-cyan-400" />
+                    <span>
+                      Har reseller ke custom domain ya portal URL (jaise <b>filex.online</b>) ke through aane wale daily visitors aur kul (total) visits yahan live update hote hain.
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {resellers
+                      .filter((r) => !analyticsSearchQuery || r.brand_name?.toLowerCase().includes(analyticsSearchQuery.toLowerCase()) || r.subdomain?.toLowerCase().includes(analyticsSearchQuery.toLowerCase()))
+                      .map((r) => {
+                        const visitData = resellerVisits?.find(v => v.resellerId === r.id || v.id === r.id || v.subdomain === r.subdomain);
+                        const todayStr = new Date().toISOString().split('T')[0];
+                        const todayVisits = (visitData?.todayDate === todayStr) ? (Number(visitData?.todayVisits) || 0) : 0;
+                        const totalVisits = Number(visitData?.totalVisits) || 0;
+                        const portalUrl = `${window.location.origin}?r=${r.subdomain}`;
+
+                        return (
+                          <div
+                            key={r.id}
+                            className="p-4 rounded-2xl bg-slate-900/60 border border-white/10 hover:border-emerald-500/40 transition-all space-y-3"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h5 className="text-sm font-black text-white">{r.brand_name}</h5>
+                                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[9px] font-bold">
+                                    {r.license_type || 'Active License'}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-cyan-400 font-mono mt-0.5">
+                                  Domain / Subdomain: <b>{r.subdomain}</b>
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Traffic Counters */}
+                            <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-black/50 border border-white/10">
+                              <div className="flex flex-col">
+                                <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                                  <Activity size={12} className="animate-pulse" />
+                                  <span>Today's Visits (Aaj)</span>
+                                </span>
+                                <span className="text-xl font-black text-white mt-1">
+                                  {todayVisits.toLocaleString()}
+                                </span>
+                                <span className="text-[9px] text-white/40 mt-0.5">Visitors today</span>
+                              </div>
+
+                              <div className="flex flex-col">
+                                <span className="text-[10px] font-black text-cyan-400 uppercase tracking-wider flex items-center gap-1">
+                                  <Globe size={12} />
+                                  <span>Total Visits (Kul)</span>
+                                </span>
+                                <span className="text-xl font-black text-cyan-300 mt-1">
+                                  {totalVisits.toLocaleString()}
+                                </span>
+                                <span className="text-[9px] text-white/40 mt-0.5">All-time portal traffic</span>
+                              </div>
+                            </div>
+
+                            {/* Portal URL and Quick Copy */}
+                            <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white/5 border border-white/5">
+                              <span className="text-[11px] font-mono text-white/70 truncate">{portalUrl}</span>
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(portalUrl);
+                                  alert("Portal link copied to clipboard!");
+                                }}
+                                className="px-2 py-1 rounded bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 text-[10px] font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                              >
+                                <Copy size={11} />
+                                <span>Copy Link</span>
+                              </button>
+                            </div>
+
+                            {/* Additional Info */}
+                            <div className="text-[10px] text-white/40 flex items-center justify-between pt-1 border-t border-white/5">
+                              <span>Last active: {visitData?.lastVisit ? new Date(visitData.lastVisit).toLocaleString() : 'No visits recorded yet'}</span>
+                              {r.server_url && <span className="truncate max-w-[150px] font-mono">Server: {r.server_url}</span>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* SUB-PANEL 3: LIVE PLAYBACK HISTORY LOGS */}
+              {analyticsSubTab === 'live_logs' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-white/60">
+                      Recent Playback Logs ({playbackLogs.length})
+                    </h4>
+                    <span className="text-[10px] text-white/40 font-mono">Real-time watch stream</span>
+                  </div>
+
+                  {playbackLogs.length === 0 ? (
+                    <div className="p-8 text-center rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                      <History size={32} className="mx-auto text-white/30" />
+                      <p className="text-sm font-bold text-white/60">No recent watch events recorded</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-2xl border border-white/10 bg-slate-900/60">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-black/40 text-white/50 uppercase tracking-wider font-bold border-b border-white/10">
+                          <tr>
+                            <th className="p-3">User</th>
+                            <th className="p-3">Media Title</th>
+                            <th className="p-3">Category</th>
+                            <th className="p-3">Feed / Channel</th>
+                            <th className="p-3">Timestamp</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {playbackLogs
+                            .filter(l => !analyticsSearchQuery || l.username?.toLowerCase().includes(analyticsSearchQuery.toLowerCase()) || l.itemName?.toLowerCase().includes(analyticsSearchQuery.toLowerCase()))
+                            .map((log) => (
+                              <tr key={log.id} className="hover:bg-white/5 transition-colors">
+                                <td className="p-3 font-mono font-bold text-cyan-300">
+                                  @{log.username || 'anonymous'}
+                                </td>
+                                <td className="p-3 font-bold text-white max-w-xs truncate">
+                                  {log.itemName || 'Untitled'}
+                                </td>
+                                <td className="p-3">
+                                  <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${
+                                    log.category === 'movie' ? 'bg-cyan-500/20 text-cyan-300' :
+                                    log.category === 'series' ? 'bg-purple-500/20 text-purple-300' :
+                                    'bg-rose-500/20 text-rose-300'
+                                  }`}>
+                                    {log.category}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-white/60">
+                                  {log.channelName || '-'}
+                                </td>
+                                <td className="p-3 text-white/40 whitespace-nowrap">
+                                  {log.timestamp ? new Date(log.timestamp).toLocaleString() : 'Recently'}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SUB-PANEL 4: USER ACCOUNTS ACTIVITY */}
+              {analyticsSubTab === 'users' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-white/60">
+                      User Accounts ({userActivities.length})
+                    </h4>
+                  </div>
+
+                  {userActivities.length === 0 ? (
+                    <div className="p-8 text-center rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                      <Users size={32} className="mx-auto text-white/30" />
+                      <p className="text-sm font-bold text-white/60">No user activity accounts registered</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-2xl border border-white/10 bg-slate-900/60">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-black/40 text-white/50 uppercase tracking-wider font-bold border-b border-white/10">
+                          <tr>
+                            <th className="p-3">Username</th>
+                            <th className="p-3">Login Count</th>
+                            <th className="p-3">First Seen</th>
+                            <th className="p-3">Last Active</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {userActivities
+                            .filter(u => !analyticsSearchQuery || u.username?.toLowerCase().includes(analyticsSearchQuery.toLowerCase()))
+                            .map((usr, uIdx) => (
+                              <tr key={uIdx} className="hover:bg-white/5 transition-colors">
+                                <td className="p-3 font-mono font-bold text-white flex items-center gap-2">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                                  <span>@{usr.username}</span>
+                                </td>
+                                <td className="p-3">
+                                  <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-bold text-[10px]">
+                                    {usr.loginCount || 1} logins
+                                  </span>
+                                </td>
+                                <td className="p-3 text-white/50">
+                                  {usr.firstActive ? new Date(usr.firstActive).toLocaleDateString() : '-'}
+                                </td>
+                                <td className="p-3 text-white/70">
+                                  {usr.lastLogin ? new Date(usr.lastLogin).toLocaleString() : 'Active'}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* TAB 2: FREE MOVIES */}
           {activeTab === 'free_movies' && (
             <div className="space-y-6">
@@ -1028,6 +1655,78 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   </div>
                 </div>
 
+                {/* Expiry Timer Controls (Timer / Availability Setting) */}
+                <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-500/10 via-cyan-500/10 to-blue-500/10 border border-amber-500/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase text-amber-300 flex items-center gap-1.5 tracking-wider">
+                      <Clock size={14} className="text-amber-400" />
+                      <span>Availability Duration / Expiry Timer (Self-Destruct Timer)</span>
+                    </span>
+                    <span className="text-[10px] text-white/50">
+                      Timer khatam hone par ye movie users se automatic invisible ho jayegi
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 items-end">
+                    <div className="md:col-span-2">
+                      <label className="text-[10px] font-bold text-white/80 uppercase">Preset Duration (Days Timer)</label>
+                      <select
+                        value={movieForm.duration_days}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          let exp = movieForm.expires_at;
+                          if (val !== 'none' && val !== 'custom') {
+                            const d = parseFloat(val);
+                            if (!isNaN(d) && d > 0) {
+                              exp = new Date(Date.now() + d * 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
+                            }
+                          } else if (val === 'none') {
+                            exp = '';
+                          }
+                          setMovieForm({ ...movieForm, duration_days: val, expires_at: exp });
+                        }}
+                        className="w-full mt-1 px-3 py-2 bg-black/60 border border-amber-500/30 rounded-xl text-xs text-white focus:border-cyan-400 outline-none cursor-pointer"
+                      >
+                        <option value="none">Permanent (No Expiry / Hamesha Rahegi)</option>
+                        <option value="1">1 Day (24 Hours / 1 Din)</option>
+                        <option value="2">2 Days (48 Hours / 2 Din)</option>
+                        <option value="3">3 Days (72 Hours / 3 Din)</option>
+                        <option value="4">4 Days (96 Hours / 4 Din)</option>
+                        <option value="7">7 Days (1 Week / 1 Hafta)</option>
+                        <option value="14">14 Days (2 Weeks)</option>
+                        <option value="30">30 Days (1 Month)</option>
+                        <option value="custom">Custom Date & Time (Apni marzi ki tareekh)</option>
+                      </select>
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="text-[10px] font-bold text-white/80 uppercase">Exact Expiry Date & Time</label>
+                      <input
+                        type="datetime-local"
+                        value={movieForm.expires_at ? (movieForm.expires_at.includes('T') ? movieForm.expires_at.slice(0, 16) : movieForm.expires_at) : ''}
+                        onChange={(e) => {
+                          setMovieForm({
+                            ...movieForm,
+                            expires_at: e.target.value ? new Date(e.target.value).toISOString() : '',
+                            duration_days: 'custom'
+                          });
+                        }}
+                        placeholder="Select expiry date"
+                        className="w-full mt-1 px-3 py-2 bg-black/60 border border-amber-500/30 rounded-xl text-xs text-white focus:border-cyan-400 outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {movieForm.expires_at && (
+                    <div className="flex items-center gap-2 text-[11px] text-amber-200 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20">
+                      <Clock size={12} className="text-amber-400 shrink-0" />
+                      <span>
+                        Movie will expire and hide on: <strong className="text-white font-mono">{new Date(movieForm.expires_at).toLocaleString()}</strong>
+                      </span>
+                    </div>
+                  )}
+                </div>
+
                 {/* Checkbox Options */}
                 <div className="flex flex-wrap gap-4 pt-1">
                   <label className="flex items-center gap-2 text-xs text-white/70 cursor-pointer">
@@ -1103,11 +1802,57 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                         />
                         <div className="flex-1 min-w-0">
                           <h5 className="text-xs font-bold text-white truncate">{m.name}</h5>
-                          <div className="flex items-center gap-2 text-[10px] text-white/50 mt-1">
+                          <div className="flex items-center gap-2 text-[10px] text-white/50 mt-1 flex-wrap">
                             {m.is_embed && <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[9px] font-bold">EMBED</span>}
                             {m.password && <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] font-bold">LOCK</span>}
                             {m.available_for_resellers !== false && <span className="text-emerald-400">Reseller OK</span>}
+                            {m.expires_at ? (
+                              (() => {
+                                const isExp = new Date(m.expires_at).getTime() <= Date.now();
+                                return (
+                                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                    isExp 
+                                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' 
+                                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                  }`}>
+                                    <Clock size={10} />
+                                    {isExp ? 'EXPIRED (Hidden)' : `Expires: ${new Date(m.expires_at).toLocaleDateString()}`}
+                                  </span>
+                                );
+                              })()
+                            ) : (
+                              <span className="text-white/30 text-[9px]">Permanent</span>
+                            )}
                           </div>
+                          {/* Live Views Counter & Viewers Badge */}
+                          {(() => {
+                            const viewInfo = getMediaViewsInfo(m, 'movie');
+                            return (
+                              <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-black tracking-wide">
+                                  <Eye size={11} className="text-cyan-400" />
+                                  <span>{viewInfo.views} {viewInfo.views === 1 ? 'View' : 'Views'}</span>
+                                </span>
+                                {viewInfo.usersCount > 0 ? (
+                                  <button
+                                    onClick={() => setSelectedMediaViewers({
+                                      title: m.name,
+                                      category: 'Movie',
+                                      views: viewInfo.views,
+                                      users: viewInfo.usersList
+                                    })}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold cursor-pointer transition-colors"
+                                    title={`Click to view user list (${viewInfo.usersList.join(', ')})`}
+                                  >
+                                    <Users size={10} className="text-emerald-400" />
+                                    <span>{viewInfo.usersCount} {viewInfo.usersCount === 1 ? 'User' : 'Users'}</span>
+                                  </button>
+                                ) : (
+                                  <span className="text-[9px] text-white/30 italic">No users yet</span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                         <div className="flex items-center gap-1">
                           <button
@@ -1243,6 +1988,78 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   </div>
                 </div>
 
+                {/* Expiry Timer Controls (Timer / Availability Setting for Series) */}
+                <div className="p-3.5 rounded-xl bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-indigo-500/10 border border-purple-500/30 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase text-purple-300 flex items-center gap-1.5 tracking-wider">
+                      <Clock size={14} className="text-purple-400" />
+                      <span>Availability Duration / Expiry Timer (Self-Destruct Timer)</span>
+                    </span>
+                    <span className="text-[10px] text-white/50">
+                      Timer khatam hone par ye web series users se automatic invisible ho jayegi
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 items-end">
+                    <div className="md:col-span-2">
+                      <label className="text-[10px] font-bold text-white/80 uppercase">Preset Duration (Days Timer)</label>
+                      <select
+                        value={seriesForm.duration_days}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          let exp = seriesForm.expires_at;
+                          if (val !== 'none' && val !== 'custom') {
+                            const d = parseFloat(val);
+                            if (!isNaN(d) && d > 0) {
+                              exp = new Date(Date.now() + d * 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
+                            }
+                          } else if (val === 'none') {
+                            exp = '';
+                          }
+                          setSeriesForm({ ...seriesForm, duration_days: val, expires_at: exp });
+                        }}
+                        className="w-full mt-1 px-3 py-2 bg-black/60 border border-purple-500/30 rounded-xl text-xs text-white focus:border-purple-400 outline-none cursor-pointer"
+                      >
+                        <option value="none">Permanent (No Expiry / Hamesha Rahegi)</option>
+                        <option value="1">1 Day (24 Hours / 1 Din)</option>
+                        <option value="2">2 Days (48 Hours / 2 Din)</option>
+                        <option value="3">3 Days (72 Hours / 3 Din)</option>
+                        <option value="4">4 Days (96 Hours / 4 Din)</option>
+                        <option value="7">7 Days (1 Week / 1 Hafta)</option>
+                        <option value="14">14 Days (2 Weeks)</option>
+                        <option value="30">30 Days (1 Month)</option>
+                        <option value="custom">Custom Date & Time (Apni marzi ki tareekh)</option>
+                      </select>
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="text-[10px] font-bold text-white/80 uppercase">Exact Expiry Date & Time</label>
+                      <input
+                        type="datetime-local"
+                        value={seriesForm.expires_at ? (seriesForm.expires_at.includes('T') ? seriesForm.expires_at.slice(0, 16) : seriesForm.expires_at) : ''}
+                        onChange={(e) => {
+                          setSeriesForm({
+                            ...seriesForm,
+                            expires_at: e.target.value ? new Date(e.target.value).toISOString() : '',
+                            duration_days: 'custom'
+                          });
+                        }}
+                        placeholder="Select expiry date"
+                        className="w-full mt-1 px-3 py-2 bg-black/60 border border-purple-500/30 rounded-xl text-xs text-white focus:border-purple-400 outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {seriesForm.expires_at && (
+                    <div className="flex items-center gap-2 text-[11px] text-purple-200 bg-purple-500/10 px-3 py-1.5 rounded-lg border border-purple-500/20">
+                      <Clock size={12} className="text-purple-400 shrink-0" />
+                      <span>
+                        Series will expire and hide on: <strong className="text-white font-mono">{new Date(seriesForm.expires_at).toLocaleString()}</strong>
+                      </span>
+                    </div>
+                  )}
+                </div>
+
                 {/* Manual Episode Builder */}
                 <div className="p-4 rounded-xl bg-black/50 border border-white/10 space-y-3">
                   <h4 className="text-xs font-black uppercase tracking-wider text-purple-300 flex items-center justify-between">
@@ -1357,11 +2174,57 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                         />
                         <div className="flex-1 min-w-0">
                           <h5 className="text-xs font-bold text-white truncate">{s.name}</h5>
-                          <div className="flex items-center gap-2 text-[10px] text-white/50 mt-1">
+                          <div className="flex items-center gap-2 text-[10px] text-white/50 mt-1 flex-wrap">
                             {s.episodes?.length > 0 && <span className="text-purple-400 font-bold">{s.episodes.length} Episodes</span>}
                             {s.playlist_url && <span className="text-cyan-400 font-bold">M3U Playlist</span>}
                             {s.password && <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] font-bold">LOCK</span>}
+                            {s.expires_at ? (
+                              (() => {
+                                const isExp = new Date(s.expires_at).getTime() <= Date.now();
+                                return (
+                                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                    isExp 
+                                      ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' 
+                                      : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                  }`}>
+                                    <Clock size={10} />
+                                    {isExp ? 'EXPIRED (Hidden)' : `Expires: ${new Date(s.expires_at).toLocaleDateString()}`}
+                                  </span>
+                                );
+                              })()
+                            ) : (
+                              <span className="text-white/30 text-[9px]">Permanent</span>
+                            )}
                           </div>
+                          {/* Live Views Counter & Viewers Badge */}
+                          {(() => {
+                            const viewInfo = getMediaViewsInfo(s, 'series');
+                            return (
+                              <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-black tracking-wide">
+                                  <Eye size={11} className="text-purple-400" />
+                                  <span>{viewInfo.views} {viewInfo.views === 1 ? 'View' : 'Views'}</span>
+                                </span>
+                                {viewInfo.usersCount > 0 ? (
+                                  <button
+                                    onClick={() => setSelectedMediaViewers({
+                                      title: s.name,
+                                      category: 'Web Series',
+                                      views: viewInfo.views,
+                                      users: viewInfo.usersList
+                                    })}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold cursor-pointer transition-colors"
+                                    title={`Click to view user list (${viewInfo.usersList.join(', ')})`}
+                                  >
+                                    <Users size={10} className="text-emerald-400" />
+                                    <span>{viewInfo.usersCount} {viewInfo.usersCount === 1 ? 'User' : 'Users'}</span>
+                                  </button>
+                                ) : (
+                                  <span className="text-[9px] text-white/30 italic">No users yet</span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                         <div className="flex items-center gap-1">
                           <button
@@ -1584,6 +2447,35 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                         <p className="text-[10px] text-rose-400 font-bold mt-1">
                           {evt.channels?.length || 1} Channels
                         </p>
+                        {/* Live Views Counter & Viewers Badge */}
+                        {(() => {
+                          const viewInfo = getMediaViewsInfo(evt, 'live_event');
+                          return (
+                            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-black tracking-wide">
+                                <Eye size={11} className="text-rose-400" />
+                                <span>{viewInfo.views} {viewInfo.views === 1 ? 'Stream View' : 'Stream Views'}</span>
+                              </span>
+                              {viewInfo.usersCount > 0 ? (
+                                <button
+                                  onClick={() => setSelectedMediaViewers({
+                                    title: evt.name,
+                                    category: 'Live Event / TV',
+                                    views: viewInfo.views,
+                                    users: viewInfo.usersList
+                                  })}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-[10px] font-bold cursor-pointer transition-colors"
+                                  title={`Click to view user list (${viewInfo.usersList.join(', ')})`}
+                                >
+                                  <Users size={10} className="text-amber-400" />
+                                  <span>{viewInfo.usersCount} {viewInfo.usersCount === 1 ? 'User' : 'Users'}</span>
+                                </button>
+                              ) : (
+                                <span className="text-[9px] text-white/30 italic">No users yet</span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                       <div className="flex items-center gap-1">
                         <button
@@ -1942,6 +2834,32 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                             <span>{copiedKey === `reseller_${r.id}` ? 'Copied' : 'Copy'}</span>
                           </button>
                         </div>
+
+                        {/* Reseller Traffic Stats Box (Daily & Total Visits) */}
+                        {(() => {
+                          const visitData = resellerVisits?.find(v => v.resellerId === r.id || v.id === r.id || v.subdomain === r.subdomain);
+                          const todayStr = new Date().toISOString().split('T')[0];
+                          const todayVisits = (visitData?.todayDate === todayStr) ? (Number(visitData?.todayVisits) || 0) : 0;
+                          const totalVisits = Number(visitData?.totalVisits) || 0;
+                          return (
+                            <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25">
+                              <div className="flex flex-col">
+                                <span className="text-[9px] font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                                  <Activity size={10} className="animate-pulse" />
+                                  <span>Today's Visits (Aaj)</span>
+                                </span>
+                                <span className="text-sm font-black text-white mt-0.5">{todayVisits.toLocaleString()}</span>
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-[9px] font-black text-cyan-400 uppercase tracking-wider flex items-center gap-1">
+                                  <Globe size={10} />
+                                  <span>Total Visits (Kul)</span>
+                                </span>
+                                <span className="text-sm font-black text-cyan-300 mt-0.5">{totalVisits.toLocaleString()}</span>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     );
                   })}
@@ -2405,6 +3323,78 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
           )}
 
         </div>
+
+        {/* Viewers Usernames Detail Modal */}
+        <AnimatePresence>
+          {selectedMediaViewers && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="w-full max-w-lg bg-[#0e111a] border border-cyan-500/30 rounded-2xl p-5 shadow-[0_0_50px_rgba(0,0,0,0.8)] space-y-4"
+              >
+                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-cyan-500/20 text-cyan-400">
+                      <UserCheck size={18} />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-white line-clamp-1">{selectedMediaViewers.title}</h4>
+                      <p className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider">
+                        {selectedMediaViewers.category} • {selectedMediaViewers.views} Total Plays • {selectedMediaViewers.users.length} Users
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setSelectedMediaViewers(null)}
+                    className="p-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-colors cursor-pointer"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs text-white/60">
+                    Neeche un sabhi registered users ke usernames hain jinhone is media ko play ya watch kiya hai:
+                  </p>
+                  
+                  {selectedMediaViewers.users.length === 0 ? (
+                    <div className="p-6 text-center rounded-xl bg-black/40 border border-white/5 text-white/40 text-xs italic">
+                      No usernames recorded yet (played anonymously or before user login tracking).
+                    </div>
+                  ) : (
+                    <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
+                      {selectedMediaViewers.users.map((username, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between p-2.5 rounded-xl bg-white/5 border border-white/5 hover:border-cyan-500/30 transition-all"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                            <span className="text-xs font-mono font-bold text-white">@{username}</span>
+                          </div>
+                          <span className="text-[10px] font-bold text-emerald-400/80 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                            Verified Viewer
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end pt-2 border-t border-white/10">
+                  <button
+                    onClick={() => setSelectedMediaViewers(null)}
+                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </div>
   );

@@ -72,6 +72,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Reseller Visits / Traffic Collection
+    match /reseller_visits/{resellerId} {
+      allow read, write: if true;
+    }
+
     // Media Requests Collection
     match /media_requests/{requestId} {
       allow read, write: if true;
