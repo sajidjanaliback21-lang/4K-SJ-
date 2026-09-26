@@ -135,5 +135,33 @@ export const xtreamApi = {
       return `${host}/live/${creds.username}/${creds.password}/${streamId}.m3u8`;
     }
     return `${host}/${type}/${creds.username}/${creds.password}/${streamId}.${extension}`;
+  },
+
+  // High-Speed Master Playlist Endpoints (Server-Side Cached & 24/7 Auto-Synced)
+  getMasterBootstrap: async (): Promise<any> => {
+    try {
+      const response = await axios.get('/api/master-playlist?type=bootstrap', { timeout: 15000 });
+      return response.data;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  getMasterStatus: async (): Promise<any> => {
+    try {
+      const response = await axios.get('/api/master-playlist?type=status', { timeout: 10000 });
+      return response.data;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  syncMasterCache: async (target: string = 'all'): Promise<any> => {
+    try {
+      const response = await axios.post(`/api/master-playlist/sync?target=${target}`, {}, { timeout: 15000 });
+      return response.data;
+    } catch (e) {
+      return null;
+    }
   }
 };
