@@ -6470,228 +6470,316 @@ export default function App() {
             </AnimatePresence>
 
             {/* ============================================================== */}
-            {/* DESKTOP VIEW: PRESERVED & UNTOUCHED */}
+            {/* DESKTOP VIEW: USER-REQUESTED THEME & FEATURES FULLY INTEGRATED */}
             {/* ============================================================== */}
-            <div className="hidden md:flex flex-col gap-6">
-              {/* IPTV Layout for Live TV */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                {/* Left Column: Player (Span 2) */}
-                <div className="md:col-span-2 space-y-4">
-                  <div className="relative aspect-video rounded-[2rem] overflow-hidden bg-black border border-white/10 shadow-2xl group group-hover:border-cyan-500/50 transition-all duration-500">
-                    {playingLiveStream ? (
-                      <div className="w-full h-full">
-                         <VideoPlayer 
-                          key={`live-player-${playingLiveStream.stream_id}`}
-                          options={{
-                            autoplay: true,
-                            controls: true,
-                            responsive: true,
-                            fluid: true,
-                            is_embed: false,
-                            isLive: true,
-                            sources: [{
-                              src: `${currentServerHost}/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`,
-                              type: 'application/x-mpegURL'
-                            }]
-                          }} 
-                        />
+            <div className="hidden md:flex flex-col gap-6 pb-24 animate-in fade-in duration-300">
+              {/* Desktop Live TV Layout: 2-Column (Left: Categories Sidebar with Search, Right: Channels Grid & Global Search) */}
+              <div className="flex gap-6 items-start">
+                
+                {/* 1. LEFT SIDEBAR: LIVE CATEGORIES PANEL WITH INSTANT SEARCH */}
+                <div className="w-80 shrink-0 sticky top-24 h-[calc(100vh-130px)] rounded-[2rem] bg-gradient-to-b from-[#0a1222]/95 via-[#080d19]/95 to-[#050811]/95 border border-cyan-500/20 p-4 flex flex-col shadow-2xl backdrop-blur-xl">
+                  {/* Category Header */}
+                  <div className="flex items-center justify-between pb-3.5 border-b border-white/10 mb-3.5 px-1">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.2)]">
+                        <Tv size={18} />
                       </div>
-                    ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center bg-[#0a0a0b] group">
-                        <div className="w-20 h-20 rounded-3xl bg-cyan-500/5 flex items-center justify-center border border-cyan-500/10 mb-6 group-hover:scale-110 transition-transform duration-500">
-                          <Tv size={40} className="text-cyan-500/40" />
-                        </div>
-                        <h3 className="text-xl font-display font-bold text-white italic tracking-tight uppercase">Premium IPTV Player</h3>
-                        <p className="text-white/30 text-xs mt-2 uppercase tracking-[0.2em] font-medium">Select a channel to start streaming</p>
+                      <div>
+                        <h3 className="text-sm font-black text-white uppercase tracking-wider">
+                          Categories
+                        </h3>
+                        <p className="text-[10px] text-white/40 uppercase font-bold tracking-widest">
+                          {liveCategories.length} categories available
+                        </p>
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Category Search Bar */}
+                  <div className="relative mb-3">
+                    <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400/70" />
+                    <input
+                      type="text"
+                      placeholder="Search categories..."
+                      value={mobileLiveCatSearch}
+                      onChange={(e) => setMobileLiveCatSearch(e.target.value)}
+                      className="w-full bg-[#030712]/80 border border-white/10 focus:border-cyan-400 focus:shadow-[0_0_15px_rgba(6,182,212,0.2)] rounded-xl py-2.5 pl-10 pr-8 text-xs text-white placeholder:text-white/35 focus:outline-none transition-all"
+                    />
+                    {mobileLiveCatSearch && (
+                      <button
+                        onClick={() => setMobileLiveCatSearch('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-1"
+                      >
+                        <X size={14} />
+                      </button>
                     )}
                   </div>
 
-                  {playingLiveStream && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="flex flex-row items-center justify-between p-2.5 sm:p-3 glass rounded-2xl border border-white/10 gap-3"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        {playingLiveStream.stream_icon && (
-                          <div className="w-8 h-8 rounded-lg overflow-hidden border border-white/10 bg-white/5 shrink-0 hidden xs:block">
-                            <img 
-                              src={playingLiveStream.stream_icon} 
-                              alt=""
-                              className="w-full h-full object-contain p-0.5"
-                              onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/live/200/200?blur=1'; }}
-                            />
-                          </div>
-                        )}
-                        <div className="min-w-0">
-                          <h2 className="text-[11px] sm:text-xs font-display font-black text-white italic tracking-tight uppercase truncate">{playingLiveStream.name}</h2>
-                          <span className="text-[8px] text-cyan-400 font-bold uppercase tracking-widest block opacity-60 leading-none">1080P Signal</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0 font-sans">
-                        {isLoggedIn && (
-                          <button 
-                            onClick={() => toggleItemFavorite(playingLiveStream)}
-                            className={cn(
-                              "p-1.5 sm:p-2 rounded-lg border transition-all cursor-pointer flex items-center justify-center shrink-0 shadow-lg active:scale-95 duration-200",
-                              isItemFavorite(playingLiveStream)
-                                ? "bg-red-500/15 border-red-500/40 text-red-500 hover:bg-red-500/25 shadow-red-500/10"
-                                : "bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10 hover:border-white/20"
+                  {/* Categories Scrollable List */}
+                  <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 desktop-scrollbar">
+                    {filteredDrawerLiveCategories.map((cat: any, idx: number) => {
+                      const isCatActive = selectedLiveCategory === String(cat.category_id);
+                      return (
+                        <button
+                          key={`desktop-live-cat-${cat.category_id}-${idx}`}
+                          onClick={() => {
+                            setSelectedLiveCategory(String(cat.category_id));
+                            setMobileLiveChannelSearch('');
+                          }}
+                          className={cn(
+                            "w-full text-left px-3.5 py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-between group active:scale-[0.98] cursor-pointer",
+                            isCatActive
+                              ? "bg-gradient-to-r from-cyan-500 to-blue-600 text-black shadow-[0_0_15px_rgba(6,182,212,0.4)] font-black"
+                              : "bg-white/5 text-white/70 hover:text-white hover:bg-white/10 border border-white/5 hover:border-white/10"
+                          )}
+                        >
+                          <div className="flex items-center gap-2.5 truncate pr-2">
+                            {cat.category_id === '0' ? (
+                              <Layers size={15} className={isCatActive ? "text-black" : "text-cyan-400"} />
+                            ) : (
+                              <Tv size={15} className={isCatActive ? "text-black" : "text-white/40 group-hover:text-cyan-400"} />
                             )}
-                            title={isItemFavorite(playingLiveStream) ? "Remove from Favorites" : "Add to Favorites"}
-                          >
-                            <Heart size={12} fill={isItemFavorite(playingLiveStream) ? "currentColor" : "none"} />
-                          </button>
-                        )}
-                        <button 
-                          onClick={() => handleAction('copy', playingLiveStream)}
-                          className="p-1.5 sm:p-2 bg-white/5 hover:bg-white/10 rounded-lg transition-all border border-white/10 text-white/60 hover:text-white"
-                          title="Copy"
-                        >
-                          {copiedId === playingLiveStream.stream_id ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                            <span className="truncate">{cat.category_name}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {cat.category_id === '0' && (
+                              <span className={cn(
+                                "text-[9.5px] font-bold px-2 py-0.5 rounded-full",
+                                isCatActive ? "bg-black/15 text-black" : "bg-white/5 text-white/40"
+                              )}>
+                                {totalLiveCount || allLiveChannels.length || 'All'}
+                              </span>
+                            )}
+                            {isCatActive && <Check size={14} className="text-black shrink-0" />}
+                          </div>
                         </button>
-                        <button 
-                          onClick={() => window.location.href = formatVlcUrl(`${currentServerHost}/live/${creds.username}/${creds.password}/${playingLiveStream.stream_id}.m3u8`)}
-                          className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg font-black text-[9px] transition-all shadow-lg shadow-orange-500/20 uppercase tracking-widest italic"
-                        >
-                          <Play size={12} fill="white" /> VLC
-                        </button>
-                      </div>
-                    </motion.div>
-                  )}
+                      );
+                    })}
+                  </div>
                 </div>
-   
-                {/* Right Column: Categories & Channels List */}
-                <div className="md:col-span-1 md:h-[calc(100vh-280px)] min-h-[500px] flex flex-col gap-6">
-                  {/* Channels List Grid with Search */}
-                  <div className="flex-1 glass rounded-[2.5rem] border border-white/10 overflow-hidden flex flex-col min-h-[400px]">
-                    <div className="p-4 border-b border-white/5 bg-white/5 flex flex-col gap-4">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-xs font-black text-white uppercase tracking-widest italic flex items-center gap-2">
-                          <Tv size={14} className="text-cyan-400" /> Live Grid
-                        </h3>
-                        <span className="text-[10px] font-bold text-white/30 tracking-tighter">Category: {currentCategories.find(c => c.category_id === selectedLiveCategory)?.category_name || "All"}</span>
+
+                {/* 2. RIGHT AREA: MAIN CHANNELS SECTION */}
+                <div className="flex-1 min-w-0 space-y-4">
+                  
+                  {/* Top Bar: Category Indicator & Global Search Bar */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-[#0a1222]/90 via-[#080d19]/90 to-[#050811]/90 border border-cyan-500/20 shadow-xl flex flex-col lg:flex-row items-center justify-between gap-4">
+                    {/* Left: Active Category Info */}
+                    <div className="flex items-center gap-3 min-w-0 w-full lg:w-auto">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border border-cyan-500/30 flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(6,182,212,0.2)]">
+                        <Tv size={22} className="text-cyan-400" />
                       </div>
-                      
-                      {/* Channel Search */}
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20" size={14} />
-                        <input 
-                          type="text"
-                          placeholder="Search Channel..."
-                          value={liveSearchQuery}
-                          onChange={(e) => setLiveSearchQuery(e.target.value)}
-                          className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 pl-10 pr-4 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-cyan-500/50 transition-all italic font-medium"
-                        />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_10px_#34d399]" />
+                          <span className="text-[11px] font-bold text-white/50 uppercase tracking-widest">
+                            Live Category
+                          </span>
+                        </div>
+                        <h2 className="text-base lg:text-lg font-black text-white uppercase tracking-tight truncate leading-tight mt-0.5">
+                          {selectedLiveCategory === '0'
+                            ? 'All Channels'
+                            : (liveCategories.find(c => String(c.category_id) === String(selectedLiveCategory))?.category_name || 'Channels')}
+                        </h2>
                       </div>
                     </div>
-                    
-                    <div className="flex-1 overflow-y-auto no-scrollbar p-4">
-                      {loadingLive ? (
-                        <div className="flex flex-col items-center justify-center py-20 gap-4">
-                          <Loader2 className="animate-spin text-cyan-500" size={32} />
-                          <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Scanning channels...</span>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                          {currentItems
-                            .filter(item => item.name.toLowerCase().includes(liveSearchQuery.toLowerCase()))
-                            .map((item, idx) => (
-                            <motion.button
-                              key={`iptv-channel-${(item as any).stream_id}-${idx}`}
-                              initial={{ opacity: 0, scale: 0.9 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              transition={{ delay: Math.min(idx * 0.005, 0.1) }}
-                              onClick={() => {
-                                setPlayingLiveStream(item as any);
-                                trackMediaPlayback(item as any, 'live_event', (item as any).name || 'Live Channel');
-                              }}
-                              className={cn(
-                                "flex flex-col items-center gap-2 p-2 rounded-2xl transition-all border group relative aspect-square justify-center text-center",
-                                playingLiveStream?.stream_id === (item as any).stream_id
-                                  ? "bg-cyan-500/10 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.15)]"
-                                  : "bg-white/2 hover:bg-white/5 border-transparent hover:border-white/10"
-                              )}
-                            >
-                              <div className="w-full aspect-square max-w-[50px] rounded-xl bg-black/40 border border-white/5 overflow-hidden flex items-center justify-center p-1.5 shrink-0 group-hover:scale-110 transition-transform duration-300">
-                                {(item as any).stream_icon ? (
-                                  <img 
-                                    src={(item as any).stream_icon} 
-                                    alt="" 
+
+                    {/* Right: Global Channel Search Bar (Searches all service channels) */}
+                    <div className="relative w-full lg:w-96">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-cyan-400" size={17} />
+                      <input
+                        type="text"
+                        placeholder="Search across all channels in service..."
+                        value={mobileLiveChannelSearch}
+                        onChange={(e) => setMobileLiveChannelSearch(e.target.value)}
+                        className="w-full bg-[#030712]/90 border border-cyan-500/30 focus:border-cyan-400 focus:shadow-[0_0_20px_rgba(6,182,212,0.25)] rounded-2xl py-2.5 pl-11 pr-10 text-xs text-white placeholder:text-white/40 outline-none transition-all font-medium"
+                      />
+                      {mobileLiveChannelSearch && (
+                        <button
+                          onClick={() => setMobileLiveChannelSearch('')}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-1"
+                        >
+                          <X size={15} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Status Bar */}
+                  <div className="flex items-center justify-between text-xs font-bold text-white/50 px-1">
+                    {mobileLiveChannelSearch.trim() ? (
+                      <div className="flex items-center gap-1.5 text-cyan-300">
+                        <Sparkles size={14} className="text-cyan-400 shrink-0" />
+                        <span>Searching All Service Channels: {mobileChannelsToDisplay.length} channels found</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="px-3 py-1 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                          {selectedLiveCategory === '0' ? 'All Channels View' : 'Filtered by Category'}
+                        </span>
+                        <span>{mobileChannelsToDisplay.length} Channels Available</span>
+                      </div>
+                    )}
+                    {mobileLiveChannelSearch && (
+                      <button 
+                        onClick={() => setMobileLiveChannelSearch('')}
+                        className="text-xs text-cyan-400 hover:underline cursor-pointer"
+                      >
+                        Clear Search Filter
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Channels Grid (2-3 columns with clean cards) */}
+                  {loadingLive ? (
+                    <div className="flex flex-col items-center justify-center py-32 gap-4">
+                      <Loader2 className="animate-spin text-cyan-400" size={36} />
+                      <span className="text-xs text-white/40 font-bold uppercase tracking-wider">
+                        Scanning & Loading Channels...
+                      </span>
+                    </div>
+                  ) : mobileChannelsToDisplay.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-28 gap-4 text-center px-6 bg-white/5 rounded-3xl border border-white/10">
+                      <Tv size={44} className="text-white/20" />
+                      <h4 className="text-sm font-bold text-white/70">
+                        No channels found matching this selection.
+                      </h4>
+                      <button
+                        onClick={() => {
+                          setSelectedLiveCategory('0');
+                          setMobileLiveChannelSearch('');
+                        }}
+                        className="mt-2 px-5 py-2.5 rounded-xl bg-cyan-500 text-black text-xs font-bold cursor-pointer hover:bg-cyan-400 active:scale-95 transition-all shadow-[0_0_15px_rgba(6,182,212,0.4)]"
+                      >
+                        View All Channels
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5">
+                      {mobileChannelsToDisplay.map((ch: any, idx: number) => {
+                        const chIcon = ch.stream_icon;
+                        const chCategoryName = liveCategories.find(c => String(c.category_id) === String(ch.category_id))?.category_name;
+                        return (
+                          <div
+                            key={`desktop-ch-card-${ch.stream_id || idx}`}
+                            onClick={() => handlePlayLivePopup(ch)}
+                            className="p-3 rounded-2xl bg-gradient-to-r from-[#0c1322] via-[#09101d] to-[#070b16] border border-cyan-500/20 hover:border-cyan-400/60 flex items-center justify-between shadow-lg shadow-black/40 hover:shadow-[0_4px_24px_rgba(6,182,212,0.18)] transition-all backdrop-blur-md group active:scale-[0.99] cursor-pointer"
+                          >
+                            {/* Left: Rounded Logo & Channel Info */}
+                            <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
+                              <div className="w-14 h-14 rounded-2xl bg-white p-1.5 flex items-center justify-center shrink-0 border border-white/20 shadow-md overflow-hidden group-hover:scale-105 transition-transform duration-300">
+                                {chIcon ? (
+                                  <img
+                                    src={chIcon}
+                                    alt=""
                                     className="w-full h-full object-contain"
-                                    onError={(e) => { (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/tv/100/100?blur=5'; }}
+                                    onError={(e) => {
+                                      (e.target as HTMLImageElement).src = 'https://picsum.photos/seed/live/150/150';
+                                    }}
                                   />
                                 ) : (
-                                  <Tv size={20} className="text-white/20" />
+                                  <Tv size={24} className="text-slate-800" />
                                 )}
                               </div>
-                              <h4 className={cn(
-                                "text-[8px] font-black uppercase tracking-tight line-clamp-2 leading-tight px-1 italic",
-                                playingLiveStream?.stream_id === (item as any).stream_id ? "text-cyan-400" : "text-white/60 group-hover:text-white"
-                              )}>
-                                {item.name}
-                              </h4>
-                              
-                              {playingLiveStream?.stream_id === (item as any).stream_id && (
-                                <div className="absolute top-1 right-1">
-                                  <motion.div 
-                                    animate={{ scale: [1, 1.2, 1] }}
-                                    transition={{ repeat: Infinity, duration: 2 }}
-                                    className="w-1.5 h-1.5 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)]" 
-                                  />
+
+                              <div className="min-w-0 flex-1">
+                                <h4 className="text-xs font-black text-white tracking-tight truncate leading-tight group-hover:text-cyan-400 transition-colors uppercase">
+                                  {ch.name}
+                                </h4>
+                                <p className="text-[10.5px] text-white/50 font-medium truncate mt-0.5">
+                                  {chCategoryName || (selectedLiveCategory === '0' ? 'Live Channel' : (liveCategories.find(c => String(c.category_id) === String(selectedLiveCategory))?.category_name || 'Live Channel'))}
+                                </p>
+                                <div className="flex items-center gap-1.5 text-[10.5px] font-bold text-emerald-400 mt-1">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399]" />
+                                  <span>Live</span>
                                 </div>
+                              </div>
+                            </div>
+
+                            {/* Right Toolbar: Copy Link, VLC Player, Favorite Star & Play Button */}
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {/* Copy Link Option */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const liveUrl = `${currentServerHost}/live/${creds.username}/${creds.password}/${ch.stream_id}.m3u8`;
+                                  navigator.clipboard.writeText(liveUrl);
+                                  setCopiedId(String(ch.stream_id));
+                                  showToast("Channel link copied to clipboard!", "success");
+                                  setTimeout(() => setCopiedId(null), 2500);
+                                }}
+                                className="p-2 rounded-xl bg-white/5 hover:bg-cyan-500/20 text-white/50 hover:text-cyan-400 border border-white/10 active:scale-90 transition-all cursor-pointer"
+                                title="Copy Stream URL"
+                              >
+                                {copiedId === String(ch.stream_id) ? (
+                                  <Check size={15} className="text-emerald-400" />
+                                ) : (
+                                  <Copy size={15} />
+                                )}
+                              </button>
+
+                              {/* VLC Player Option */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const liveUrl = `${currentServerHost}/live/${creds.username}/${creds.password}/${ch.stream_id}.m3u8`;
+                                  trackMediaPlayback(ch, 'live_event', `${ch.name || 'Live Channel'} (VLC External)`);
+                                  const targetUrl = formatVlcUrl(liveUrl);
+                                  window.location.href = targetUrl;
+                                }}
+                                className="px-2.5 py-1.5 rounded-xl bg-orange-500/15 hover:bg-orange-500 text-orange-400 hover:text-white border border-orange-500/30 active:scale-90 transition-all cursor-pointer flex items-center gap-1 font-black text-[10px]"
+                                title="Open Channel in VLC Player"
+                              >
+                                <ExternalLink size={13} />
+                                <span>VLC</span>
+                              </button>
+
+                              {/* Favorite Star Option */}
+                              {isLoggedIn && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleItemFavorite(ch);
+                                  }}
+                                  className="p-1.5 text-white/40 hover:text-amber-400 active:scale-90 transition-all cursor-pointer"
+                                  title={isItemFavorite(ch) ? "Remove Favorite" : "Add Favorite"}
+                                >
+                                  <Star
+                                    size={17}
+                                    className={isItemFavorite(ch) ? "text-amber-400 fill-amber-400" : "text-white/30"}
+                                  />
+                                </button>
                               )}
-                            </motion.button>
-                          ))}
-                        </div>
-                      )}
-                      
-                      {currentItems.length > 0 && currentItems.filter(item => item.name.toLowerCase().includes(liveSearchQuery.toLowerCase())).length === 0 && (
-                        <div className="flex flex-col items-center justify-center py-20 text-white/20">
-                          <Search size={32} className="mb-3 opacity-10" />
-                          <span className="text-[10px] font-bold uppercase tracking-widest italic">No Channels Matching</span>
-                        </div>
-                      )}
 
-                      {/* Scroll Sentinel for Lazy Loading */}
-                      {hasMore && !loadingLive && (
-                        <div 
-                          ref={loadMoreRef} 
-                          className="flex justify-center py-8"
-                        >
-                          <Loader2 className="animate-spin text-cyan-500/40" size={20} />
-                        </div>
-                      )}
+                              {/* Direct Instant Play Button */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handlePlayLivePopup(ch);
+                                }}
+                                className="w-10 h-10 rounded-full bg-gradient-to-tr from-cyan-400 to-cyan-300 text-black flex items-center justify-center shadow-[0_0_16px_rgba(6,182,212,0.6)] active:scale-90 hover:scale-105 transition-all cursor-pointer shrink-0"
+                                title="Play Channel Online"
+                              >
+                                <Play size={16} fill="black" className="ml-0.5 text-black" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
+                  )}
+
+                  {/* Lazy Loading Sentinel */}
+                  {hasMore && !loadingLive && (
+                    <div ref={loadMoreRef} className="flex justify-center py-6">
+                      <Loader2 className="animate-spin text-cyan-400" size={24} />
+                    </div>
+                  )}
                 </div>
 
-                {/* Rightmost Column: Vertical Categories list (visible only on desktop) */}
-                <div className="hidden md:flex flex-col gap-4 md:col-span-1 sticky top-24 self-start bg-black/25 p-4 rounded-[2rem] border border-white/5 shadow-2xl backdrop-blur-xl">
-                  <div className="flex items-center gap-2 px-2">
-                    <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center border border-cyan-500/20">
-                      <LayoutGrid size={16} className="text-cyan-400" />
-                    </div>
-                    <h3 className="text-xs font-black text-white uppercase tracking-widest italic">Categories</h3>
-                  </div>
-                  <div className="flex flex-col gap-2 overflow-y-auto max-h-[calc(100vh-320px)] desktop-scrollbar pr-1">
-                    {currentCategories.map((cat, idx) => (
-                      <button
-                        key={`iptv-cat-vertical-${cat.category_id}-${idx}`}
-                        onClick={() => setSelectedLiveCategory(cat.category_id)}
-                        className={cn(
-                          "relative text-left px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 italic w-full",
-                          selectedLiveCategory === cat.category_id 
-                            ? "bg-cyan-500 text-black shadow-[0_0_20px_rgba(6,182,212,0.4)]" 
-                            : "bg-white/5 text-white/40 hover:text-white border border-white/5 hover:border-white/10"
-                        )}
-                      >
-                        {cat.category_name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
             </div>
           </>
