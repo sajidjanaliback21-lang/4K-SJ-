@@ -7745,9 +7745,9 @@ export default function App() {
                 <div className="flex flex-col items-center justify-center py-24 md:py-32 gap-4">
                   <Loader2 className="animate-spin text-cyan-400" size={40} md:size={48} />
                   <p className="text-white/70 text-sm md:text-base font-semibold">
-                    Searching 244,000+ title library for &ldquo;{inCategorySearchQuery}&rdquo;...
+                    Searching {activeTab === 'movies' ? '244,000+ movie' : '53,000+ series'} library for &ldquo;{inCategorySearchQuery}&rdquo;...
                   </p>
-                  <p className="text-white/30 text-xs">Scanning titles across all categories in server RAM</p>
+                  <p className="text-white/30 text-xs">Scanning titles across all {activeTab === 'movies' ? '491' : '352'} categories in server RAM</p>
                 </div>
               ) : error ? (
                 <div className="flex flex-col items-center justify-center py-24 md:py-32 gap-6 text-center max-w-md mx-auto px-6">
