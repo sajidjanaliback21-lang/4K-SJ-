@@ -2,7 +2,7 @@ import axios from 'axios';
 import { XtreamCredentials, Category, Stream, Series, LoginResponse, LiveStream } from '../types';
 
 export const DEFAULT_CREDENTIALS: XtreamCredentials = {
-  host: 'https://4ksjpun-lbff.hf.space',
+  host: 'https://4kfaster.space',
   username: 'webplayer44',
   password: '62246624',
 };
@@ -12,21 +12,21 @@ const sanitizeHost = (host: string): string => {
   if (typeof window !== 'undefined') {
     if ((window as any).activeServerUrl) {
       const live = ((window as any).activeServerUrl || '').trim();
-      if (live && live !== 'N/A') {
+      if (live && live !== 'N/A' && !live.includes('hf.space') && !live.includes('lb-skip')) {
         const clean = live.startsWith('http') ? live : `https://${live}`;
         return clean.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
       }
     }
     if ((window as any).activeResellerServerUrl) {
       const resellerHost = ((window as any).activeResellerServerUrl || '').trim();
-      if (resellerHost && resellerHost !== 'N/A') {
+      if (resellerHost && resellerHost !== 'N/A' && !resellerHost.includes('hf.space') && !resellerHost.includes('lb-skip')) {
         const clean = resellerHost.startsWith('http') ? resellerHost : `https://${resellerHost}`;
         return clean.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
       }
     }
     if ((window as any).appSettingsDefaultServerUrl) {
       const defaultHost = ((window as any).appSettingsDefaultServerUrl || '').trim();
-      if (defaultHost && defaultHost !== 'N/A') {
+      if (defaultHost && defaultHost !== 'N/A' && !defaultHost.includes('hf.space') && !defaultHost.includes('lb-skip')) {
         const clean = defaultHost.startsWith('http') ? defaultHost : `https://${defaultHost}`;
         return clean.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
       }
@@ -35,8 +35,8 @@ const sanitizeHost = (host: string): string => {
 
   // 2. Otherwise sanitize the passed host
   let cleanHost = host || '';
-  if (!cleanHost || cleanHost.includes('lb-skip.vercel.app')) {
-    return 'https://4ksjpun-lbff.hf.space';
+  if (!cleanHost || cleanHost.includes('lb-skip.vercel.app') || cleanHost.includes('hf.space')) {
+    return 'https://4kfaster.space';
   }
   if (!cleanHost.startsWith('http://') && !cleanHost.startsWith('https://')) {
     cleanHost = `https://${cleanHost}`;

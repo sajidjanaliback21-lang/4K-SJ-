@@ -20,15 +20,14 @@ try {
 
 // Master Credentials (Default: Active High-Performance Server)
 let masterConfig = {
-  host: process.env.MASTER_IPTV_HOST || 'https://4ksjpun-lbff.hf.space',
+  host: process.env.MASTER_IPTV_HOST || 'https://4kfaster.space',
   username: process.env.MASTER_IPTV_USER || 'webplayer44',
   password: process.env.MASTER_IPTV_PASSWORD || '62246624',
 };
 
 // Candidate upstream servers for seamless 24/7 high-availability failover
 const CANDIDATE_HOSTS = [
-  'https://4ksjpun-lbff.hf.space',
-  'https://60fpssj-60fps10.hf.space',
+  'https://4kfaster.space',
 ];
 
 async function resolveWorkingHost(): Promise<string> {

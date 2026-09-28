@@ -791,8 +791,8 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed) {
-          if (parsed.host?.includes('lb-skip.vercel.app') || parsed.host?.includes('60fpssj-60fps10.hf.space') || !parsed.host) {
-            parsed.host = 'https://4ksjpun-lbff.hf.space';
+          if (parsed.host?.includes('lb-skip.vercel.app') || parsed.host?.includes('hf.space') || !parsed.host) {
+            parsed.host = 'https://4kfaster.space';
           }
           if (parsed.host && parsed.host.includes(':8443')) {
             parsed.host = parsed.host.replace(/:8443(?=[\/?#]|$)/g, '');
@@ -1364,7 +1364,7 @@ export default function App() {
         }
       }
     }
-    const fallback = activeReseller?.server_url || appSettings.default_server_url || "https://60fpssj-60fps10.hf.space";
+    const fallback = activeReseller?.server_url || appSettings.default_server_url || "https://4kfaster.space";
     return fallback.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
   };
 
@@ -2000,11 +2000,11 @@ export default function App() {
   // When an admin updates server URL or video proxy URL, this effect immediately updates
   // credentials, serverInfo, and window properties so current active users get the changes instantly.
   useEffect(() => {
-    const liveServer = (activeReseller?.server_url && activeReseller.server_url.trim() !== '' && activeReseller.server_url !== 'N/A')
+    const liveServer = (activeReseller?.server_url && activeReseller.server_url.trim() !== '' && activeReseller.server_url !== 'N/A' && !activeReseller.server_url.includes('hf.space'))
       ? activeReseller.server_url.trim()
-      : (appSettings.default_server_url && appSettings.default_server_url.trim() !== '' && appSettings.default_server_url !== 'N/A'
+      : (appSettings.default_server_url && appSettings.default_server_url.trim() !== '' && appSettings.default_server_url !== 'N/A' && !appSettings.default_server_url.includes('hf.space')
           ? appSettings.default_server_url.trim()
-          : 'https://4ksjpun-lbff.hf.space');
+          : 'https://4kfaster.space');
 
     let cleanLiveServer = liveServer;
     if (!cleanLiveServer.startsWith('http://') && !cleanLiveServer.startsWith('https://')) {

@@ -1,1 +1,32 @@
-{"user_info":{"username":"webplayer44","password":"62246624","message":"API Message","auth":1,"status":"Active","exp_date":"1793208516","is_trial":"0","active_cons":"0","created_at":"1774634855","max_connections":"1","allowed_output_formats":["m3u8","ts","rtmp"]},"server_info":{"url":"4ksjpun-lbff.hf.space","port":"443","https_port":"443","server_protocol":"https","rtmp_port":"25462","timezone":"Asia/Karachi","timestamp_now":1790451008,"time_now":"2026-09-27 00:30:08","process":true,"panel":"Xtream-Masters OTT Panel","version":"3.1.305"}}
+{
+  "user_info": {
+    "username": "webplayer44",
+    "password": "62246624",
+    "message": "API Message",
+    "auth": 1,
+    "status": "Active",
+    "exp_date": "1793208516",
+    "is_trial": "0",
+    "active_cons": "0",
+    "created_at": "1774634855",
+    "max_connections": "1",
+    "allowed_output_formats": [
+      "m3u8",
+      "ts",
+      "rtmp"
+    ]
+  },
+  "server_info": {
+    "url": "4kfaster.space",
+    "port": "443",
+    "https_port": "443",
+    "server_protocol": "https",
+    "rtmp_port": "443",
+    "timezone": "Asia/Karachi",
+    "timestamp_now": 1790635820,
+    "time_now": "2026-09-29 03:50:20",
+    "process": true,
+    "panel": "Xtream-Masters OTT Panel",
+    "version": "3.1.316"
+  }
+}
