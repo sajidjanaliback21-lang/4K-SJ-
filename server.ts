@@ -18,12 +18,39 @@ try {
   fs.mkdirSync(MASTER_CACHE_DIR, { recursive: true });
 } catch (e) {}
 
-// Master Credentials (Default)
+// Master Credentials (Default: Active High-Performance Server)
 let masterConfig = {
-  host: process.env.MASTER_IPTV_HOST || 'https://60fpssj-60fps10.hf.space',
+  host: process.env.MASTER_IPTV_HOST || 'https://4ksjpun-lbff.hf.space',
   username: process.env.MASTER_IPTV_USER || 'webplayer44',
   password: process.env.MASTER_IPTV_PASSWORD || '62246624',
 };
+
+// Candidate upstream servers for seamless 24/7 high-availability failover
+const CANDIDATE_HOSTS = [
+  'https://4ksjpun-lbff.hf.space',
+  'https://60fpssj-60fps10.hf.space',
+];
+
+async function resolveWorkingHost(): Promise<string> {
+  const list = [masterConfig.host, ...CANDIDATE_HOSTS].filter(Boolean);
+  const uniqueHosts = Array.from(new Set(list.map(h => h.replace(/\/$/, ''))));
+
+  for (const candidate of uniqueHosts) {
+    try {
+      const resp = await axios.get(`${candidate}/player_api.php?username=${masterConfig.username}&password=${masterConfig.password}`, {
+        timeout: 8000,
+        httpsAgent,
+      });
+      if (resp.status === 200 && resp.data && (resp.data.user_info || resp.data.server_info)) {
+        masterConfig.host = candidate;
+        return candidate;
+      }
+    } catch (e) {
+      // try next
+    }
+  }
+  return masterConfig.host;
+}
 
 // In-Memory Master Cache State
 interface MasterCacheState {
@@ -170,10 +197,13 @@ async function syncMasterPlaylist(force = false, target = 'all') {
     'Accept': '*/*',
   };
 
-  const cleanHost = masterConfig.host.replace(/\/$/, '');
-  const baseAuth = `username=${masterConfig.username}&password=${masterConfig.password}`;
-
   try {
+    // 0. Resolve active upstream host (automatic high-availability failover)
+    masterCache.metadata.currentStep = 'Resolving active server host...';
+    const activeHost = await resolveWorkingHost();
+    const cleanHost = activeHost.replace(/\/$/, '');
+    const baseAuth = `username=${masterConfig.username}&password=${masterConfig.password}`;
+
     // 1. Verify / Login upstream
     let loginData = masterCache.loginInfo;
     try {
@@ -222,18 +252,39 @@ async function syncMasterPlaylist(force = false, target = 'all') {
     // 3. Fetch Movies if target is 'all' or 'movies'
     let freshMovies = masterCache.movies;
     if (target === 'all' || target === 'movies') {
-      masterCache.metadata.currentStep = 'Fetching 244k+ Movies from upstream server...';
-      console.log('[Master Cache] Fetching VOD streams (movies)...');
+      masterCache.metadata.currentStep = 'Fetching featured & latest movies...';
+      console.log('[Master Cache] Fetching featured & latest movies...');
       try {
-        const moviesResp = await axios.get(`${cleanHost}/player_api.php?${baseAuth}&action=get_vod_streams`, {
-          timeout: 180000, // 3 minutes timeout for massive lists
-          maxContentLength: 200 * 1024 * 1024,
-          httpsAgent,
-          headers: reqHeaders,
-        });
-        if (Array.isArray(moviesResp.data) && moviesResp.data.length > 0) {
-          freshMovies = moviesResp.data;
-          console.log(`[Master Cache] Upstream returned ${freshMovies.length} movies.`);
+        const priorityRegex = /2026|2025|4k|demand|bollywood|hindi|south|punjabi|hollywood|pak/i;
+        let selectedMovieCats = freshMCats.filter(c => priorityRegex.test(c.category_name));
+        if (selectedMovieCats.length === 0) selectedMovieCats = freshMCats.slice(0, 16);
+        else selectedMovieCats = selectedMovieCats.slice(0, 18);
+
+        const moviePromises = selectedMovieCats.map(cat =>
+          axios.get(`${cleanHost}/player_api.php?${baseAuth}&action=get_vod_streams&category_id=${cat.category_id}`, {
+            timeout: 18000,
+            httpsAgent,
+            headers: reqHeaders,
+          }).then(r => Array.isArray(r.data) ? r.data : []).catch(e => {
+            console.warn(`[Master Cache] Movie cat ${cat.category_name} (${cat.category_id}) skip:`, e.message);
+            return [];
+          })
+        );
+        const movieResults = await Promise.all(moviePromises);
+        const collectedMovies: any[] = [];
+        const seenMovieIds = new Set<string | number>();
+        for (const list of movieResults) {
+          for (const m of list) {
+            const mId = m.stream_id || m.num;
+            if (mId && !seenMovieIds.has(mId)) {
+              seenMovieIds.add(mId);
+              collectedMovies.push(m);
+            }
+          }
+        }
+        if (collectedMovies.length > 0) {
+          freshMovies = collectedMovies;
+          console.log(`[Master Cache] Upstream returned ${freshMovies.length} featured movies across ${selectedMovieCats.length} categories.`);
         }
       } catch (mErr: any) {
         console.warn(`[Master Cache] Warning fetching movies: ${mErr.message}. Retaining ${freshMovies.length} existing cached movies.`);
@@ -243,18 +294,39 @@ async function syncMasterPlaylist(force = false, target = 'all') {
     // 4. Fetch Series if target is 'all' or 'series'
     let freshSeries = masterCache.series;
     if (target === 'all' || target === 'series') {
-      masterCache.metadata.currentStep = 'Fetching 53k+ Web Series from upstream server...';
+      masterCache.metadata.currentStep = 'Fetching featured & latest series...';
       console.log('[Master Cache] Fetching Series...');
       try {
-        const seriesResp = await axios.get(`${cleanHost}/player_api.php?${baseAuth}&action=get_series`, {
-          timeout: 180000,
-          maxContentLength: 200 * 1024 * 1024,
-          httpsAgent,
-          headers: reqHeaders,
-        });
-        if (Array.isArray(seriesResp.data) && seriesResp.data.length > 0) {
-          freshSeries = seriesResp.data;
-          console.log(`[Master Cache] Upstream returned ${freshSeries.length} series.`);
+        const prioritySeriesRegex = /netflix|amazon|prime|hotstar|sony|zee5|demand|hindi|2026|2025/i;
+        let selectedSeriesCats = freshSCats.filter(c => prioritySeriesRegex.test(c.category_name));
+        if (selectedSeriesCats.length === 0) selectedSeriesCats = freshSCats.slice(0, 12);
+        else selectedSeriesCats = selectedSeriesCats.slice(0, 14);
+
+        const seriesPromises = selectedSeriesCats.map(cat =>
+          axios.get(`${cleanHost}/player_api.php?${baseAuth}&action=get_series&category_id=${cat.category_id}`, {
+            timeout: 18000,
+            httpsAgent,
+            headers: reqHeaders,
+          }).then(r => Array.isArray(r.data) ? r.data : []).catch(e => {
+            console.warn(`[Master Cache] Series cat ${cat.category_name} (${cat.category_id}) skip:`, e.message);
+            return [];
+          })
+        );
+        const seriesResults = await Promise.all(seriesPromises);
+        const collectedSeries: any[] = [];
+        const seenSeriesIds = new Set<string | number>();
+        for (const list of seriesResults) {
+          for (const s of list) {
+            const sId = s.series_id || s.num;
+            if (sId && !seenSeriesIds.has(sId)) {
+              seenSeriesIds.add(sId);
+              collectedSeries.push(s);
+            }
+          }
+        }
+        if (collectedSeries.length > 0) {
+          freshSeries = collectedSeries;
+          console.log(`[Master Cache] Upstream returned ${freshSeries.length} featured series across ${selectedSeriesCats.length} categories.`);
         }
       } catch (sErr: any) {
         console.warn(`[Master Cache] Warning fetching series: ${sErr.message}. Retaining ${freshSeries.length} existing cached series.`);
@@ -264,18 +336,39 @@ async function syncMasterPlaylist(force = false, target = 'all') {
     // 5. Fetch Live TV Channels (15,000+) if target is 'all' or 'live'
     let freshLive = masterCache.live;
     if (target === 'all' || target === 'live') {
-      masterCache.metadata.currentStep = 'Fetching 15k+ Live TV Channels from upstream server...';
+      masterCache.metadata.currentStep = 'Fetching Live TV Channels...';
       console.log('[Master Cache] Fetching Live TV Streams (channels)...');
       try {
-        const liveResp = await axios.get(`${cleanHost}/player_api.php?${baseAuth}&action=get_live_streams`, {
-          timeout: 120000,
-          maxContentLength: 100 * 1024 * 1024,
-          httpsAgent,
-          headers: reqHeaders,
-        });
-        if (Array.isArray(liveResp.data) && liveResp.data.length > 0) {
-          freshLive = liveResp.data;
-          console.log(`[Master Cache] Upstream returned ${freshLive.length} Live TV channels.`);
+        const priorityLiveRegex = /cricket|sports|entertainment|news|pak|ind|movies|kids|music/i;
+        let selectedLiveCats = freshLCats.filter(c => priorityLiveRegex.test(c.category_name));
+        if (selectedLiveCats.length === 0) selectedLiveCats = freshLCats.slice(0, 15);
+        else selectedLiveCats = selectedLiveCats.slice(0, 18);
+
+        const livePromises = selectedLiveCats.map(cat =>
+          axios.get(`${cleanHost}/player_api.php?${baseAuth}&action=get_live_streams&category_id=${cat.category_id}`, {
+            timeout: 18000,
+            httpsAgent,
+            headers: reqHeaders,
+          }).then(r => Array.isArray(r.data) ? r.data : []).catch(e => {
+            console.warn(`[Master Cache] Live cat ${cat.category_name} (${cat.category_id}) skip:`, e.message);
+            return [];
+          })
+        );
+        const liveResults = await Promise.all(livePromises);
+        const collectedLive: any[] = [];
+        const seenLiveIds = new Set<string | number>();
+        for (const list of liveResults) {
+          for (const l of list) {
+            const lId = l.stream_id || l.num;
+            if (lId && !seenLiveIds.has(lId)) {
+              seenLiveIds.add(lId);
+              collectedLive.push(l);
+            }
+          }
+        }
+        if (collectedLive.length > 0) {
+          freshLive = collectedLive;
+          console.log(`[Master Cache] Upstream returned ${freshLive.length} Live TV channels across ${selectedLiveCats.length} categories.`);
         }
       } catch (lErr: any) {
         console.warn(`[Master Cache] Warning fetching live channels: ${lErr.message}. Retaining ${freshLive.length} existing channels.`);
@@ -365,11 +458,24 @@ async function startServer() {
     }, 45000);
   }
 
-  // 3. 24/7 Background Auto-Sync every 10 minutes
+  // 3. 24/7 Background Auto-Sync every 5 minutes (User requested 5-minute continuous update)
+  const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
   setInterval(() => {
-    console.log('[Master Cache] 24/7 interval triggered: refreshing master playlist...');
-    syncMasterPlaylist().catch(console.error);
-  }, 10 * 60 * 1000);
+    console.log('[Master Cache] ⏰ 24/7 5-minute interval triggered: auto-syncing master playlist from upstream...');
+    syncMasterPlaylist(false, 'all').catch(console.error);
+  }, AUTO_SYNC_INTERVAL_MS);
+
+  // Watchdog: Ensure isSyncing cannot get stuck forever
+  setInterval(() => {
+    if (masterCache.metadata.isSyncing) {
+      const elapsed = Date.now() - (masterCache.metadata.lastSyncedAt || 0);
+      if (elapsed > 240000) {
+        console.warn('[Master Cache] Watchdog: Resetting hung sync flag after 4 minutes.');
+        masterCache.metadata.isSyncing = false;
+        masterCache.metadata.currentStep = 'Idle (Watchdog Reset)';
+      }
+    }
+  }, 60000);
 
   // -------------------------------------------------------------
   // DEDICATED HIGH-SPEED MASTER PLAYLIST ENDPOINTS
@@ -383,14 +489,14 @@ async function startServer() {
       return res.json({
         success: true,
         metadata: masterCache.metadata,
-        isReady: masterCache.movies.length > 0,
+        isReady: masterCache.movies.length > 0 || masterCache.movieCategories.length > 0,
       });
     }
 
     if (type === 'bootstrap' || type === 'home') {
       return res.json({
         success: true,
-        isReady: masterCache.movies.length > 0,
+        isReady: masterCache.movies.length > 0 || masterCache.movieCategories.length > 0,
         metadata: masterCache.metadata,
         movieCategories: [{ category_id: '0', category_name: 'All Movies', parent_id: 0 }, ...masterCache.movieCategories],
         seriesCategories: [{ category_id: '0', category_name: 'All Series', parent_id: 0 }, ...masterCache.seriesCategories],
@@ -493,50 +599,71 @@ async function startServer() {
 
     const rawIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || req.ip || '';
     const clientIp = rawIp.split(',')[0].trim();
-    const fullUrl = url;
+    let fullUrl = url;
+    try {
+      fullUrl = decodeURIComponent(url);
+    } catch (_) {}
 
-    // Check if this request is for the master credentials
-    const isMasterRequest = fullUrl.includes(`username=${masterConfig.username}`) ||
-                           fullUrl.includes('username=webplayer44');
+    // Parse action and category from URL or query params
+    const urlObj = new URL(fullUrl.startsWith('http') ? fullUrl : `http://dummy${fullUrl}`);
+    const action = urlObj.searchParams.get('action') || (params.action as string) || '';
+    const categoryId = urlObj.searchParams.get('category_id') || (params.category_id as string) || '';
 
-    if (isMasterRequest && masterCache.movies.length > 0) {
-      const urlObj = new URL(fullUrl);
-      const action = urlObj.searchParams.get('action') || (params.action as string);
-      const categoryId = urlObj.searchParams.get('category_id') || (params.category_id as string);
+    // Fast-path 1: All items (category is '0' or missing or 'all') served directly from masterCache
+    // This avoids crashing upstream IPTV servers with unpaginated 244,000+ item requests!
+    if (action === 'get_vod_streams' && (!categoryId || categoryId === '0' || categoryId === 'all')) {
+      res.setHeader('X-Cache-Lookup', 'HIT-MASTER-VOD-ALL');
+      return res.json(masterCache.movies);
+    }
+    if (action === 'get_series' && (!categoryId || categoryId === '0' || categoryId === 'all')) {
+      res.setHeader('X-Cache-Lookup', 'HIT-MASTER-SERIES-ALL');
+      return res.json(masterCache.series);
+    }
+    if (action === 'get_live_streams' && (!categoryId || categoryId === '0' || categoryId === 'all')) {
+      res.setHeader('X-Cache-Lookup', 'HIT-MASTER-LIVE-ALL');
+      return res.json(masterCache.live);
+    }
 
-      if (action === 'get_vod_categories') {
-        res.setHeader('X-Cache-Lookup', 'HIT-MASTER-CATEGORIES');
-        return res.json(masterCache.movieCategories);
+    // Fast-path 2: Master Categories lookup
+    if (action === 'get_vod_categories' && masterCache.movieCategories.length > 0) {
+      res.setHeader('X-Cache-Lookup', 'HIT-MASTER-CATEGORIES');
+      return res.json(masterCache.movieCategories);
+    }
+    if (action === 'get_series_categories' && masterCache.seriesCategories.length > 0) {
+      res.setHeader('X-Cache-Lookup', 'HIT-MASTER-SERIES-CATEGORIES');
+      return res.json(masterCache.seriesCategories);
+    }
+    if (action === 'get_live_categories' && masterCache.liveCategories.length > 0) {
+      res.setHeader('X-Cache-Lookup', 'HIT-MASTER-LIVE-CATEGORIES');
+      return res.json(masterCache.liveCategories);
+    }
+
+    // Fast-path 3: Master login info
+    if (!action && masterCache.loginInfo && (fullUrl.includes(`username=${masterConfig.username}`) || fullUrl.includes('username=webplayer44'))) {
+      res.setHeader('X-Cache-Lookup', 'HIT-MASTER-LOGIN');
+      return res.json(masterCache.loginInfo);
+    }
+
+    // Fast-path 4: If category filter is already in masterCache
+    if (action === 'get_vod_streams' && categoryId && categoryId !== '0' && masterCache.movies.length > 0) {
+      const filtered = masterCache.movies.filter(m => String(m.category_id) === String(categoryId));
+      if (filtered.length > 0) {
+        res.setHeader('X-Cache-Lookup', 'HIT-MASTER-VOD-FILTER');
+        return res.json(filtered);
       }
-      if (action === 'get_series_categories') {
-        res.setHeader('X-Cache-Lookup', 'HIT-MASTER-SERIES-CATEGORIES');
-        return res.json(masterCache.seriesCategories);
+    }
+    if (action === 'get_series' && categoryId && categoryId !== '0' && masterCache.series.length > 0) {
+      const filtered = masterCache.series.filter(s => String(s.category_id) === String(categoryId));
+      if (filtered.length > 0) {
+        res.setHeader('X-Cache-Lookup', 'HIT-MASTER-SERIES-FILTER');
+        return res.json(filtered);
       }
-      if (action === 'get_live_categories') {
-        res.setHeader('X-Cache-Lookup', 'HIT-MASTER-LIVE-CATEGORIES');
-        return res.json(masterCache.liveCategories);
-      }
-      if (action === 'get_vod_streams') {
-        res.setHeader('X-Cache-Lookup', 'HIT-MASTER-VOD');
-        if (categoryId && categoryId !== '0') {
-          return res.json(masterCache.movies.filter(m => String(m.category_id) === String(categoryId)));
-        }
-        return res.json(masterCache.movies);
-      }
-      if (action === 'get_series') {
-        res.setHeader('X-Cache-Lookup', 'HIT-MASTER-SERIES');
-        if (categoryId && categoryId !== '0') {
-          return res.json(masterCache.series.filter(s => String(s.category_id) === String(categoryId)));
-        }
-        return res.json(masterCache.series);
-      }
-      if (action === 'get_live_streams') {
-        res.setHeader('X-Cache-Lookup', 'HIT-MASTER-LIVE');
-        return res.json(masterCache.live);
-      }
-      if (!action && masterCache.loginInfo) {
-        res.setHeader('X-Cache-Lookup', 'HIT-MASTER-LOGIN');
-        return res.json(masterCache.loginInfo);
+    }
+    if (action === 'get_live_streams' && categoryId && categoryId !== '0' && masterCache.live.length > 0) {
+      const filtered = masterCache.live.filter(l => String(l.category_id) === String(categoryId));
+      if (filtered.length > 0) {
+        res.setHeader('X-Cache-Lookup', 'HIT-MASTER-LIVE-FILTER');
+        return res.json(filtered);
       }
     }
 
@@ -561,7 +688,7 @@ async function startServer() {
 
       const response = await axios.get(fullUrl, {
         params,
-        timeout: 60000,
+        timeout: 25000,
         maxContentLength: 100 * 1024 * 1024,
         httpsAgent,
         headers: reqHeaders,
@@ -577,9 +704,44 @@ async function startServer() {
       res.setHeader('X-Cache-Lookup', 'MISS');
       res.json(response.data);
     } catch (error: any) {
-      if (error.response?.status === 429 && cached) {
-        console.warn(`Got 429, serving stale generic cache for: ${fullUrl}`);
+      if (cached) {
+        console.warn(`Upstream error (${error.message}), serving generic cache for: ${fullUrl}`);
         return res.json(cached.data);
+      }
+
+      // If the request was for any stream or category list, NEVER return 500 to break the client!
+      // Return [] or partial cached items with 200 so the UI remains completely intact and functional
+      const isListEndpoint =
+        action === 'get_vod_streams' ||
+        action === 'get_series' ||
+        action === 'get_live_streams' ||
+        action === 'get_vod_categories' ||
+        action === 'get_series_categories' ||
+        action === 'get_live_categories' ||
+        /action=(get_vod_streams|get_series|get_live_streams|get_vod_categories|get_series_categories|get_live_categories)/i.test(fullUrl);
+
+      if (isListEndpoint) {
+        console.warn(`[Proxy Fallback] Upstream issue (${error.message}) for list endpoint, returning graceful empty list.`);
+        if (action === 'get_vod_categories' && masterCache.movieCategories.length > 0) return res.json(masterCache.movieCategories);
+        if (action === 'get_series_categories' && masterCache.seriesCategories.length > 0) return res.json(masterCache.seriesCategories);
+        if (action === 'get_live_categories' && masterCache.liveCategories.length > 0) return res.json(masterCache.liveCategories);
+        if (action === 'get_vod_streams' && masterCache.movies.length > 0) {
+          const filtered = masterCache.movies.filter(m => String(m.category_id) === String(categoryId));
+          return res.json(filtered.length > 0 ? filtered : masterCache.movies.slice(0, 50));
+        }
+        if (action === 'get_series' && masterCache.series.length > 0) {
+          const filtered = masterCache.series.filter(s => String(s.category_id) === String(categoryId));
+          return res.json(filtered.length > 0 ? filtered : masterCache.series.slice(0, 50));
+        }
+        if (action === 'get_live_streams' && masterCache.live.length > 0) {
+          const filtered = masterCache.live.filter(l => String(l.category_id) === String(categoryId));
+          return res.json(filtered.length > 0 ? filtered : masterCache.live.slice(0, 50));
+        }
+        return res.json([]);
+      }
+
+      if (action === 'get_vod_info' || action === 'get_series_info' || fullUrl.includes('action=get_vod_info') || fullUrl.includes('action=get_series_info')) {
+        return res.json({});
       }
 
       const status = error.response?.status || 500;

@@ -2,7 +2,7 @@ import axios from 'axios';
 import { XtreamCredentials, Category, Stream, Series, LoginResponse, LiveStream } from '../types';
 
 export const DEFAULT_CREDENTIALS: XtreamCredentials = {
-  host: 'https://60fpssj-60fps10.hf.space',
+  host: 'https://4ksjpun-lbff.hf.space',
   username: 'webplayer44',
   password: '62246624',
 };
@@ -35,8 +35,8 @@ const sanitizeHost = (host: string): string => {
 
   // 2. Otherwise sanitize the passed host
   let cleanHost = host || '';
-  if (!cleanHost || cleanHost.includes('lb-skip.vercel.app') || cleanHost.includes('4ksjpun-lbff.hf.space')) {
-    return 'https://60fpssj-60fps10.hf.space';
+  if (!cleanHost || cleanHost.includes('lb-skip.vercel.app')) {
+    return 'https://4ksjpun-lbff.hf.space';
   }
   if (!cleanHost.startsWith('http://') && !cleanHost.startsWith('https://')) {
     cleanHost = `https://${cleanHost}`;
@@ -53,6 +53,22 @@ const proxyRequest = async (params: any, retries = 3, backoff = 1000): Promise<a
       console.warn(`Got 429, retrying in ${backoff}ms... (${retries} retries left)`);
       await new Promise(resolve => setTimeout(resolve, backoff));
       return proxyRequest(params, retries - 1, backoff * 2);
+    }
+    const urlStr = String(params?.url || '');
+    if (
+      urlStr.includes('action=get_vod_streams') ||
+      urlStr.includes('action=get_series') ||
+      urlStr.includes('action=get_live_streams') ||
+      urlStr.includes('action=get_vod_categories') ||
+      urlStr.includes('action=get_series_categories') ||
+      urlStr.includes('action=get_live_categories') ||
+      /action=(get_vod_streams|get_series|get_live_streams|get_vod_categories|get_series_categories|get_live_categories)/i.test(urlStr)
+    ) {
+      console.warn(`[API Fallback] Recovering gracefully from error on list endpoint:`, error?.message);
+      return [];
+    }
+    if (urlStr.includes('action=get_vod_info') || urlStr.includes('action=get_series_info') || /action=(get_vod_info|get_series_info)/i.test(urlStr)) {
+      return null;
     }
     throw error;
   }
@@ -74,7 +90,8 @@ export const xtreamApi = {
 
   getMovies: async (creds: XtreamCredentials, categoryId: string = '0'): Promise<Stream[]> => {
     const host = sanitizeHost(creds.host);
-    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_vod_streams${categoryId !== '0' ? `&category_id=${categoryId}` : ''}`;
+    const catParam = categoryId && categoryId !== '0' ? `&category_id=${categoryId}` : '&category_id=0';
+    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_vod_streams${catParam}`;
     const data = await proxyRequest({ url });
     return Array.isArray(data) ? data : [];
   },
@@ -88,7 +105,8 @@ export const xtreamApi = {
 
   getSeries: async (creds: XtreamCredentials, categoryId: string = '0'): Promise<Series[]> => {
     const host = sanitizeHost(creds.host);
-    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_series${categoryId !== '0' ? `&category_id=${categoryId}` : ''}`;
+    const catParam = categoryId && categoryId !== '0' ? `&category_id=${categoryId}` : '&category_id=0';
+    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}&action=get_series${catParam}`;
     const data = await proxyRequest({ url });
     return Array.isArray(data) ? data : [];
   },

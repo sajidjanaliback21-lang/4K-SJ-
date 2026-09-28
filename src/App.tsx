@@ -791,8 +791,8 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed) {
-          if (parsed.host?.includes('lb-skip.vercel.app') || parsed.host?.includes('4ksjpun-lbff.hf.space') || !parsed.host) {
-            parsed.host = 'https://60fpssj-60fps10.hf.space';
+          if (parsed.host?.includes('lb-skip.vercel.app') || parsed.host?.includes('60fpssj-60fps10.hf.space') || !parsed.host) {
+            parsed.host = 'https://4ksjpun-lbff.hf.space';
           }
           if (parsed.host && parsed.host.includes(':8443')) {
             parsed.host = parsed.host.replace(/:8443(?=[\/?#]|$)/g, '');
@@ -844,6 +844,8 @@ export default function App() {
   const [selectedMovieCategory, setSelectedMovieCategory] = useState<string>('0');
   const [selectedSeriesCategory, setSelectedSeriesCategory] = useState<string>('0');
   const [selectedLiveCategory, setSelectedLiveCategory] = useState<string>('0');
+  const [categorySearchQuery, setCategorySearchQuery] = useState('');
+  const [inCategorySearchQuery, setInCategorySearchQuery] = useState('');
   const [isMobileCategoriesOpen, setIsMobileCategoriesOpen] = useState(false);
   const [isMobileLiveDrawerOpen, setIsMobileLiveDrawerOpen] = useState(false);
   const [mobileLiveCatSearch, setMobileLiveCatSearch] = useState('');
@@ -1026,6 +1028,7 @@ export default function App() {
   const [showDownloadConfirm, setShowDownloadConfirm] = useState(false);
   const [showRefreshConfirm, setShowRefreshConfirm] = useState(false);
   const [isRefreshingContent, setIsRefreshingContent] = useState(false);
+  const [lastDataUpdatedTime, setLastDataUpdatedTime] = useState<Date>(new Date());
   const [pendingDownload, setPendingDownload] = useState<{item: any, episodeId?: string, episodeExt?: string} | null>(null);
   const [selectedFreeMovie, setSelectedFreeMovie] = useState<any>(null);
   const [selectedFreeSeries, setSelectedFreeSeries] = useState<any>(null);
@@ -1963,7 +1966,7 @@ export default function App() {
       ? activeReseller.server_url.trim()
       : (appSettings.default_server_url && appSettings.default_server_url.trim() !== '' && appSettings.default_server_url !== 'N/A'
           ? appSettings.default_server_url.trim()
-          : 'https://60fpssj-60fps10.hf.space');
+          : 'https://4ksjpun-lbff.hf.space');
 
     let cleanLiveServer = liveServer;
     if (!cleanLiveServer.startsWith('http://') && !cleanLiveServer.startsWith('https://')) {
@@ -2575,7 +2578,7 @@ export default function App() {
             xtreamApi.getSeriesCategories(creds),
             xtreamApi.getLiveCategories(creds)
           ]).catch(err => {
-            console.error("Failed to fetch categories", err);
+            console.warn("Notice: could not fetch categories", err);
             return [[], [], []];
           });
           
@@ -2593,12 +2596,14 @@ export default function App() {
           let mItems: Stream[] = [];
           try {
             mItems = await xtreamApi.getMovies(creds, '0');
-            const sortedMItems = [...mItems].sort((a, b) => (parseInt(b.added) || 0) - (parseInt(a.added) || 0));
-            setMovieItems(sortedMItems);
-            setTotalMovieCount(mItems.length);
+            if (Array.isArray(mItems) && mItems.length > 0) {
+              const sortedMItems = [...mItems].sort((a, b) => (parseInt(b.added) || 0) - (parseInt(a.added) || 0));
+              setMovieItems(sortedMItems);
+              setTotalMovieCount(mItems.length);
+            }
             setIntroProgress(70);
           } catch (mErr) {
-            console.error("Failed to fetch movies", mErr);
+            console.warn("Notice fetching initial movies:", mErr);
           } finally {
             setLoadingMovies(false);
           }
@@ -2607,12 +2612,14 @@ export default function App() {
           let sItems: Series[] = [];
           try {
             sItems = await xtreamApi.getSeries(creds, '0');
-            const sortedSItems = [...sItems].sort((a, b) => (parseInt(b.last_modified) || 0) - (parseInt(a.last_modified) || 0));
-            setSeriesItems(sortedSItems);
-            setTotalSeriesCount(sItems.length);
+            if (Array.isArray(sItems) && sItems.length > 0) {
+              const sortedSItems = [...sItems].sort((a, b) => (parseInt(b.last_modified) || 0) - (parseInt(a.last_modified) || 0));
+              setSeriesItems(sortedSItems);
+              setTotalSeriesCount(sItems.length);
+            }
             setIntroProgress(88);
           } catch (sErr) {
-            console.error("Failed to fetch series", sErr);
+            console.warn("Notice fetching initial series:", sErr);
           } finally {
             setLoadingSeries(false);
           }
@@ -2655,7 +2662,7 @@ export default function App() {
           }
         }
       } catch (err: any) {
-        console.error("Critical failure during initialization", err);
+        console.warn("Notice during initialization:", err?.message || err);
         setError(err.message || "Failed to connect to IPTV server.");
         setIntroProgress(100);
       } finally {
@@ -2723,21 +2730,25 @@ export default function App() {
     // Also skip if we already have items for category 0
     if (selectedMovieCategory === '0' && movieItems.length > 0) return;
 
+    let isMounted = true;
     const fetchMovies = async () => {
       setLoadingMovies(true);
       setError(null);
       try {
         const data = await xtreamApi.getMovies(creds, selectedMovieCategory);
-        const sortedData = [...data].sort((a: any, b: any) => (parseInt(b.added) || 0) - (parseInt(a.added) || 0));
-        setMovieItems(sortedData);
+        if (!isMounted) return;
+        if (Array.isArray(data)) {
+          const sortedData = [...data].sort((a: any, b: any) => (parseInt(b.added) || 0) - (parseInt(a.added) || 0));
+          setMovieItems(sortedData);
+        }
       } catch (err: any) {
-        console.error("Failed to fetch movies", err);
-        setError(err.message || "Failed to fetch movies for this category.");
+        console.warn("Notice: could not fetch movies for category:", err?.message || err);
       } finally {
-        setLoadingMovies(false);
+        if (isMounted) setLoadingMovies(false);
       }
     };
     fetchMovies();
+    return () => { isMounted = false; };
   }, [creds, selectedMovieCategory]);
 
   // Fetch Series items when category changes
@@ -2746,21 +2757,25 @@ export default function App() {
     // Skip if it's initial mount and category is 0 (already fetched in initData)
     if (selectedSeriesCategory === '0' && seriesItems.length > 0) return;
 
+    let isMounted = true;
     const fetchSeries = async () => {
       setLoadingSeries(true);
       setError(null);
       try {
         const data = await xtreamApi.getSeries(creds, selectedSeriesCategory);
-        const sortedData = [...data].sort((a: any, b: any) => (parseInt(b.last_modified) || 0) - (parseInt(a.last_modified) || 0));
-        setSeriesItems(sortedData);
+        if (!isMounted) return;
+        if (Array.isArray(data)) {
+          const sortedData = [...data].sort((a: any, b: any) => (parseInt(b.last_modified) || 0) - (parseInt(a.last_modified) || 0));
+          setSeriesItems(sortedData);
+        }
       } catch (err: any) {
-        console.error("Failed to fetch series", err);
-        setError(err.message || "Failed to fetch series for this category.");
+        console.warn("Notice: could not fetch series for category:", err?.message || err);
       } finally {
-        setLoadingSeries(false);
+        if (isMounted) setLoadingSeries(false);
       }
     };
     fetchSeries();
+    return () => { isMounted = false; };
   }, [creds, selectedSeriesCategory]);
 
   // Fetch Live TV items when category changes or when live tab is active and items are empty
@@ -2794,8 +2809,7 @@ export default function App() {
           setTotalLiveCount(data.length);
         }
       } catch (err: any) {
-        console.error("Failed to fetch live streams", err);
-        setError(err.message || "Failed to fetch channels for this category.");
+        console.warn("Notice: could not fetch live streams", err?.message || err);
       } finally {
         setLoadingLive(false);
       }
@@ -2814,39 +2828,57 @@ export default function App() {
     }, 4000);
   };
 
-  // Full Content Refresh Handler
+  // Full Content Refresh Handler (Manual Trigger)
   const handleRefreshContent = async () => {
     setShowRefreshConfirm(false);
     setIsRefreshingContent(true);
-    showToast("Refreshing latest content from server...", "info");
+    showToast("Server se naya content refresh ho raha hai...", "info");
 
     try {
-      // 1. Clear cached local home data
+      const isMaster = !creds || !creds.username || creds.username === DEFAULT_CREDENTIALS.username;
+
+      // 1. If master account, tell the server to trigger an upstream sync
+      if (isMaster) {
+        try {
+          await xtreamApi.syncMasterCache('all');
+        } catch (sErr) {
+          console.warn("Server sync trigger warning:", sErr);
+        }
+      }
+
+      // 2. Clear cached local home data
       localStorage.removeItem('iptv_home_cache');
 
-      // 2. Refresh categories if user is logged in
+      // 3. Refresh categories if user is logged in
       if (creds) {
+        let mCats: Category[] = [];
+        let sCats: Category[] = [];
+        let lCats: Category[] = [];
+
         try {
-          const [mCats, sCats, lCats] = await Promise.all([
+          const [resMCats, resSCats, resLCats] = await Promise.all([
             xtreamApi.getMovieCategories(creds),
             xtreamApi.getSeriesCategories(creds),
             xtreamApi.getLiveCategories(creds)
           ]);
+          mCats = resMCats || [];
+          sCats = resSCats || [];
+          lCats = resLCats || [];
 
-          if (mCats && mCats.length > 0) {
+          if (mCats.length > 0) {
             setMovieCategories([{ category_id: '0', category_name: 'All Movies', parent_id: 0 }, ...mCats]);
           }
-          if (sCats && sCats.length > 0) {
+          if (sCats.length > 0) {
             setSeriesCategories([{ category_id: '0', category_name: 'All Series', parent_id: 0 }, ...sCats]);
           }
-          if (lCats && lCats.length > 0) {
+          if (lCats.length > 0) {
             setLiveCategories([{ category_id: '0', category_name: 'All Channels', parent_id: 0 }, ...lCats]);
           }
         } catch (catErr) {
           console.warn("Failed to refresh categories:", catErr);
         }
 
-        // 3. Fetch Movies
+        // 4. Fetch Movies
         let refreshedMovies: Stream[] = [];
         try {
           setLoadingMovies(true);
@@ -2861,7 +2893,7 @@ export default function App() {
           setLoadingMovies(false);
         }
 
-        // 4. Fetch Series
+        // 5. Fetch Series
         let refreshedSeries: Series[] = [];
         try {
           setLoadingSeries(true);
@@ -2876,69 +2908,133 @@ export default function App() {
           setLoadingSeries(false);
         }
 
-        // 5. Update Home Popular Data
+        // 6. Refresh Live Streams
+        let refreshedLive: LiveStream[] = [];
+        try {
+          setLoadingLive(true);
+          const lItems = await xtreamApi.getLiveStreams(creds, '0');
+          setLiveItems(lItems);
+          setAllLiveChannels(lItems);
+          setTotalLiveCount(lItems.length);
+          refreshedLive = lItems;
+        } catch (lErr) {
+          console.warn("Failed to refresh live channels:", lErr);
+        } finally {
+          setLoadingLive(false);
+        }
+
+        // 7. Update Home Popular Data
         if (refreshedMovies.length > 0 || refreshedSeries.length > 0) {
           const newData = {
-            popularMovies: refreshedMovies.slice(0, 20),
-            popularSeries: refreshedSeries.slice(0, 20)
+            popularMovies: refreshedMovies.slice(0, 30),
+            popularSeries: refreshedSeries.slice(0, 30)
           };
           setHomeData(newData);
           localStorage.setItem('iptv_home_cache', JSON.stringify(newData));
         }
 
-        // 6. Refresh Live Streams if active or loaded
-        if (liveItems.length > 0 || activeTab === 'live') {
-          try {
-            setLoadingLive(true);
-            const lItems = await xtreamApi.getLiveStreams(creds, selectedLiveCategory || '0');
-            setLiveItems(lItems);
-            setTotalLiveCount(lItems.length);
-          } catch (lErr) {
-            console.warn("Failed to refresh live channels:", lErr);
-          } finally {
-            setLoadingLive(false);
-          }
-        }
-
-        // Save fresh items to client IndexedDB storage
-        const isMaster = !creds || !creds.username || creds.username === DEFAULT_CREDENTIALS.username;
-        if (isMaster && (refreshedMovies.length > 0 || refreshedSeries.length > 0)) {
+        // 8. Save fresh items to client IndexedDB storage
+        if (isMaster && (refreshedMovies.length > 0 || refreshedSeries.length > 0 || refreshedLive.length > 0)) {
           playlistStorage.saveStoredPlaylist({
             movies: refreshedMovies,
             series: refreshedSeries,
-            movieCategories,
-            seriesCategories,
-            liveCategories,
-            homeData,
+            movieCategories: [{ category_id: '0', category_name: 'All Movies', parent_id: 0 }, ...mCats],
+            seriesCategories: [{ category_id: '0', category_name: 'All Series', parent_id: 0 }, ...sCats],
+            liveCategories: [{ category_id: '0', category_name: 'All Channels', parent_id: 0 }, ...lCats],
+            homeData: {
+              popularMovies: refreshedMovies.slice(0, 30),
+              popularSeries: refreshedSeries.slice(0, 30)
+            },
             totalMovieCount: refreshedMovies.length,
             totalSeriesCount: refreshedSeries.length
           }).catch(() => {});
+          localStorage.setItem('iptv_client_last_sync', String(Date.now()));
         }
+
+        setLastDataUpdatedTime(new Date());
+        showToast("Tamam data kamyabi se update ho gaya!", "success");
       }
 
-      // 7. Refresh TMDB Trending Content
+      // 9. Refresh TMDB Trending Content
       try {
-        setLoadingTrending(true);
-        const [tMovies, tSeries] = await Promise.all([
+        const [movies, series] = await Promise.all([
           fetchTrendingMovies(selectedTrendingRegion),
           fetchTrendingSeries(selectedTrendingRegion)
         ]);
-        setTrendingMovies(tMovies);
-        setTrendingSeries(tSeries);
+        setTrendingMovies(movies);
+        setTrendingSeries(series);
       } catch (tErr) {
         console.warn("Failed to refresh trending content:", tErr);
-      } finally {
-        setLoadingTrending(false);
       }
-
-      showToast("All content refreshed with latest playlist!", "success");
     } catch (err: any) {
-      console.error("Critical error during content refresh:", err);
-      showToast("Failed to refresh content. Please try again.", "error");
+      console.error("Manual refresh error:", err);
+      showToast(err.message || "Content refresh failed.", "error");
     } finally {
       setIsRefreshingContent(false);
     }
   };
+
+  // ⏰ 24/7 Client Background Auto-Update Every 5 Minutes
+  useEffect(() => {
+    const isMaster = !creds || !creds.username || creds.username === DEFAULT_CREDENTIALS.username;
+
+    const CLIENT_AUTO_SYNC_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+    const checkAndAutoSync = async () => {
+      try {
+        console.log('[Auto-Sync 24/7] ⏰ 5-minute auto-refresh cycle running...');
+        if (isMaster) {
+          // Trigger server-side upstream sync if needed
+          try {
+            await xtreamApi.syncMasterCache('all');
+          } catch (sErr) {
+            console.warn('[Auto-Sync] Server sync trigger warning:', sErr);
+          }
+
+          // Pull fresh bootstrap dataset
+          const bootstrap = await xtreamApi.getMasterBootstrap();
+          if (bootstrap && bootstrap.isReady) {
+            if (bootstrap.movieCategories?.length > 0) setMovieCategories(bootstrap.movieCategories);
+            if (bootstrap.seriesCategories?.length > 0) setSeriesCategories(bootstrap.seriesCategories);
+            if (bootstrap.liveCategories?.length > 0) setLiveCategories(bootstrap.liveCategories);
+
+            if (bootstrap.counts?.totalMovies) setTotalMovieCount(bootstrap.counts.totalMovies);
+            if (bootstrap.counts?.totalSeries) setTotalSeriesCount(bootstrap.counts.totalSeries);
+            if (bootstrap.counts?.totalLive) setTotalLiveCount(bootstrap.counts.totalLive);
+
+            if (bootstrap.homeData) {
+              setHomeData(bootstrap.homeData);
+              localStorage.setItem('iptv_home_cache', JSON.stringify(bootstrap.homeData));
+            }
+
+            setLastDataUpdatedTime(new Date());
+            localStorage.setItem('iptv_client_last_sync', String(Date.now()));
+            console.log(`[Auto-Sync 24/7] ✅ Successfully auto-updated playlist at ${new Date().toLocaleTimeString()}`);
+          }
+        } else if (creds) {
+          // Logged in personal reseller account: auto refresh categories
+          try {
+            const [mCats, sCats, lCats] = await Promise.all([
+              xtreamApi.getMovieCategories(creds),
+              xtreamApi.getSeriesCategories(creds),
+              xtreamApi.getLiveCategories(creds)
+            ]);
+            if (mCats?.length) setMovieCategories([{ category_id: '0', category_name: 'All Movies', parent_id: 0 }, ...mCats]);
+            if (sCats?.length) setSeriesCategories([{ category_id: '0', category_name: 'All Series', parent_id: 0 }, ...sCats]);
+            if (lCats?.length) setLiveCategories([{ category_id: '0', category_name: 'All Channels', parent_id: 0 }, ...lCats]);
+            setLastDataUpdatedTime(new Date());
+          } catch (pErr) {
+            console.warn('[Auto-Sync] Reseller auto-refresh warning:', pErr);
+          }
+        }
+      } catch (err) {
+        console.warn('[Auto-Sync] Background 5-min update skipped:', err);
+      }
+    };
+
+    const intervalId = setInterval(checkAndAutoSync, CLIENT_AUTO_SYNC_INTERVAL);
+    return () => clearInterval(intervalId);
+  }, [creds]);
 
   const handleTrendingClick = (trendingItem: TmdbTrendingItem, isSeries: boolean) => {
     const cleanTarget = cleanMediaTitle(trendingItem.title).title.toLowerCase().trim();
@@ -3667,45 +3763,51 @@ export default function App() {
 
   const currentItems = useMemo(() => {
     const currentSelectedCategory = activeTab === 'movies' ? selectedMovieCategory : (activeTab === 'series' ? selectedSeriesCategory : selectedLiveCategory);
+    let itemsToFilter: any[] = [];
     if (isLoggedIn && currentSelectedCategory === 'favorites') {
       const typeMap = { 'movies': 'movie', 'series': 'series', 'live': 'live' };
       const currentType = typeMap[activeTab as 'movies' | 'series' | 'live'] || 'movie';
-      const favsForCurrentTab = favorites
+      itemsToFilter = favorites
         .filter((fav: any) => fav.type === currentType)
         .map((fav: any) => fav.itemData);
-      const filtered = executedSearchQuery 
-        ? favsForCurrentTab.filter((item: any) => item.name.toLowerCase().includes(executedSearchQuery.toLowerCase()))
-        : favsForCurrentTab;
-      return filtered.slice(0, visibleCount);
+    } else {
+      itemsToFilter = activeTab === 'movies' ? movieItems : (activeTab === 'series' ? seriesItems : liveItems);
     }
 
-    const items = activeTab === 'movies' ? movieItems : (activeTab === 'series' ? seriesItems : liveItems);
-    const filtered = executedSearchQuery 
-      ? items.filter((item: any) => item.name.toLowerCase().includes(executedSearchQuery.toLowerCase()))
-      : items;
+    let filtered = itemsToFilter;
+    if (executedSearchQuery) {
+      filtered = filtered.filter((item: any) => item.name && item.name.toLowerCase().includes(executedSearchQuery.toLowerCase()));
+    }
+    if (inCategorySearchQuery.trim()) {
+      const q = inCategorySearchQuery.trim().toLowerCase();
+      filtered = filtered.filter((item: any) => item.name && item.name.toLowerCase().includes(q));
+    }
     return filtered.slice(0, visibleCount);
-  }, [activeTab, movieItems, seriesItems, liveItems, executedSearchQuery, visibleCount, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, favorites, isLoggedIn]);
+  }, [activeTab, movieItems, seriesItems, liveItems, executedSearchQuery, inCategorySearchQuery, visibleCount, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, favorites, isLoggedIn]);
 
   const hasMore = useMemo(() => {
     const currentSelectedCategory = activeTab === 'movies' ? selectedMovieCategory : (activeTab === 'series' ? selectedSeriesCategory : selectedLiveCategory);
+    let itemsToFilter: any[] = [];
     if (isLoggedIn && currentSelectedCategory === 'favorites') {
       const typeMap = { 'movies': 'movie', 'series': 'series', 'live': 'live' };
       const currentType = typeMap[activeTab as 'movies' | 'series' | 'live'] || 'movie';
-      const favsForCurrentTab = favorites
+      itemsToFilter = favorites
         .filter((fav: any) => fav.type === currentType)
         .map((fav: any) => fav.itemData);
-      const filtered = searchQuery 
-        ? favsForCurrentTab.filter((item: any) => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
-        : favsForCurrentTab;
-      return visibleCount < filtered.length;
+    } else {
+      itemsToFilter = activeTab === 'movies' ? movieItems : (activeTab === 'series' ? seriesItems : liveItems);
     }
 
-    const items = activeTab === 'movies' ? movieItems : (activeTab === 'series' ? seriesItems : liveItems);
-    const filtered = searchQuery 
-      ? items.filter((item: any) => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
-      : items;
+    let filtered = itemsToFilter;
+    if (searchQuery) {
+      filtered = filtered.filter((item: any) => item.name && item.name.toLowerCase().includes(searchQuery.toLowerCase()));
+    }
+    if (inCategorySearchQuery.trim()) {
+      const q = inCategorySearchQuery.trim().toLowerCase();
+      filtered = filtered.filter((item: any) => item.name && item.name.toLowerCase().includes(q));
+    }
     return visibleCount < filtered.length;
-  }, [activeTab, movieItems, seriesItems, liveItems, searchQuery, visibleCount, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, favorites, isLoggedIn]);
+  }, [activeTab, movieItems, seriesItems, liveItems, searchQuery, inCategorySearchQuery, visibleCount, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, favorites, isLoggedIn]);
 
   const currentCategories = useMemo(() => {
     const cats = activeTab === 'movies' ? movieCategories : (activeTab === 'series' ? seriesCategories : liveCategories);
@@ -3714,6 +3816,16 @@ export default function App() {
     }
     return cats;
   }, [activeTab, movieCategories, seriesCategories, liveCategories, isLoggedIn]);
+
+  const filteredCurrentCategories = useMemo(() => {
+    if (!categorySearchQuery.trim()) return currentCategories;
+    const q = categorySearchQuery.trim().toLowerCase();
+    return currentCategories.filter(cat => 
+      (cat.category_name && cat.category_name.toLowerCase().includes(q)) ||
+      (cat.category_id === '0' && 'all'.includes(q)) ||
+      (cat.category_id === 'favorites' && 'favorites'.includes(q))
+    );
+  }, [currentCategories, categorySearchQuery]);
 
   // Quick category pills for Mobile Live TV (Screenshot Inspired)
   const quickCategoryPills = useMemo(() => {
@@ -3768,7 +3880,18 @@ export default function App() {
   // Reset visible items when category or search changes
   useEffect(() => {
     setVisibleCount(40);
-  }, [activeTab, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, searchQuery]);
+  }, [activeTab, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, searchQuery, inCategorySearchQuery]);
+
+  // Reset search queries when changing tabs
+  useEffect(() => {
+    setCategorySearchQuery('');
+    setInCategorySearchQuery('');
+  }, [activeTab]);
+
+  // Reset in-category search query when switching categories
+  useEffect(() => {
+    setInCategorySearchQuery('');
+  }, [selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory]);
 
   // Infinite scroll observer
   useEffect(() => {
@@ -3785,7 +3908,7 @@ export default function App() {
     }
 
     return () => observer.disconnect();
-  }, [currentLoading, activeTab, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, searchQuery]);
+  }, [currentLoading, activeTab, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, searchQuery, inCategorySearchQuery]);
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -5013,14 +5136,16 @@ export default function App() {
               </button>
             )}
 
-            {/* Refresh Content Button (Desktop) */}
+            {/* Refresh / Update Content Button (Desktop: 24/7 Auto-Update + Manual) */}
             <button 
               onClick={() => setShowRefreshConfirm(true)}
               disabled={isRefreshingContent}
-              className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 hover:text-cyan-300 transition-all hover:scale-105 active:scale-95 cursor-pointer shrink-0 shadow-sm shadow-cyan-500/10 disabled:opacity-50"
-              title="Refresh All Content"
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 hover:text-cyan-300 transition-all hover:scale-105 active:scale-95 cursor-pointer shrink-0 shadow-sm shadow-cyan-500/10 disabled:opacity-50 text-xs font-bold"
+              title={`24/7 Auto-Update Active (Every 5 mins) | Last Updated: ${lastDataUpdatedTime.toLocaleTimeString()}`}
             >
-              <RefreshCw size={15} className={cn("transition-transform", isRefreshingContent && "animate-spin text-cyan-300")} />
+              <RefreshCw size={14} className={cn("transition-transform shrink-0", isRefreshingContent && "animate-spin text-cyan-300")} />
+              <span className="hidden xl:inline text-[11px] font-black uppercase tracking-wider">Update Data</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" title="24/7 Auto-Sync Active (5 min)" />
             </button>
 
           </nav>
@@ -5062,7 +5187,7 @@ export default function App() {
             onClick={() => setShowRefreshConfirm(true)}
             disabled={isRefreshingContent}
             className="md:hidden flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-cyan-500/15 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/25 transition-all cursor-pointer shrink-0 disabled:opacity-50"
-            title="Refresh All Content"
+            title={`24/7 Auto-Update Active (Every 5m) | Last: ${lastDataUpdatedTime.toLocaleTimeString()}`}
           >
             <RefreshCw size={15} className={cn("transition-transform", isRefreshingContent && "animate-spin text-cyan-300")} />
           </button>
@@ -6151,15 +6276,27 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Right: Three-Line Menu "Categories" Button */}
-                <button
-                  type="button"
-                  onClick={() => setIsMobileLiveDrawerOpen(true)}
-                  className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-gradient-to-r from-slate-900 to-cyan-950/60 border border-cyan-500/40 text-white font-bold text-xs shadow-[0_0_20px_rgba(6,182,212,0.2)] hover:border-cyan-400 active:scale-95 transition-all cursor-pointer shrink-0"
-                >
-                  <Menu size={16} className="text-cyan-400" />
-                  <span className="text-[11px] uppercase tracking-wider font-black">Categories</span>
-                </button>
+                {/* Right: Refresh & Three-Line Menu "Categories" Button */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleRefreshContent}
+                    disabled={isRefreshingContent}
+                    className="p-2.5 rounded-2xl bg-gradient-to-r from-slate-900 to-cyan-950/60 border border-cyan-500/40 text-cyan-400 font-bold text-xs shadow-[0_0_15px_rgba(6,182,212,0.2)] hover:border-cyan-400 active:scale-95 transition-all cursor-pointer shrink-0 disabled:opacity-50"
+                    title={`24/7 Auto-Update active (Every 5m) | Last: ${lastDataUpdatedTime.toLocaleTimeString()}`}
+                  >
+                    <RefreshCw size={14} className={cn("transition-transform", isRefreshingContent && "animate-spin text-cyan-300")} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsMobileLiveDrawerOpen(true)}
+                    className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-gradient-to-r from-slate-900 to-cyan-950/60 border border-cyan-500/40 text-white font-bold text-xs shadow-[0_0_20px_rgba(6,182,212,0.2)] hover:border-cyan-400 active:scale-95 transition-all cursor-pointer shrink-0"
+                  >
+                    <Menu size={16} className="text-cyan-400" />
+                    <span className="text-[11px] uppercase tracking-wider font-black">Categories</span>
+                  </button>
+                </div>
               </div>
 
               {/* Global Channel Search Bar (Placed directly under Category Header) */}
@@ -6583,24 +6720,37 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Right: Global Channel Search Bar (Searches all service channels) */}
-                    <div className="relative w-full lg:w-96">
-                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-cyan-400" size={17} />
-                      <input
-                        type="text"
-                        placeholder="Search across all channels in service..."
-                        value={mobileLiveChannelSearch}
-                        onChange={(e) => setMobileLiveChannelSearch(e.target.value)}
-                        className="w-full bg-[#030712]/90 border border-cyan-500/30 focus:border-cyan-400 focus:shadow-[0_0_20px_rgba(6,182,212,0.25)] rounded-2xl py-2.5 pl-11 pr-10 text-xs text-white placeholder:text-white/40 outline-none transition-all font-medium"
-                      />
-                      {mobileLiveChannelSearch && (
-                        <button
-                          onClick={() => setMobileLiveChannelSearch('')}
-                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-1"
-                        >
-                          <X size={15} />
-                        </button>
-                      )}
+                    {/* Right: Global Channel Search Bar & Quick Update Data */}
+                    <div className="flex items-center gap-2.5 w-full lg:w-auto">
+                      <div className="relative w-full lg:w-96">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-cyan-400" size={17} />
+                        <input
+                          type="text"
+                          placeholder="Search across all channels in service..."
+                          value={mobileLiveChannelSearch}
+                          onChange={(e) => setMobileLiveChannelSearch(e.target.value)}
+                          className="w-full bg-[#030712]/90 border border-cyan-500/30 focus:border-cyan-400 focus:shadow-[0_0_20px_rgba(6,182,212,0.25)] rounded-2xl py-2.5 pl-11 pr-10 text-xs text-white placeholder:text-white/40 outline-none transition-all font-medium"
+                        />
+                        {mobileLiveChannelSearch && (
+                          <button
+                            onClick={() => setMobileLiveChannelSearch('')}
+                            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-1"
+                          >
+                            <X size={15} />
+                          </button>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleRefreshContent}
+                        disabled={isRefreshingContent}
+                        className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 hover:text-cyan-300 font-bold text-xs shadow-[0_0_15px_rgba(6,182,212,0.15)] active:scale-95 transition-all cursor-pointer shrink-0 disabled:opacity-50"
+                        title={`24/7 Auto-Update active (Every 5 mins) | Last Updated: ${lastDataUpdatedTime.toLocaleTimeString()}`}
+                      >
+                        <RefreshCw size={14} className={cn("transition-transform", isRefreshingContent && "animate-spin text-cyan-300")} />
+                        <span className="hidden xl:inline">Update Data</span>
+                      </button>
                     </div>
                   </div>
 
@@ -7165,12 +7315,35 @@ export default function App() {
                   </div>
                   <h3 className="text-lg font-display font-bold text-white tracking-tight">Categories</h3>
                 </div>
-                {!currentLoading && currentItems.length > 0 && (
-                  <div className="px-3 py-1 rounded-full bg-white/5 border border-white/10">
-                    <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
-                      {currentItems.length} {currentItems.length > 200 ? "Titles Available" : "Titles"}
-                    </span>
-                  </div>
+                <div className="px-3 py-1 rounded-full bg-white/5 border border-white/10">
+                  <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
+                    {filteredCurrentCategories.length} {filteredCurrentCategories.length === 1 ? 'Category' : 'Categories'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Desktop Category Search Input Bar */}
+              <div className="hidden md:block relative">
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400/60 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder={
+                    activeTab === 'movies' 
+                      ? "Search movie categories..." 
+                      : (activeTab === 'series' ? "Search series categories..." : "Search categories...")
+                  }
+                  value={categorySearchQuery}
+                  onChange={(e) => setCategorySearchQuery(e.target.value)}
+                  className="w-full bg-[#0a1222]/90 border border-white/10 hover:border-white/20 focus:border-cyan-400 focus:shadow-[0_0_15px_rgba(6,182,212,0.15)] rounded-xl py-2 pl-9 pr-8 text-xs text-white placeholder:text-white/35 focus:outline-none transition-all"
+                />
+                {categorySearchQuery && (
+                  <button
+                    onClick={() => setCategorySearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-1 rounded-full hover:bg-white/10 transition-colors"
+                    title="Clear category search"
+                  >
+                    <X size={13} />
+                  </button>
                 )}
               </div>
 
@@ -7205,50 +7378,122 @@ export default function App() {
 
               {/* Desktop Categories Scroll List */}
               <div className="relative group w-full hidden md:block">
-                <div className="flex flex-col items-stretch gap-2 overflow-y-auto max-h-[calc(100vh-240px)] desktop-scrollbar pr-1">
-                  {currentCategories.map((cat, idx) => (
-                    <button
-                      key={`${activeTab}-cat-${cat.category_id}-${idx}`}
-                      onClick={() => setCurrentSelectedCategory(cat.category_id)}
-                      className={cn(
-                        "relative text-left px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 w-full shrink-0 md:shrink",
-                        currentSelectedCategory === cat.category_id 
-                          ? "text-black" 
-                          : "text-white/50 hover:text-white bg-white/5 border border-white/5 hover:border-white/20"
-                      )}
-                    >
-                      {currentSelectedCategory === cat.category_id && (
-                        <motion.div
-                          layoutId="activeCategory"
-                          className="absolute inset-0 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.4)]"
-                          transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-                        />
-                      )}
-                      <div className="relative z-10 flex items-center justify-between">
-                        <span className="leading-tight truncate pr-2">{cat.category_name}</span>
-                        {cat.category_id === '0' && (
-                          <span className="text-[9px] opacity-60 font-medium mt-0.5 whitespace-nowrap shrink-0">
-                            {activeTab === 'movies' ? totalMovieCount : (activeTab === 'series' ? totalSeriesCount : totalLiveCount)} Items
-                          </span>
+                <div className="flex flex-col items-stretch gap-1.5 overflow-y-auto max-h-[calc(100vh-280px)] desktop-scrollbar pr-1">
+                  {filteredCurrentCategories.length === 0 ? (
+                    <div className="py-8 px-4 text-center rounded-2xl bg-white/[0.02] border border-white/5 space-y-2">
+                      <LayoutGrid size={22} className="text-white/20 mx-auto" />
+                      <p className="text-xs text-white/50 font-medium">No categories found matching &ldquo;{categorySearchQuery}&rdquo;</p>
+                      <button
+                        onClick={() => setCategorySearchQuery('')}
+                        className="text-[11px] text-cyan-400 hover:text-cyan-300 font-bold hover:underline"
+                      >
+                        Clear search
+                      </button>
+                    </div>
+                  ) : (
+                    filteredCurrentCategories.map((cat, idx) => (
+                      <button
+                        key={`${activeTab}-cat-${cat.category_id}-${idx}`}
+                        onClick={() => setCurrentSelectedCategory(cat.category_id)}
+                        className={cn(
+                          "relative text-left px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 w-full shrink-0 md:shrink",
+                          currentSelectedCategory === cat.category_id 
+                            ? "text-black" 
+                            : "text-white/50 hover:text-white bg-white/5 border border-white/5 hover:border-white/20"
                         )}
-                        {cat.category_id === 'favorites' && (
-                          <span className="text-[9px] opacity-60 font-medium mt-0.5 whitespace-nowrap shrink-0">
-                            {(() => {
-                              const typeMap = { 'movies': 'movie', 'series': 'series', 'live': 'live' };
-                              const currentType = typeMap[activeTab as 'movies' | 'series' | 'live'] || 'movie';
-                              return favorites.filter((fav: any) => fav.type === currentType).length;
-                            })()} Saved
-                          </span>
+                      >
+                        {currentSelectedCategory === cat.category_id && (
+                          <motion.div
+                            layoutId="activeCategory"
+                            className="absolute inset-0 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.4)]"
+                            transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                          />
                         )}
-                      </div>
-                    </button>
-                  ))}
+                        <div className="relative z-10 flex items-center justify-between">
+                          <span className="leading-tight truncate pr-2">{cat.category_name}</span>
+                          {cat.category_id === '0' && (
+                            <span className="text-[9px] opacity-60 font-medium mt-0.5 whitespace-nowrap shrink-0">
+                              {activeTab === 'movies' ? totalMovieCount : (activeTab === 'series' ? totalSeriesCount : totalLiveCount)} Items
+                            </span>
+                          )}
+                          {cat.category_id === 'favorites' && (
+                            <span className="text-[9px] opacity-60 font-medium mt-0.5 whitespace-nowrap shrink-0">
+                              {(() => {
+                                const typeMap = { 'movies': 'movie', 'series': 'series', 'live': 'live' };
+                                const currentType = typeMap[activeTab as 'movies' | 'series' | 'live'] || 'movie';
+                                return favorites.filter((fav: any) => fav.type === currentType).length;
+                              })()} Saved
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
 
             {/* Content Grid Container (Left side on desktop) */}
-            <div className="flex-1 w-full">
+            <div className="flex-1 w-full space-y-6">
+              {/* Category Header Banner with In-Category Title Search */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white/[0.03] border border-white/10 rounded-2xl p-3.5 sm:p-4 backdrop-blur-md">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center shrink-0">
+                    {activeTab === 'movies' ? (
+                      <Film size={20} className="text-cyan-400" />
+                    ) : activeTab === 'series' ? (
+                      <Tv size={20} className="text-cyan-400" />
+                    ) : (
+                      <Radio size={20} className="text-cyan-400" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-sm sm:text-base font-bold text-white tracking-tight truncate max-w-[200px] sm:max-w-xs md:max-w-md">
+                        {currentCategories.find(c => c.category_id === currentSelectedCategory)?.category_name || "All Titles"}
+                      </h2>
+                      <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 shrink-0">
+                        {activeTab === 'movies' ? 'Movies' : activeTab === 'series' ? 'Web Series' : 'Live'}
+                      </span>
+                    </div>
+                    <p className="text-[10px] sm:text-[11px] text-white/40 font-medium truncate">
+                      {inCategorySearchQuery ? (
+                        <span>Filtering titles for &ldquo;{inCategorySearchQuery}&rdquo;</span>
+                      ) : (
+                        <span>{currentItems.length} {currentItems.length === 1 ? 'title' : 'titles'} available</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Instant In-Category Title Search */}
+                <div className="relative w-full sm:w-64 md:w-72 shrink-0">
+                  <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400/60 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder={
+                      activeTab === 'movies'
+                        ? "Search in this movie category..."
+                        : activeTab === 'series'
+                          ? "Search in this series category..."
+                          : "Search in this category..."
+                    }
+                    value={inCategorySearchQuery}
+                    onChange={(e) => setInCategorySearchQuery(e.target.value)}
+                    className="w-full bg-[#0a1222]/90 border border-white/10 hover:border-white/20 focus:border-cyan-400 focus:shadow-[0_0_15px_rgba(6,182,212,0.15)] rounded-xl py-2 pl-9 pr-8 text-xs text-white placeholder:text-white/35 focus:outline-none transition-all"
+                  />
+                  {inCategorySearchQuery && (
+                    <button
+                      onClick={() => setInCategorySearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-1 rounded-full hover:bg-white/10 transition-colors"
+                      title="Clear title filter"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
               {currentLoading ? (
                 <div className="flex flex-col items-center justify-center py-24 md:py-32 gap-4">
                   <Loader2 className="animate-spin text-cyan-500" size={40} md:size={48} />
@@ -7269,6 +7514,24 @@ export default function App() {
                   >
                     Try Again
                   </button>
+                </div>
+              ) : currentItems.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 md:py-28 text-white/40 text-center px-4 space-y-3">
+                  <Search size={40} md:size={48} className="opacity-20" />
+                  <h3 className="text-sm md:text-base font-bold text-white/80">
+                    {inCategorySearchQuery 
+                      ? `No titles match "${inCategorySearchQuery}" in this category`
+                      : "No titles found in this category."
+                    }
+                  </h3>
+                  {inCategorySearchQuery && (
+                    <button
+                      onClick={() => setInCategorySearchQuery('')}
+                      className="px-4 py-2 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-xs font-bold hover:bg-cyan-500/30 transition-all cursor-pointer"
+                    >
+                      Clear Title Search
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-8">
@@ -7343,13 +7606,6 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                </div>
-              )}
-
-              {!currentLoading && currentItems.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-24 md:py-32 text-white/40">
-                  <Search size={40} md:size={48} className="mb-4 opacity-20" />
-                  <p className="text-sm">No titles found in this category.</p>
                 </div>
               )}
             </div>
@@ -9505,13 +9761,28 @@ export default function App() {
                   <RefreshCw size={26} className={isRefreshingContent ? "animate-spin" : ""} />
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="space-y-2">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399]" />
+                    <span>24/7 Auto-Update Active (Har 5 Minut)</span>
+                  </div>
                   <h3 className="text-lg font-black tracking-tight text-white uppercase italic">
-                    Refresh Content?
+                    Data Update & Sync
                   </h3>
-                  <p className="text-xs text-white/70 leading-relaxed px-2">
-                    Kya aap tamam movies, web series aur categories ko server se dobara refresh karna chahte hain?
+                  <p className="text-xs text-white/70 leading-relaxed px-1">
+                    Hamara data 24/7 har 5 minute baad background me automatically update hota hai. Agar aap chahein to abhi manually bhi click karke latest data refresh kar sakte hain.
                   </p>
+                  
+                  <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-left text-xs space-y-1.5 mt-2">
+                    <div className="flex justify-between items-center text-white/60">
+                      <span>Auto-Sync Schedule:</span>
+                      <span className="font-bold text-cyan-400">Har 5 Minut (Continuous)</span>
+                    </div>
+                    <div className="flex justify-between items-center text-white/60">
+                      <span>Aakhri Update (Last Sync):</span>
+                      <span className="font-bold text-emerald-400">{lastDataUpdatedTime.toLocaleTimeString()}</span>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-3 w-full pt-2">
@@ -9532,12 +9803,12 @@ export default function App() {
                     {isRefreshingContent ? (
                       <>
                         <Loader2 size={14} className="animate-spin" />
-                        <span>Refreshing...</span>
+                        <span>Updating...</span>
                       </>
                     ) : (
                       <>
                         <RefreshCw size={14} />
-                        <span>Refresh Now</span>
+                        <span>Abhi Update Karein</span>
                       </>
                     )}
                   </button>
@@ -9730,7 +10001,7 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-sm font-display font-black text-white uppercase tracking-wider">Categories</h3>
-                    <p className="text-[9px] text-white/40 uppercase font-bold tracking-widest">{currentCategories.length} available</p>
+                    <p className="text-[9px] text-white/40 uppercase font-bold tracking-widest">{filteredCurrentCategories.length} available</p>
                   </div>
                 </div>
                 <button
@@ -9741,57 +10012,98 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Categories list */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-2 max-h-[calc(100vh-80px)]">
-                {currentCategories.map((cat, idx) => {
-                  const isSelected = currentSelectedCategory === cat.category_id;
-                  return (
+              {/* Mobile Category Search Input */}
+              <div className="p-3 border-b border-white/5">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400/60 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder={
+                      activeTab === 'movies'
+                        ? "Search movie categories..."
+                        : activeTab === 'series'
+                          ? "Search series categories..."
+                          : "Search categories..."
+                    }
+                    value={categorySearchQuery}
+                    onChange={(e) => setCategorySearchQuery(e.target.value)}
+                    className="w-full bg-[#0a1222]/90 border border-white/10 focus:border-cyan-400 rounded-xl py-2 pl-9 pr-8 text-xs text-white placeholder:text-white/35 focus:outline-none transition-all"
+                  />
+                  {categorySearchQuery && (
                     <button
-                      key={`mobile-cat-${cat.category_id}-${idx}`}
-                      onClick={() => {
-                        setCurrentSelectedCategory(cat.category_id);
-                        setIsMobileCategoriesOpen(false); // Close drawer on selection!
-                      }}
-                      className={cn(
-                        "relative w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition-all duration-300 flex items-center justify-between group active:scale-[0.98]",
-                        isSelected 
-                          ? "text-black bg-gradient-to-r from-cyan-500 to-blue-500 shadow-[0_4px_12px_rgba(6,182,212,0.3)] font-extrabold font-sans" 
-                          : "text-white/60 hover:text-white bg-white/5 border border-white/5 font-sans"
-                      )}
+                      onClick={() => setCategorySearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-1"
                     >
-                      {isSelected && (
-                        <motion.div
-                          layoutId="activeCategoryMobile"
-                          className="absolute inset-0 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl"
-                          transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-                        />
-                      )}
-                      <span className="relative z-10 leading-tight truncate pr-4">{cat.category_name}</span>
-                      
-                      {cat.category_id === '0' && (
-                        <span className={cn(
-                          "relative z-10 text-[9px] font-bold px-2 py-0.5 rounded-full",
-                          isSelected ? "bg-black/10 text-black" : "bg-white/5 text-white/40"
-                        )}>
-                          {activeTab === 'movies' ? totalMovieCount : (activeTab === 'series' ? totalSeriesCount : totalLiveCount)}
-                        </span>
-                      )}
-
-                      {cat.category_id === 'favorites' && (
-                        <span className={cn(
-                          "relative z-10 text-[9px] font-bold px-2 py-0.5 rounded-full",
-                          isSelected ? "bg-black/10 text-black" : "bg-white/5 text-white/40"
-                        )}>
-                          {(() => {
-                            const typeMap = { 'movies': 'movie', 'series': 'series', 'live': 'live' };
-                            const currentType = typeMap[activeTab as 'movies' | 'series' | 'live'] || 'movie';
-                            return favorites.filter((fav: any) => fav.type === currentType).length;
-                          })()}
-                        </span>
-                      )}
+                      <X size={13} />
                     </button>
-                  );
-                })}
+                  )}
+                </div>
+              </div>
+
+              {/* Categories list */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-2 max-h-[calc(100vh-140px)]">
+                {filteredCurrentCategories.length === 0 ? (
+                  <div className="py-12 text-center text-xs text-white/40 space-y-2">
+                    <LayoutGrid size={24} className="text-white/20 mx-auto" />
+                    <p>No categories matching &ldquo;{categorySearchQuery}&rdquo;</p>
+                    <button
+                      onClick={() => setCategorySearchQuery('')}
+                      className="text-cyan-400 font-bold hover:underline"
+                    >
+                      Clear search
+                    </button>
+                  </div>
+                ) : (
+                  filteredCurrentCategories.map((cat, idx) => {
+                    const isSelected = currentSelectedCategory === cat.category_id;
+                    return (
+                      <button
+                        key={`mobile-cat-${cat.category_id}-${idx}`}
+                        onClick={() => {
+                          setCurrentSelectedCategory(cat.category_id);
+                          setIsMobileCategoriesOpen(false); // Close drawer on selection!
+                        }}
+                        className={cn(
+                          "relative w-full text-left px-4 py-3 rounded-xl text-xs font-bold transition-all duration-300 flex items-center justify-between group active:scale-[0.98]",
+                          isSelected 
+                            ? "text-black bg-gradient-to-r from-cyan-500 to-blue-500 shadow-[0_4px_12px_rgba(6,182,212,0.3)] font-extrabold font-sans" 
+                            : "text-white/60 hover:text-white bg-white/5 border border-white/5 font-sans"
+                        )}
+                      >
+                        {isSelected && (
+                          <motion.div
+                            layoutId="activeCategoryMobile"
+                            className="absolute inset-0 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl"
+                            transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                          />
+                        )}
+                        <span className="relative z-10 leading-tight truncate pr-4">{cat.category_name}</span>
+                        
+                        {cat.category_id === '0' && (
+                          <span className={cn(
+                            "relative z-10 text-[9px] font-bold px-2 py-0.5 rounded-full",
+                            isSelected ? "bg-black/10 text-black" : "bg-white/5 text-white/40"
+                          )}>
+                            {activeTab === 'movies' ? totalMovieCount : (activeTab === 'series' ? totalSeriesCount : totalLiveCount)}
+                          </span>
+                        )}
+
+                        {cat.category_id === 'favorites' && (
+                          <span className={cn(
+                            "relative z-10 text-[9px] font-bold px-2 py-0.5 rounded-full",
+                            isSelected ? "bg-black/10 text-black" : "bg-white/5 text-white/40"
+                          )}>
+                            {(() => {
+                              const typeMap = { 'movies': 'movie', 'series': 'series', 'live': 'live' };
+                              const currentType = typeMap[activeTab as 'movies' | 'series' | 'live'] || 'movie';
+                              return favorites.filter((fav: any) => fav.type === currentType).length;
+                            })()}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })
+                )}
               </div>
             </motion.div>
           </div>
