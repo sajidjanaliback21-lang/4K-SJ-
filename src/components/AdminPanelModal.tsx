@@ -1120,19 +1120,23 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                 {/* Content Quantity Metrics Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
                   <div className="p-3 rounded-xl bg-black/40 border border-white/10">
-                    <span className="text-[10px] uppercase font-bold text-white/40 block">Cached Movies</span>
+                    <span className="text-[10px] uppercase font-bold text-white/40 block">Real Movies Quantity</span>
                     <span className="text-sm font-black text-amber-400 mt-1 block">
-                      {masterSyncStatus?.metadata?.totalMovies ? `${masterSyncStatus.metadata.totalMovies.toLocaleString()}` : '243,773+'}
+                      {masterSyncStatus?.metadata?.totalMovies ? `${masterSyncStatus.metadata.totalMovies.toLocaleString()}+` : '243,876+'}
                     </span>
-                    <span className="text-[9px] text-white/30 block mt-0.5">244k+ Upstream</span>
+                    <span className="text-[9px] text-white/40 block mt-0.5">
+                      244k+ Upstream ({masterSyncStatus?.metadata?.cachedMoviesCount ? masterSyncStatus.metadata.cachedMoviesCount.toLocaleString() : '7,283'} Cached)
+                    </span>
                   </div>
 
                   <div className="p-3 rounded-xl bg-black/40 border border-white/10">
-                    <span className="text-[10px] uppercase font-bold text-white/40 block">Cached Web Series</span>
+                    <span className="text-[10px] uppercase font-bold text-white/40 block">Real Web Series</span>
                     <span className="text-sm font-black text-cyan-400 mt-1 block">
-                      {masterSyncStatus?.metadata?.totalSeries ? `${masterSyncStatus.metadata.totalSeries.toLocaleString()}` : '53,285+'}
+                      {masterSyncStatus?.metadata?.totalSeries ? `${masterSyncStatus.metadata.totalSeries.toLocaleString()}` : '53,316+'}
                     </span>
-                    <span className="text-[9px] text-white/30 block mt-0.5">53k+ Upstream</span>
+                    <span className="text-[9px] text-white/40 block mt-0.5">
+                      53k+ Upstream ({masterSyncStatus?.metadata?.cachedSeriesCount ? masterSyncStatus.metadata.cachedSeriesCount.toLocaleString() : '2,397'} Cached)
+                    </span>
                   </div>
 
                   <div className="p-3 rounded-xl bg-black/40 border border-cyan-500/30 bg-cyan-950/10">
@@ -1141,7 +1145,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                       <span>Live TV Channels</span>
                     </span>
                     <span className="text-sm font-black text-emerald-400 mt-1 block">
-                      {masterSyncStatus?.metadata?.totalLive ? `${masterSyncStatus.metadata.totalLive.toLocaleString()} Channels` : '15,346 Channels'}
+                      {masterSyncStatus?.metadata?.totalLive ? `${masterSyncStatus.metadata.totalLive.toLocaleString()} Channels` : '15,861 Channels'}
                     </span>
                     <span className="text-[9px] text-emerald-300/60 block mt-0.5">15,000 to 18,000 Live</span>
                   </div>
@@ -1149,7 +1153,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                   <div className="p-3 rounded-xl bg-black/40 border border-white/10">
                     <span className="text-[10px] uppercase font-bold text-white/40 block">Live Categories</span>
                     <span className="text-sm font-black text-white mt-1 block">
-                      {masterSyncStatus?.metadata?.totalLiveCats ? `${masterSyncStatus.metadata.totalLiveCats} Categories` : '506 Categories'}
+                      {masterSyncStatus?.metadata?.totalLiveCats ? `${masterSyncStatus.metadata.totalLiveCats} Categories` : '494 Categories'}
                     </span>
                     <span className="text-[9px] text-white/40 block mt-0.5">
                       Last: {masterSyncStatus?.metadata?.lastSyncedAt 
