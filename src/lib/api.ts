@@ -2,7 +2,7 @@ import axios from 'axios';
 import { XtreamCredentials, Category, Stream, Series, LoginResponse, LiveStream } from '../types';
 
 export const DEFAULT_CREDENTIALS: XtreamCredentials = {
-  host: 'https://4kfaster.space',
+  host: 'https://4ksjpun-lbff.hf.space',
   username: 'webplayer44',
   password: '62246624',
 };
@@ -12,21 +12,21 @@ const sanitizeHost = (host: string): string => {
   if (typeof window !== 'undefined') {
     if ((window as any).activeServerUrl) {
       const live = ((window as any).activeServerUrl || '').trim();
-      if (live && live !== 'N/A' && !live.includes('hf.space') && !live.includes('lb-skip')) {
+      if (live && live !== 'N/A') {
         const clean = live.startsWith('http') ? live : `https://${live}`;
         return clean.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
       }
     }
     if ((window as any).activeResellerServerUrl) {
       const resellerHost = ((window as any).activeResellerServerUrl || '').trim();
-      if (resellerHost && resellerHost !== 'N/A' && !resellerHost.includes('hf.space') && !resellerHost.includes('lb-skip')) {
+      if (resellerHost && resellerHost !== 'N/A') {
         const clean = resellerHost.startsWith('http') ? resellerHost : `https://${resellerHost}`;
         return clean.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
       }
     }
     if ((window as any).appSettingsDefaultServerUrl) {
       const defaultHost = ((window as any).appSettingsDefaultServerUrl || '').trim();
-      if (defaultHost && defaultHost !== 'N/A' && !defaultHost.includes('hf.space') && !defaultHost.includes('lb-skip')) {
+      if (defaultHost && defaultHost !== 'N/A') {
         const clean = defaultHost.startsWith('http') ? defaultHost : `https://${defaultHost}`;
         return clean.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
       }
@@ -35,8 +35,8 @@ const sanitizeHost = (host: string): string => {
 
   // 2. Otherwise sanitize the passed host
   let cleanHost = host || '';
-  if (!cleanHost || cleanHost.includes('lb-skip.vercel.app') || cleanHost.includes('hf.space')) {
-    return 'https://4kfaster.space';
+  if (!cleanHost || cleanHost.includes('lb-skip.vercel.app')) {
+    return 'https://4ksjpun-lbff.hf.space';
   }
   if (!cleanHost.startsWith('http://') && !cleanHost.startsWith('https://')) {
     cleanHost = `https://${cleanHost}`;
@@ -155,31 +155,110 @@ export const xtreamApi = {
     return `${host}/${type}/${creds.username}/${creds.password}/${streamId}.${extension}`;
   },
 
-  // High-Speed Master Playlist Endpoints (Server-Side Cached & 24/7 Auto-Synced)
-  getMasterBootstrap: async (): Promise<any> => {
+  // Optimized Lazy-Loading: Top 100 Recently Added items (with posters & metadata)
+  getRecentlyAdded: async (creds: XtreamCredentials, type: 'movies' | 'series', limit: number = 100): Promise<any[]> => {
+    const host = sanitizeHost(creds.host);
+    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}`;
     try {
-      const response = await axios.get('/api/master-playlist?type=bootstrap', { timeout: 15000 });
-      return response.data;
-    } catch (e) {
-      return null;
+      const response = await axios.get('/api/recently-added', {
+        params: { url, type, limit },
+        timeout: 30000
+      });
+      return Array.isArray(response.data) ? response.data : [];
+    } catch (e: any) {
+      console.warn(`[API] Recently added fetch error for ${type}:`, e.message);
+      return [];
     }
   },
 
-  getMasterStatus: async (): Promise<any> => {
+  // Lightweight Global Search Index: Stripped down JSON array of ONLY {stream_id, name, stream_type, category_id}
+  // No posters, no descriptions, no stream URLs
+  getSearchIndex: async (creds: XtreamCredentials, type: 'all' | 'movies' | 'series' = 'all'): Promise<any[]> => {
+    const host = sanitizeHost(creds.host);
+    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}`;
     try {
-      const response = await axios.get('/api/master-playlist?type=status', { timeout: 10000 });
-      return response.data;
-    } catch (e) {
-      return null;
+      const response = await axios.get('/api/search-index', {
+        params: { url, type },
+        timeout: 45000
+      });
+      return Array.isArray(response.data) ? response.data : [];
+    } catch (e: any) {
+      console.warn(`[API] Search index fetch error:`, e.message);
+      return [];
     }
   },
 
-  syncMasterCache: async (target: string = 'all'): Promise<any> => {
+  // Full Library Sync: Fetches complete list of VODs and Series and keeps ONLY {stream_id, name, category_id, added}
+  // Completely strips out posters and heavy metadata for ultra-low memory & fast sync
+  syncLibrary: async (creds: XtreamCredentials): Promise<{
+    movies: Array<{ stream_id: string | number; name: string; category_id: string | number; added: number; stream_type: 'movie' }>;
+    series: Array<{ stream_id: string | number; name: string; category_id: string | number; added: number; stream_type: 'series' }>;
+    totalMovies: number;
+    totalSeries: number;
+  }> => {
+    const host = sanitizeHost(creds.host);
+    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}`;
     try {
-      const response = await axios.post(`/api/master-playlist/sync?target=${target}`, {}, { timeout: 15000 });
-      return response.data;
-    } catch (e) {
-      return null;
+      const response = await axios.get('/api/library-sync', {
+        params: { url },
+        timeout: 60000
+      });
+      if (response.data && Array.isArray(response.data.movies)) {
+        return response.data;
+      }
+    } catch (err: any) {
+      console.warn('[API] /api/library-sync notice, falling back to direct client strip:', err.message);
+    }
+
+    // Direct client-side strip fallback if server route is unavailable
+    try {
+      const [rawMovies, rawSeries] = await Promise.all([
+        xtreamApi.getMovies(creds, '0').catch(() => []),
+        xtreamApi.getSeries(creds, '0').catch(() => [])
+      ]);
+
+      const strippedMovies = (rawMovies || []).map((m: any) => ({
+        stream_id: m.stream_id || m.num,
+        name: String(m.name || '').trim(),
+        category_id: m.category_id || '0',
+        added: parseInt(m.added) || 0,
+        stream_type: 'movie' as const
+      }));
+
+      const strippedSeries = (rawSeries || []).map((s: any) => ({
+        stream_id: s.series_id || s.stream_id || s.num,
+        name: String(s.name || '').trim(),
+        category_id: s.category_id || '0',
+        added: parseInt(s.last_modified) || parseInt(s.added) || 0,
+        stream_type: 'series' as const
+      }));
+
+      return {
+        movies: strippedMovies,
+        series: strippedSeries,
+        totalMovies: strippedMovies.length,
+        totalSeries: strippedSeries.length
+      };
+    } catch (fallbackErr: any) {
+      console.warn('[API] Direct sync error:', fallbackErr.message);
+      return { movies: [], series: [], totalMovies: 0, totalSeries: 0 };
+    }
+  },
+
+  // On-demand poster & stream URL enrichment for top search matches (up to 30)
+  enrichMatches: async (creds: XtreamCredentials, items: Array<{ stream_id: string | number; stream_type: 'movie' | 'series'; name?: string }>): Promise<Record<string, any>> => {
+    if (!items || items.length === 0) return {};
+    const host = sanitizeHost(creds.host);
+    const url = `${host}/player_api.php?username=${creds.username}&password=${creds.password}`;
+    try {
+      const response = await axios.post('/api/enrich-matches', {
+        url,
+        items: items.slice(0, 30)
+      }, { timeout: 15000 });
+      return response.data?.matches || {};
+    } catch (e: any) {
+      console.warn('[API] Error enriching search matches:', e.message);
+      return {};
     }
   }
 };

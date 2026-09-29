@@ -67,7 +67,7 @@ import {
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { xtreamApi, DEFAULT_CREDENTIALS } from './lib/api';
-import { playlistStorage } from './lib/playlistStorage';
+import { playlistStorage, SearchIndexItem } from './lib/playlistStorage';
 import { XtreamCredentials, Category, Stream, Series, LiveStream, ContinueWatchingItem, AppDownloadItem } from './types';
 import axios from 'axios';
 import VideoPlayer from './components/VideoPlayer';
@@ -791,8 +791,8 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed) {
-          if (parsed.host?.includes('lb-skip.vercel.app') || parsed.host?.includes('hf.space') || !parsed.host) {
-            parsed.host = 'https://4kfaster.space';
+          if (parsed.host?.includes('lb-skip.vercel.app') || parsed.host?.includes('60fpssj-60fps10.hf.space') || !parsed.host) {
+            parsed.host = 'https://4ksjpun-lbff.hf.space';
           }
           if (parsed.host && parsed.host.includes(':8443')) {
             parsed.host = parsed.host.replace(/:8443(?=[\/?#]|$)/g, '');
@@ -846,50 +846,17 @@ export default function App() {
   const [selectedLiveCategory, setSelectedLiveCategory] = useState<string>('0');
   const [categorySearchQuery, setCategorySearchQuery] = useState('');
   const [inCategorySearchQuery, setInCategorySearchQuery] = useState('');
-  const [categorySearchResults, setCategorySearchResults] = useState<any[] | null>(null);
-  const [isSearchingCategory, setIsSearchingCategory] = useState(false);
-  const [categorySearchTotal, setCategorySearchTotal] = useState<number>(0);
   const [isMobileCategoriesOpen, setIsMobileCategoriesOpen] = useState(false);
   const [isMobileLiveDrawerOpen, setIsMobileLiveDrawerOpen] = useState(false);
   const [mobileLiveCatSearch, setMobileLiveCatSearch] = useState('');
   const [mobileLiveChannelSearch, setMobileLiveChannelSearch] = useState('');
-  const [loadingAllChannels, setLoadingAllChannels] = useState(false);
-  const [allChannelsProgress, setAllChannelsProgress] = useState(0);
-  const categoryCacheRef = React.useRef<Record<string, any[]>>({});
   const [movieItems, setMovieItems] = useState<Stream[]>([]);
   const [seriesItems, setSeriesItems] = useState<Series[]>([]);
   const [liveItems, setLiveItems] = useState<LiveStream[]>([]);
   const [allLiveChannels, setAllLiveChannels] = useState<LiveStream[]>([]);
-  const [totalMovieCount, setTotalMovieCount] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('iptv_counts');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.mCount && parsed.mCount > 10000) return parsed.mCount;
-      }
-    } catch (e) {}
-    return 244000;
-  });
-  const [totalSeriesCount, setTotalSeriesCount] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('iptv_counts');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.sCount && parsed.sCount > 10000) return parsed.sCount;
-      }
-    } catch (e) {}
-    return 53000;
-  });
-  const [totalLiveCount, setTotalLiveCount] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('iptv_counts');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.lCount && parsed.lCount > 5000) return parsed.lCount;
-      }
-    } catch (e) {}
-    return 15346;
-  });
+  const [totalMovieCount, setTotalMovieCount] = useState(0);
+  const [totalSeriesCount, setTotalSeriesCount] = useState(0);
+  const [totalLiveCount, setTotalLiveCount] = useState(0);
   const [homeData, setHomeData] = useState<{
     popularMovies: any[],
     popularSeries: any[]
@@ -903,13 +870,16 @@ export default function App() {
   const [loadingLive, setLoadingLive] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [executedSearchQuery, setExecutedSearchQuery] = useState('');
+  const [globalSearchIndex, setGlobalSearchIndex] = useState<SearchIndexItem[]>([]);
+  const [fullLibraryMovies, setFullLibraryMovies] = useState<SearchIndexItem[]>([]);
+  const [fullLibrarySeries, setFullLibrarySeries] = useState<SearchIndexItem[]>([]);
+  const [categoryMovieCounts, setCategoryMovieCounts] = useState<Record<string, number>>({});
+  const [categorySeriesCounts, setCategorySeriesCounts] = useState<Record<string, number>>({});
+  const [enrichedSearchPosters, setEnrichedSearchPosters] = useState<Record<string, any>>({});
+  const [isSyncingLibrary, setIsSyncingLibrary] = useState(false);
+  const [isSearchIndexLoading, setIsSearchIndexLoading] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchingOnServer, setSearchingOnServer] = useState(false);
-  const [serverSearchResults, setServerSearchResults] = useState<{
-    movies: any[];
-    series: any[];
-    live: any[];
-  }>({ movies: [], series: [], live: [] });
   const [selectedItem, setSelectedItem] = useState<Stream | Series | null>(null);
   const [seriesInfo, setSeriesInfo] = useState<any>(null);
   const [movieInfo, setMovieInfo] = useState<any>(null);
@@ -1364,7 +1334,7 @@ export default function App() {
         }
       }
     }
-    const fallback = activeReseller?.server_url || appSettings.default_server_url || "https://4kfaster.space";
+    const fallback = activeReseller?.server_url || appSettings.default_server_url || "https://60fpssj-60fps10.hf.space";
     return fallback.replace(/\/$/, '').replace(/:8443(?=[\/?#]|$)/g, '');
   };
 
@@ -2000,11 +1970,11 @@ export default function App() {
   // When an admin updates server URL or video proxy URL, this effect immediately updates
   // credentials, serverInfo, and window properties so current active users get the changes instantly.
   useEffect(() => {
-    const liveServer = (activeReseller?.server_url && activeReseller.server_url.trim() !== '' && activeReseller.server_url !== 'N/A' && !activeReseller.server_url.includes('hf.space'))
+    const liveServer = (activeReseller?.server_url && activeReseller.server_url.trim() !== '' && activeReseller.server_url !== 'N/A')
       ? activeReseller.server_url.trim()
-      : (appSettings.default_server_url && appSettings.default_server_url.trim() !== '' && appSettings.default_server_url !== 'N/A' && !appSettings.default_server_url.includes('hf.space')
+      : (appSettings.default_server_url && appSettings.default_server_url.trim() !== '' && appSettings.default_server_url !== 'N/A'
           ? appSettings.default_server_url.trim()
-          : 'https://4kfaster.space');
+          : 'https://4ksjpun-lbff.hf.space');
 
     let cleanLiveServer = liveServer;
     if (!cleanLiveServer.startsWith('http://') && !cleanLiveServer.startsWith('https://')) {
@@ -2461,99 +2431,151 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const isInitialMount = React.useRef(true);
 
-  // Initialize data with High-Speed Server Cache and Instant IndexedDB Hydration
+  // Rule 2 & 5: Lazy Loading for UI on Initial Load
+  // Only call API for Categories + Top 100 'Recently Added' Items with posters & metadata
+  // Homepage renders instantly!
   useEffect(() => {
     const initData = async () => {
       setLoadingHome(true);
       setError(null);
       setIntroProgress(10);
 
-      const isMasterUser = !creds || !creds.username || creds.username === DEFAULT_CREDENTIALS.username;
-
       try {
-        let initializedFromBootstrap = false;
+        // Fast-Path: Instant hydration from IndexedDB cache if available
+        let cachedCategories: any = null;
+        let cachedRecent: any = null;
         try {
-          setIntroProgress(30);
-          const bootstrap = await xtreamApi.getMasterBootstrap();
-          if (bootstrap && bootstrap.success && bootstrap.isReady) {
-            console.log(`[Init] ⚡ Instant Launch! Real Total Movies: ${bootstrap.counts?.totalMovies}, Series: ${bootstrap.counts?.totalSeries}, Live: ${bootstrap.counts?.totalLive}`);
-            
-            if (bootstrap.movieCategories?.length) setMovieCategories(bootstrap.movieCategories);
-            if (bootstrap.seriesCategories?.length) setSeriesCategories(bootstrap.seriesCategories);
-            if (bootstrap.liveCategories?.length) setLiveCategories(bootstrap.liveCategories);
-            
-            // Set REAL exact quantities from the master library
-            if (bootstrap.counts) {
-              const mCount = (bootstrap.counts.totalMovies && bootstrap.counts.totalMovies > 10000) ? bootstrap.counts.totalMovies : 244000;
-              const sCount = (bootstrap.counts.totalSeries && bootstrap.counts.totalSeries > 10000) ? bootstrap.counts.totalSeries : 53000;
-              const lCount = (bootstrap.counts.totalLive && bootstrap.counts.totalLive > 5000) ? bootstrap.counts.totalLive : 15346;
-              setTotalMovieCount(mCount);
-              setTotalSeriesCount(sCount);
-              setTotalLiveCount(lCount);
-              try {
-                localStorage.setItem('iptv_counts', JSON.stringify({ mCount, sCount, lCount }));
-              } catch (e) {}
-            }
+          cachedCategories = await playlistStorage.getStoredCategories();
+          cachedRecent = await playlistStorage.getStoredRecentlyAdded();
+          const cachedLib = await playlistStorage.getFullLibrary();
 
-            // Set Home & Recently Added (100 Movies, 100 Series, 100 Live Channels)
-            if (bootstrap.homeData) {
-              setHomeData(bootstrap.homeData);
-              if (bootstrap.homeData.popularMovies?.length) {
-                setMovieItems(bootstrap.homeData.popularMovies);
-                categoryCacheRef.current['movie_0'] = bootstrap.homeData.popularMovies;
-              }
-              if (bootstrap.homeData.popularSeries?.length) {
-                setSeriesItems(bootstrap.homeData.popularSeries);
-                categoryCacheRef.current['series_0'] = bootstrap.homeData.popularSeries;
-              }
-              if (bootstrap.homeData.popularLive?.length) {
-                setLiveItems(bootstrap.homeData.popularLive);
-                categoryCacheRef.current['live_0'] = bootstrap.homeData.popularLive;
-              }
-            }
+          // Immediately hydrate real library counts & search index from IndexedDB
+          if (cachedLib) {
+            if (cachedLib.totalMovies > 0) setTotalMovieCount(cachedLib.totalMovies);
+            if (cachedLib.totalSeries > 0) setTotalSeriesCount(cachedLib.totalSeries);
+            if (cachedLib.movies?.length > 0) setFullLibraryMovies(cachedLib.movies);
+            if (cachedLib.series?.length > 0) setFullLibrarySeries(cachedLib.series);
 
-            if (bootstrap.loginInfo?.user_info) setUserInfo(bootstrap.loginInfo.user_info);
-            if (bootstrap.loginInfo?.server_info) {
-              setServerInfo(bootstrap.loginInfo.server_info);
-              localStorage.setItem('iptv_server_info', JSON.stringify(bootstrap.loginInfo.server_info));
-            }
+            const mCounts: Record<string, number> = {};
+            cachedLib.movies.forEach(m => {
+              const cId = String(m.category_id || '0');
+              mCounts[cId] = (mCounts[cId] || 0) + 1;
+            });
+            setCategoryMovieCounts(mCounts);
 
-            setIntroProgress(100);
-            initializedFromBootstrap = true;
+            const sCounts: Record<string, number> = {};
+            cachedLib.series.forEach(s => {
+              const cId = String(s.category_id || '0');
+              sCounts[cId] = (sCounts[cId] || 0) + 1;
+            });
+            setCategorySeriesCounts(sCounts);
           }
-        } catch (bErr) {
-          console.warn("[Init] Bootstrap quick attempt error:", bErr);
+
+          if (cachedCategories && (cachedCategories.movieCategories?.length || cachedCategories.seriesCategories?.length)) {
+            if (cachedCategories.movieCategories?.length) setMovieCategories(cachedCategories.movieCategories);
+            if (cachedCategories.seriesCategories?.length) setSeriesCategories(cachedCategories.seriesCategories);
+            if (cachedCategories.liveCategories?.length) setLiveCategories(cachedCategories.liveCategories);
+          }
+
+          if (cachedRecent && (cachedRecent.movies?.length || cachedRecent.series?.length)) {
+            setMovieItems(cachedRecent.movies || []);
+            setSeriesItems(cachedRecent.series || []);
+            const homePopular = {
+              popularMovies: (cachedRecent.movies || []).slice(0, 30),
+              popularSeries: (cachedRecent.series || []).slice(0, 30)
+            };
+            setHomeData(homePopular);
+            setIntroProgress(85);
+            setTimeout(() => {
+              setIntroProgress(100);
+              setLoadingHome(false);
+            }, 300);
+          }
+        } catch (cErr) {
+          console.warn("[Init] Cache hydration notice:", cErr);
         }
 
-        // Fallback for custom reseller/user accounts (lightweight, zero bulk downloading)
-        if (!initializedFromBootstrap) {
-          setIntroProgress(50);
-          try {
-            const loginRes = await xtreamApi.login(creds);
-            if (loginRes?.user_info) setUserInfo(loginRes.user_info);
-            if (loginRes?.server_info) {
+        // 1. Verify credentials
+        try {
+          const loginRes = await xtreamApi.login(creds);
+          if (loginRes) {
+            if (loginRes.user_info) setUserInfo(loginRes.user_info);
+            if (loginRes.server_info) {
               setServerInfo(loginRes.server_info);
               localStorage.setItem('iptv_server_info', JSON.stringify(loginRes.server_info));
             }
-          } catch (lErr) {
-            console.warn("Login info fallback:", lErr);
+            if (creds && creds.username) {
+              const sessionKey = `tracked_session_${creds.username.toLowerCase()}`;
+              if (!sessionStorage.getItem(sessionKey)) {
+                trackUserActivity(creds.username);
+                sessionStorage.setItem(sessionKey, 'true');
+              }
+            }
           }
-
-          const [mCats, sCats, lCats] = await Promise.all([
-            xtreamApi.getMovieCategories(creds),
-            xtreamApi.getSeriesCategories(creds),
-            xtreamApi.getLiveCategories(creds)
-          ]).catch(() => [[], [], []]);
-
-          const fullMCats = [{ category_id: '0', category_name: 'All Movies', parent_id: 0 }, ...mCats];
-          const fullSCats = [{ category_id: '0', category_name: 'All Series', parent_id: 0 }, ...sCats];
-          const fullLCats = [{ category_id: '0', category_name: 'All Channels', parent_id: 0 }, ...lCats];
-
-          setMovieCategories(fullMCats);
-          setSeriesCategories(fullSCats);
-          setLiveCategories(fullLCats);
-          setIntroProgress(100);
+          if (!cachedRecent) setIntroProgress(30);
+        } catch (loginErr) {
+          console.warn("Login verification notice:", loginErr);
         }
+
+        // 2. Fetch Categories Only
+        const [mCats, sCats, lCats] = await Promise.all([
+          xtreamApi.getMovieCategories(creds),
+          xtreamApi.getSeriesCategories(creds),
+          xtreamApi.getLiveCategories(creds)
+        ]).catch(err => {
+          console.warn("Notice fetching categories:", err);
+          return [[], [], []];
+        });
+
+        const fullMCats = [{ category_id: '0', category_name: 'All Movies', parent_id: 0 }, ...(mCats || [])];
+        const fullSCats = [{ category_id: '0', category_name: 'All Series', parent_id: 0 }, ...(sCats || [])];
+        const fullLCats = [{ category_id: '0', category_name: 'All Channels', parent_id: 0 }, ...(lCats || [])];
+
+        setMovieCategories(fullMCats);
+        setSeriesCategories(fullSCats);
+        setLiveCategories(fullLCats);
+        playlistStorage.saveStoredCategories({
+          movieCategories: fullMCats,
+          seriesCategories: fullSCats,
+          liveCategories: fullLCats
+        }).catch(() => {});
+        if (!cachedRecent) setIntroProgress(60);
+
+        // 3. Lazy Load Top 100 'Recently Added' Items (with posters & metadata)
+        setLoadingMovies(true);
+        setLoadingSeries(true);
+        const [topMovies, topSeries] = await Promise.all([
+          xtreamApi.getRecentlyAdded(creds, 'movies', 100),
+          xtreamApi.getRecentlyAdded(creds, 'series', 100)
+        ]).catch(err => {
+          console.warn("Notice fetching recently added items:", err);
+          return [[], []];
+        });
+        setLoadingMovies(false);
+        setLoadingSeries(false);
+
+        if (Array.isArray(topMovies) && topMovies.length > 0) {
+          setMovieItems(topMovies);
+        }
+        if (Array.isArray(topSeries) && topSeries.length > 0) {
+          setSeriesItems(topSeries);
+        }
+
+        // 4. Render Homepage Instantly with Top 100 items
+        if (topMovies.length > 0 || topSeries.length > 0) {
+          const homePopular = {
+            popularMovies: topMovies.slice(0, 30),
+            popularSeries: topSeries.slice(0, 30)
+          };
+          setHomeData(homePopular);
+          localStorage.setItem('iptv_home_cache', JSON.stringify(homePopular));
+          playlistStorage.saveStoredRecentlyAdded({
+            movies: topMovies,
+            series: topSeries
+          }).catch(() => {});
+        }
+
+        setIntroProgress(100);
       } catch (err: any) {
         console.warn("Notice during initialization:", err?.message || err);
         setError(err.message || "Failed to connect to IPTV server.");
@@ -2565,6 +2587,57 @@ export default function App() {
 
     initData();
     isInitialMount.current = false;
+  }, [creds]);
+
+  // Rule 1 & 2: Full Library Sync (For Search & Real Counts)
+  // Fetches the COMPLETE list of VODs and Series using action=get_vod_streams & action=get_series
+  // Strips all posters & heavy metadata, keeps ONLY {stream_id, name, category_id, added}
+  // Stores lightweight JSON array to IndexedDB and exposes the TRUE quantities (e.g. 15,432)
+  useEffect(() => {
+    let isCancelled = false;
+    const syncLibraryData = async () => {
+      if (!creds?.username || !creds?.password) return;
+      setIsSyncingLibrary(true);
+      try {
+        const result = await xtreamApi.syncLibrary(creds);
+        if (isCancelled) return;
+
+        if (result && (result.totalMovies > 0 || result.totalSeries > 0)) {
+          setTotalMovieCount(result.totalMovies);
+          setTotalSeriesCount(result.totalSeries);
+          setFullLibraryMovies(result.movies);
+          setFullLibrarySeries(result.series);
+          setGlobalSearchIndex([...result.movies, ...result.series]);
+
+          const mCounts: Record<string, number> = {};
+          result.movies.forEach(m => {
+            const cId = String(m.category_id || '0');
+            mCounts[cId] = (mCounts[cId] || 0) + 1;
+          });
+          setCategoryMovieCounts(mCounts);
+
+          const sCounts: Record<string, number> = {};
+          result.series.forEach(s => {
+            const cId = String(s.category_id || '0');
+            sCounts[cId] = (sCounts[cId] || 0) + 1;
+          });
+          setCategorySeriesCounts(sCounts);
+
+          await playlistStorage.saveFullLibrary(result.movies, result.series);
+          console.log(`[Library-Sync] ✅ Successfully synced full library: ${result.totalMovies} movies, ${result.totalSeries} series.`);
+        }
+      } catch (err: any) {
+        console.warn("[Library-Sync] Background sync notice:", err.message);
+      } finally {
+        if (!isCancelled) setIsSyncingLibrary(false);
+      }
+    };
+
+    const timer = setTimeout(syncLibraryData, 800);
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
   }, [creds]);
 
   const handleRetryConnection = async () => {
@@ -2616,74 +2689,12 @@ export default function App() {
     loadTrendingContent();
   }, [selectedTrendingRegion]);
 
-  // Load all live channels with progress percentage animation for instant global search
-  const loadAllLiveChannels = useCallback(async () => {
-    if (allLiveChannels.length > 0 || loadingAllChannels) return;
-    setLoadingAllChannels(true);
-    setAllChannelsProgress(15);
-
-    const progressTimer = setInterval(() => {
-      setAllChannelsProgress(prev => {
-        if (prev >= 92) {
-          return 92;
-        }
-        return prev + Math.floor(Math.random() * 12) + 6;
-      });
-    }, 180);
-
-    try {
-      const isMasterUser = !creds || !creds.username || creds.username === DEFAULT_CREDENTIALS.username;
-      let data: any[] = [];
-      if (isMasterUser) {
-        try {
-          const res = await fetch('/api/master-playlist?type=live');
-          if (res.ok) {
-            data = await res.json();
-          }
-        } catch (e) {}
-      }
-      if (!Array.isArray(data) || data.length === 0) {
-        data = await xtreamApi.getLiveStreams(creds, '0');
-      }
-
-      clearInterval(progressTimer);
-      setAllChannelsProgress(100);
-      if (Array.isArray(data) && data.length > 0) {
-        setAllLiveChannels(data);
-        setTotalLiveCount(data.length);
-        setLiveItems(data);
-        categoryCacheRef.current['live_0'] = data;
-      }
-    } catch (err) {
-      console.warn("Notice loading all channels:", err);
-      clearInterval(progressTimer);
-    } finally {
-      setTimeout(() => {
-        setLoadingAllChannels(false);
-        setAllChannelsProgress(0);
-      }, 500);
-    }
-  }, [creds, allLiveChannels.length, loadingAllChannels]);
-
-  // On-Demand Category Loading for Movies
+  // Fetch Movie items when category changes
   useEffect(() => {
     if (selectedMovieCategory === 'favorites') return;
-    
-    // Category 0 (All Movies): Show 100 recently added movies from home cache
-    if (selectedMovieCategory === '0') {
-      if (categoryCacheRef.current['movie_0']) {
-        setMovieItems(categoryCacheRef.current['movie_0']);
-      } else if (homeData?.popularMovies?.length > 0) {
-        setMovieItems(homeData.popularMovies);
-      }
-      return;
-    }
-
-    const cacheKey = `movie_${selectedMovieCategory}`;
-    if (categoryCacheRef.current[cacheKey]) {
-      setMovieItems(categoryCacheRef.current[cacheKey]);
-      return;
-    }
+    // Skip if it's initial mount and category is 0 (already fetched in initData)
+    // Also skip if we already have items for category 0
+    if (selectedMovieCategory === '0' && movieItems.length > 0) return;
 
     let isMounted = true;
     const fetchMovies = async () => {
@@ -2694,7 +2705,6 @@ export default function App() {
         if (!isMounted) return;
         if (Array.isArray(data)) {
           const sortedData = [...data].sort((a: any, b: any) => (parseInt(b.added) || 0) - (parseInt(a.added) || 0));
-          categoryCacheRef.current[cacheKey] = sortedData;
           setMovieItems(sortedData);
         }
       } catch (err: any) {
@@ -2705,27 +2715,13 @@ export default function App() {
     };
     fetchMovies();
     return () => { isMounted = false; };
-  }, [creds, selectedMovieCategory, homeData]);
+  }, [creds, selectedMovieCategory]);
 
-  // On-Demand Category Loading for Series
+  // Fetch Series items when category changes
   useEffect(() => {
     if (selectedSeriesCategory === 'favorites') return;
-
-    // Category 0 (All Series): Show 100 recently added series from home cache
-    if (selectedSeriesCategory === '0') {
-      if (categoryCacheRef.current['series_0']) {
-        setSeriesItems(categoryCacheRef.current['series_0']);
-      } else if (homeData?.popularSeries?.length > 0) {
-        setSeriesItems(homeData.popularSeries);
-      }
-      return;
-    }
-
-    const cacheKey = `series_${selectedSeriesCategory}`;
-    if (categoryCacheRef.current[cacheKey]) {
-      setSeriesItems(categoryCacheRef.current[cacheKey]);
-      return;
-    }
+    // Skip if it's initial mount and category is 0 (already fetched in initData)
+    if (selectedSeriesCategory === '0' && seriesItems.length > 0) return;
 
     let isMounted = true;
     const fetchSeries = async () => {
@@ -2736,7 +2732,6 @@ export default function App() {
         if (!isMounted) return;
         if (Array.isArray(data)) {
           const sortedData = [...data].sort((a: any, b: any) => (parseInt(b.last_modified) || 0) - (parseInt(a.last_modified) || 0));
-          categoryCacheRef.current[cacheKey] = sortedData;
           setSeriesItems(sortedData);
         }
       } catch (err: any) {
@@ -2747,50 +2742,46 @@ export default function App() {
     };
     fetchSeries();
     return () => { isMounted = false; };
-  }, [creds, selectedSeriesCategory, homeData]);
+  }, [creds, selectedSeriesCategory]);
 
-  // On-Demand Category Loading for Live TV
+  // Fetch Live TV items when category changes or when live tab is active and items are empty
   useEffect(() => {
     if (selectedLiveCategory === 'favorites') return;
-    
-    // Category 0 (All Channels)
-    if (selectedLiveCategory === '0') {
-      if (allLiveChannels.length > 0) {
-        setLiveItems(allLiveChannels);
-        setTotalLiveCount(allLiveChannels.length);
-      } else if (activeTab === 'live') {
-        loadAllLiveChannels();
+    // Only fetch if tab is live OR if it's category change
+    if (activeTab !== 'live' && selectedLiveCategory === '0' && allLiveChannels.length === 0) return;
+
+    if (selectedLiveCategory === '0' && allLiveChannels.length > 0) {
+      setLiveItems(allLiveChannels);
+      setTotalLiveCount(allLiveChannels.length);
+      return;
+    }
+
+    if (selectedLiveCategory !== '0' && allLiveChannels.length > 0) {
+      const matching = allLiveChannels.filter((c: any) => String(c.category_id) === String(selectedLiveCategory));
+      if (matching.length > 0) {
+        setLiveItems(matching);
+        return;
       }
-      return;
     }
 
-    // Specific category
-    const cacheKey = `live_${selectedLiveCategory}`;
-    if (categoryCacheRef.current[cacheKey]) {
-      setLiveItems(categoryCacheRef.current[cacheKey]);
-      return;
-    }
-
-    let isMounted = true;
     const fetchLive = async () => {
       setLoadingLive(true);
       setError(null);
       try {
         const data = await xtreamApi.getLiveStreams(creds, selectedLiveCategory);
-        if (!isMounted) return;
-        if (Array.isArray(data)) {
-          categoryCacheRef.current[cacheKey] = data;
-          setLiveItems(data);
+        setLiveItems(data);
+        if (selectedLiveCategory === '0') {
+          setAllLiveChannels(data);
+          setTotalLiveCount(data.length);
         }
       } catch (err: any) {
         console.warn("Notice: could not fetch live streams", err?.message || err);
       } finally {
-        if (isMounted) setLoadingLive(false);
+        setLoadingLive(false);
       }
     };
     fetchLive();
-    return () => { isMounted = false; };
-  }, [creds, selectedLiveCategory, activeTab, allLiveChannels.length, loadAllLiveChannels]);
+  }, [creds, selectedLiveCategory, activeTab, allLiveChannels.length]);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastType, setToastType] = useState<'success' | 'info' | 'error'>('info');
@@ -2803,28 +2794,17 @@ export default function App() {
     }, 4000);
   };
 
-  // Full Content Refresh Handler (Manual Trigger)
+  // Full Content Refresh Handler (Manual Trigger in user's browser)
   const handleRefreshContent = async () => {
     setShowRefreshConfirm(false);
     setIsRefreshingContent(true);
     showToast("Server se naya content refresh ho raha hai...", "info");
 
     try {
-      const isMaster = !creds || !creds.username || creds.username === DEFAULT_CREDENTIALS.username;
-
-      // 1. If master account, tell the server to trigger an upstream sync
-      if (isMaster) {
-        try {
-          await xtreamApi.syncMasterCache('all');
-        } catch (sErr) {
-          console.warn("Server sync trigger warning:", sErr);
-        }
-      }
-
-      // 2. Clear cached local home data
+      // 1. Clear cached local home data
       localStorage.removeItem('iptv_home_cache');
 
-      // 3. Refresh categories if user is logged in
+      // 2. Refresh categories and playlist directly in browser
       if (creds) {
         let mCats: Category[] = [];
         let sCats: Category[] = [];
@@ -2840,67 +2820,76 @@ export default function App() {
           sCats = resSCats || [];
           lCats = resLCats || [];
 
-          if (mCats.length > 0) {
-            setMovieCategories([{ category_id: '0', category_name: 'All Movies', parent_id: 0 }, ...mCats]);
-          }
-          if (sCats.length > 0) {
-            setSeriesCategories([{ category_id: '0', category_name: 'All Series', parent_id: 0 }, ...sCats]);
-          }
-          if (lCats.length > 0) {
-            setLiveCategories([{ category_id: '0', category_name: 'All Channels', parent_id: 0 }, ...lCats]);
-          }
+          const fullMCats = [{ category_id: '0', category_name: 'All Movies', parent_id: 0 }, ...mCats];
+          const fullSCats = [{ category_id: '0', category_name: 'All Series', parent_id: 0 }, ...sCats];
+          const fullLCats = [{ category_id: '0', category_name: 'All Channels', parent_id: 0 }, ...lCats];
+
+          setMovieCategories(fullMCats);
+          setSeriesCategories(fullSCats);
+          setLiveCategories(fullLCats);
+          playlistStorage.saveStoredCategories({
+            movieCategories: fullMCats,
+            seriesCategories: fullSCats,
+            liveCategories: fullLCats
+          }).catch(() => {});
         } catch (catErr) {
           console.warn("Failed to refresh categories:", catErr);
         }
 
-        // 4. Fetch Movies
-        let refreshedMovies: Stream[] = [];
-        let computedMCount = totalMovieCount || 243876;
-        let computedSCount = totalSeriesCount || 53316;
-        let computedLCount = totalLiveCount || 15861;
-
+        // 3. Full Library Sync (For Search & Real Counts)
         try {
-          setLoadingMovies(true);
-          const mItems = await xtreamApi.getMovies(creds, selectedMovieCategory || '0');
-          const sortedMItems = [...mItems].sort((a, b) => (parseInt(b.added) || 0) - (parseInt(a.added) || 0));
-          setMovieItems(sortedMItems);
-          const realMCatSum = mCats.reduce((acc: number, c: any) => acc + (parseInt(c.stream_count) || 0), 0);
-          computedMCount = realMCatSum > 10000 ? realMCatSum : (isMaster ? 243876 : mItems.length);
-          setTotalMovieCount(computedMCount);
-          refreshedMovies = sortedMItems;
-        } catch (mErr) {
-          console.warn("Failed to refresh movies:", mErr);
-        } finally {
-          setLoadingMovies(false);
-        }
+          const syncRes = await xtreamApi.syncLibrary(creds);
+          if (syncRes && (syncRes.totalMovies > 0 || syncRes.totalSeries > 0)) {
+            setTotalMovieCount(syncRes.totalMovies);
+            setTotalSeriesCount(syncRes.totalSeries);
+            setFullLibraryMovies(syncRes.movies);
+            setFullLibrarySeries(syncRes.series);
+            setGlobalSearchIndex([...syncRes.movies, ...syncRes.series]);
 
-        // 5. Fetch Series
-        let refreshedSeries: Series[] = [];
-        try {
-          setLoadingSeries(true);
-          const sItems = await xtreamApi.getSeries(creds, selectedSeriesCategory || '0');
-          const sortedSItems = [...sItems].sort((a, b) => (parseInt(b.last_modified) || 0) - (parseInt(a.last_modified) || 0));
-          setSeriesItems(sortedSItems);
-          const realSCatSum = sCats.reduce((acc: number, c: any) => acc + (parseInt(c.stream_count) || 0), 0);
-          computedSCount = realSCatSum > 5000 ? realSCatSum : (isMaster ? 53316 : sItems.length);
-          setTotalSeriesCount(computedSCount);
-          refreshedSeries = sortedSItems;
+            const mCounts: Record<string, number> = {};
+            syncRes.movies.forEach(m => {
+              const cId = String(m.category_id || '0');
+              mCounts[cId] = (mCounts[cId] || 0) + 1;
+            });
+            setCategoryMovieCounts(mCounts);
+
+            const sCounts: Record<string, number> = {};
+            syncRes.series.forEach(s => {
+              const cId = String(s.category_id || '0');
+              sCounts[cId] = (sCounts[cId] || 0) + 1;
+            });
+            setCategorySeriesCounts(sCounts);
+
+            await playlistStorage.saveFullLibrary(syncRes.movies, syncRes.series);
+          }
         } catch (sErr) {
-          console.warn("Failed to refresh series:", sErr);
-        } finally {
-          setLoadingSeries(false);
+          console.warn("Library sync error during refresh:", sErr);
         }
 
-        // 6. Refresh Live Streams
+        // 4. Fetch Top 100 Recently Added (for Homepage & Initial Category View)
+        let refreshedMovies: any[] = [];
+        let refreshedSeries: any[] = [];
+        try {
+          const [topM, topS] = await Promise.all([
+            xtreamApi.getRecentlyAdded(creds, 'movies', 100),
+            xtreamApi.getRecentlyAdded(creds, 'series', 100)
+          ]);
+          refreshedMovies = topM || [];
+          refreshedSeries = topS || [];
+          if (refreshedMovies.length > 0) setMovieItems(refreshedMovies);
+          if (refreshedSeries.length > 0) setSeriesItems(refreshedSeries);
+        } catch (recErr) {
+          console.warn("Failed to fetch recently added during refresh:", recErr);
+        }
+
+        // 5. Refresh Live Streams
         let refreshedLive: LiveStream[] = [];
         try {
           setLoadingLive(true);
           const lItems = await xtreamApi.getLiveStreams(creds, '0');
           setLiveItems(lItems);
           setAllLiveChannels(lItems);
-          const realLCatSum = lCats.reduce((acc: number, c: any) => acc + (parseInt(c.stream_count) || 0), 0);
-          computedLCount = lItems.length > 5000 ? lItems.length : (realLCatSum > 5000 ? realLCatSum : 15861);
-          setTotalLiveCount(computedLCount);
+          setTotalLiveCount(lItems.length);
           refreshedLive = lItems;
         } catch (lErr) {
           console.warn("Failed to refresh live channels:", lErr);
@@ -2908,7 +2897,7 @@ export default function App() {
           setLoadingLive(false);
         }
 
-        // 7. Update Home Popular Data
+        // 6. Update Home Popular Data (Latest 100 items)
         if (refreshedMovies.length > 0 || refreshedSeries.length > 0) {
           const newData = {
             popularMovies: refreshedMovies.slice(0, 30),
@@ -2916,32 +2905,17 @@ export default function App() {
           };
           setHomeData(newData);
           localStorage.setItem('iptv_home_cache', JSON.stringify(newData));
-        }
-
-        // 8. Save fresh items to client IndexedDB storage
-        if (isMaster && (refreshedMovies.length > 0 || refreshedSeries.length > 0 || refreshedLive.length > 0)) {
-          playlistStorage.saveStoredPlaylist({
+          playlistStorage.saveStoredRecentlyAdded({
             movies: refreshedMovies,
-            series: refreshedSeries,
-            movieCategories: [{ category_id: '0', category_name: 'All Movies', parent_id: 0 }, ...mCats],
-            seriesCategories: [{ category_id: '0', category_name: 'All Series', parent_id: 0 }, ...sCats],
-            liveCategories: [{ category_id: '0', category_name: 'All Channels', parent_id: 0 }, ...lCats],
-            homeData: {
-              popularMovies: refreshedMovies.slice(0, 30),
-              popularSeries: refreshedSeries.slice(0, 30)
-            },
-            totalMovieCount: computedMCount,
-            totalSeriesCount: computedSCount
+            series: refreshedSeries
           }).catch(() => {});
-          localStorage.setItem('iptv_counts', JSON.stringify({ mCount: computedMCount, sCount: computedSCount, lCount: computedLCount }));
-          localStorage.setItem('iptv_client_last_sync', String(Date.now()));
         }
 
         setLastDataUpdatedTime(new Date());
         showToast("Tamam data kamyabi se update ho gaya!", "success");
       }
 
-      // 9. Refresh TMDB Trending Content
+      // 8. Refresh TMDB Trending Content
       try {
         const [movies, series] = await Promise.all([
           fetchTrendingMovies(selectedTrendingRegion),
@@ -2959,8 +2933,6 @@ export default function App() {
       setIsRefreshingContent(false);
     }
   };
-
-  // Fast On-Demand Mode: Auto-sync disabled per user preference. Instant 1s opening with zero waiting.
 
   const handleTrendingClick = (trendingItem: TmdbTrendingItem, isSeries: boolean) => {
     const cleanTarget = cleanMediaTitle(trendingItem.title).title.toLowerCase().trim();
@@ -3098,9 +3070,13 @@ export default function App() {
       handlePlayLivePopup(item);
       return;
     } else if (type === 'selectedItem') {
+      const normalizedItem = { ...item };
+      if ((normalizedItem.stream_type === 'series' || normalizedItem.searchType === 'iptv_series') && !normalizedItem.series_id) {
+        normalizedItem.series_id = normalizedItem.stream_id;
+      }
       setLoadingTmdb(true);
       setLoadingInfo(true);
-      setSelectedItem(item);
+      setSelectedItem(normalizedItem);
     } else if (type === 'free_movie') {
       setLoadingTmdb(true);
       setLoadingInfo(false);
@@ -3568,216 +3544,189 @@ export default function App() {
     }
   }, [activeTab, liveItems.length, creds]);
 
-  // Global Server Search: Queries entire 244,000+ Movies & 53,000+ Series catalog in real-time
-  useEffect(() => {
-    const q = executedSearchQuery.trim();
-    if (!q) {
-      setServerSearchResults({ movies: [], series: [], live: [] });
-      setSearchingOnServer(false);
-      return;
-    }
-
-    let isMounted = true;
-    setSearchingOnServer(true);
-
-    const performSearch = async () => {
-      try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
-        if (!res.ok) throw new Error("Search failed");
-        const data = await res.json();
-        if (isMounted && data.success) {
-          setServerSearchResults({
-            movies: Array.isArray(data.movies) ? data.movies : [],
-            series: Array.isArray(data.series) ? data.series : [],
-            live: Array.isArray(data.live) ? data.live : [],
-          });
-        }
-      } catch (err) {
-        console.warn("Server search notice:", err);
-      } finally {
-        if (isMounted) setSearchingOnServer(false);
-      }
-    };
-
-    performSearch();
-    return () => { isMounted = false; };
-  }, [executedSearchQuery]);
-
-  // 🔍 On-Demand Full-Library Search: Allows searching all 244K+ movies & 53K+ series without downloading the entire playlist
-  useEffect(() => {
-    const q = inCategorySearchQuery.trim();
-    if (!q || q.length < 2 || (activeTab !== 'movies' && activeTab !== 'series')) {
-      setCategorySearchResults(null);
-      setIsSearchingCategory(false);
-      setCategorySearchTotal(0);
-      return;
-    }
-
-    const currentCat = activeTab === 'movies' ? selectedMovieCategory : selectedSeriesCategory;
-    let isCancelled = false;
-    setIsSearchingCategory(true);
-
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&type=${activeTab}&category_id=${encodeURIComponent(currentCat)}`);
-        if (!res.ok) throw new Error("Category search failed");
-        const data = await res.json();
-        if (!isCancelled && data.success) {
-          const results = activeTab === 'movies' ? (data.movies || []) : (data.series || []);
-          setCategorySearchResults(results);
-          setCategorySearchTotal(data.totalFound ?? results.length);
-        }
-      } catch (err) {
-        console.warn("Full library in-category search notice:", err);
-      } finally {
-        if (!isCancelled) setIsSearchingCategory(false);
-      }
-    }, 250);
-
-    return () => {
-      isCancelled = true;
-      clearTimeout(timer);
-    };
-  }, [inCategorySearchQuery, activeTab, selectedMovieCategory, selectedSeriesCategory]);
-
   const searchMoviesResults = useMemo(() => {
     const q = executedSearchQuery.trim().toLowerCase();
     if (!q) return [];
 
     const iptvSeen = new Set<string>();
-    const iptvPool: any[] = [];
-    
-    // Server-wide search results across entire 244,000+ movies library
-    (serverSearchResults.movies || []).forEach(sm => {
-      const idStr = String(sm.stream_id || sm.id || sm.name);
-      if (!iptvSeen.has(idStr)) {
-        iptvSeen.add(idStr);
-        iptvPool.push(sm);
-      }
-    });
+    const results: any[] = [];
 
+    // 1. Search in full lightweight library stored in IndexedDB (entire VOD library!)
+    const searchSource = fullLibraryMovies.length > 0 ? fullLibraryMovies : globalSearchIndex.filter(i => i.stream_type === 'movie');
+    for (const item of searchSource) {
+      if (item.stream_type === 'movie') {
+        const title = (item.name || '').toLowerCase();
+        if (title.includes(q)) {
+          const idStr = String(item.stream_id);
+          if (!iptvSeen.has(idStr)) {
+            iptvSeen.add(idStr);
+            const enriched = enrichedSearchPosters[idStr];
+            results.push({
+              ...item,
+              stream_icon: enriched?.poster || (item as any).stream_icon || '',
+              poster_url: enriched?.poster || (item as any).poster_url || '',
+              poster: enriched?.poster || (item as any).poster || '',
+              plot: enriched?.plot || (item as any).plot || '',
+              container_extension: enriched?.container_extension || (item as any).container_extension || 'mp4',
+              stream_url: enriched?.stream_url || (item as any).stream_url || '',
+              isFree: false,
+              searchType: 'iptv_movie'
+            });
+          }
+        }
+      }
+    }
+
+    // 2. Also merge with loaded top items (which already have posters)
     (movieItems || []).forEach(m => {
-      const idStr = String(m.stream_id || m.id || m.name);
-      if (!iptvSeen.has(idStr)) {
-        iptvSeen.add(idStr);
-        iptvPool.push(m);
+      const title = (m.name || m.title || '').toLowerCase();
+      if (title.includes(q)) {
+        const idStr = String(m.stream_id || m.id || m.name);
+        if (!iptvSeen.has(idStr)) {
+          iptvSeen.add(idStr);
+          results.push({ ...m, isFree: false, searchType: 'iptv_movie' });
+        }
       }
     });
 
     (homeData?.popularMovies || []).forEach(pm => {
-      const idStr = String(pm.stream_id || pm.id || pm.name);
-      if (!iptvSeen.has(idStr)) {
-        iptvSeen.add(idStr);
-        iptvPool.push(pm);
+      const title = (pm.name || pm.title || '').toLowerCase();
+      if (title.includes(q)) {
+        const idStr = String(pm.stream_id || pm.id || pm.name);
+        if (!iptvSeen.has(idStr)) {
+          iptvSeen.add(idStr);
+          results.push({ ...pm, isFree: false, searchType: 'iptv_movie' });
+        }
       }
     });
 
-    const matchingIptv = iptvPool
+    // 3. Free movies
+    (displayedFreeMovies || [])
       .filter(item => {
         const title = (item.name || item.title || '').toLowerCase();
         return title.includes(q);
       })
-      .map(item => ({ ...item, isFree: false, searchType: 'iptv_movie' }));
+      .forEach(item => {
+        results.push({ ...item, isFree: true, searchType: 'free_movie' });
+      });
 
-    const matchingFree = (displayedFreeMovies || [])
-      .filter(item => {
-        const title = (item.name || item.title || '').toLowerCase();
-        return title.includes(q);
-      })
-      .map(item => ({ ...item, isFree: true, searchType: 'free_movie' }));
-
-    return [...matchingIptv, ...matchingFree].slice(0, 150);
-  }, [executedSearchQuery, serverSearchResults.movies, movieItems, homeData?.popularMovies, displayedFreeMovies]);
+    return results.slice(0, 150);
+  }, [executedSearchQuery, fullLibraryMovies, globalSearchIndex, movieItems, homeData?.popularMovies, displayedFreeMovies, enrichedSearchPosters]);
 
   const searchSeriesResults = useMemo(() => {
     const q = executedSearchQuery.trim().toLowerCase();
     if (!q) return [];
 
     const iptvSeen = new Set<string>();
-    const iptvPool: any[] = [];
+    const results: any[] = [];
 
-    // Server-wide search results across entire 53,000+ series library
-    (serverSearchResults.series || []).forEach(ss => {
-      const idStr = String(ss.series_id || ss.id || ss.name);
-      if (!iptvSeen.has(idStr)) {
-        iptvSeen.add(idStr);
-        iptvPool.push(ss);
+    // 1. Search in full lightweight library stored in IndexedDB (entire Web Series library!)
+    const searchSource = fullLibrarySeries.length > 0 ? fullLibrarySeries : globalSearchIndex.filter(i => i.stream_type === 'series');
+    for (const item of searchSource) {
+      if (item.stream_type === 'series') {
+        const title = (item.name || '').toLowerCase();
+        if (title.includes(q)) {
+          const idStr = String(item.stream_id);
+          if (!iptvSeen.has(idStr)) {
+            iptvSeen.add(idStr);
+            const enriched = enrichedSearchPosters[idStr];
+            results.push({
+              ...item,
+              series_id: item.stream_id,
+              cover: enriched?.poster || (item as any).cover || '',
+              stream_icon: enriched?.poster || (item as any).stream_icon || '',
+              poster_url: enriched?.poster || (item as any).poster_url || '',
+              poster: enriched?.poster || (item as any).poster || '',
+              plot: enriched?.plot || (item as any).plot || '',
+              stream_url: enriched?.stream_url || (item as any).stream_url || '',
+              isFree: false,
+              searchType: 'iptv_series'
+            });
+          }
+        }
       }
-    });
+    }
 
+    // 2. Also merge with loaded top items (with posters)
     (seriesItems || []).forEach(s => {
-      const idStr = String(s.series_id || s.id || s.name);
-      if (!iptvSeen.has(idStr)) {
-        iptvSeen.add(idStr);
-        iptvPool.push(s);
+      const title = (s.name || s.title || '').toLowerCase();
+      if (title.includes(q)) {
+        const idStr = String(s.series_id || s.id || s.name);
+        if (!iptvSeen.has(idStr)) {
+          iptvSeen.add(idStr);
+          results.push({ ...s, isFree: false, searchType: 'iptv_series' });
+        }
       }
     });
 
     (homeData?.popularSeries || []).forEach(ps => {
-      const idStr = String(ps.series_id || ps.id || ps.name);
-      if (!iptvSeen.has(idStr)) {
-        iptvSeen.add(idStr);
-        iptvPool.push(ps);
+      const title = (ps.name || ps.title || '').toLowerCase();
+      if (title.includes(q)) {
+        const idStr = String(ps.series_id || ps.id || ps.name);
+        if (!iptvSeen.has(idStr)) {
+          iptvSeen.add(idStr);
+          results.push({ ...ps, isFree: false, searchType: 'iptv_series' });
+        }
       }
     });
 
-    const matchingIptv = iptvPool
+    // 3. Free series
+    (displayedFreeSeries || [])
       .filter(item => {
         const title = (item.name || item.title || '').toLowerCase();
         return title.includes(q);
       })
-      .map(item => ({ ...item, isFree: false, searchType: 'iptv_series' }));
+      .forEach(item => {
+        results.push({ ...item, isFree: true, searchType: 'free_series' });
+      });
 
-    const matchingFree = (displayedFreeSeries || [])
-      .filter(item => {
-        const title = (item.name || item.title || '').toLowerCase();
-        return title.includes(q);
-      })
-      .map(item => ({ ...item, isFree: true, searchType: 'free_series' }));
-
-    return [...matchingIptv, ...matchingFree].slice(0, 150);
-  }, [executedSearchQuery, serverSearchResults.series, seriesItems, homeData?.popularSeries, displayedFreeSeries]);
+    return results.slice(0, 150);
+  }, [executedSearchQuery, fullLibrarySeries, globalSearchIndex, seriesItems, homeData?.popularSeries, displayedFreeSeries, enrichedSearchPosters]);
 
   const searchLiveResults = useMemo(() => {
     const q = executedSearchQuery.trim().toLowerCase();
     if (!q) return [];
 
     const iptvSeen = new Set<string>();
-    const iptvPool: any[] = [];
+    const results: any[] = [];
 
-    (serverSearchResults.live || []).forEach(sl => {
-      const idStr = String(sl.stream_id || sl.id || sl.name);
-      if (!iptvSeen.has(idStr)) {
-        iptvSeen.add(idStr);
-        iptvPool.push(sl);
+    // 1. Search in global search index (live channels)
+    if (globalSearchIndex && globalSearchIndex.length > 0) {
+      for (const item of globalSearchIndex) {
+        if (item.stream_type === 'live') {
+          const title = (item.name || '').toLowerCase();
+          if (title.includes(q)) {
+            const idStr = String(item.stream_id);
+            if (!iptvSeen.has(idStr)) {
+              iptvSeen.add(idStr);
+              results.push({ ...item, isFree: false, searchType: 'iptv_live' });
+            }
+          }
+        }
       }
-    });
+    }
 
     (liveItems || []).forEach(l => {
-      const idStr = String(l.stream_id || l.id || l.name);
-      if (!iptvSeen.has(idStr)) {
-        iptvSeen.add(idStr);
-        iptvPool.push(l);
+      const title = (l.name || l.title || '').toLowerCase();
+      if (title.includes(q)) {
+        const idStr = String(l.stream_id || l.id || l.name);
+        if (!iptvSeen.has(idStr)) {
+          iptvSeen.add(idStr);
+          results.push({ ...l, isFree: false, searchType: 'iptv_live' });
+        }
       }
     });
 
-    const matchingIptv = iptvPool
-      .filter(item => {
-        const title = (item.name || item.title || '').toLowerCase();
-        return title.includes(q);
-      })
-      .map(item => ({ ...item, isFree: false, searchType: 'iptv_live' }));
+    (displayedLiveEvents || []).forEach(item => {
+      const nameMatch = (item.name || item.title || '').toLowerCase().includes(q);
+      const chMatch = item.channels && item.channels.some((ch: any) => (ch.name || '').toLowerCase().includes(q));
+      if (nameMatch || chMatch) {
+        results.push({ ...item, isFree: true, searchType: 'free_live_event' });
+      }
+    });
 
-    const matchingFreeEvents = (displayedLiveEvents || [])
-      .filter(item => {
-        const nameMatch = (item.name || item.title || '').toLowerCase().includes(q);
-        const chMatch = item.channels && item.channels.some((ch: any) => (ch.name || '').toLowerCase().includes(q));
-        return nameMatch || chMatch;
-      })
-      .map(item => ({ ...item, isFree: true, searchType: 'free_live_event' }));
-
-    return [...matchingIptv, ...matchingFreeEvents].slice(0, 150);
-  }, [executedSearchQuery, serverSearchResults.live, liveItems, displayedLiveEvents]);
+    return results.slice(0, 150);
+  }, [executedSearchQuery, globalSearchIndex, liveItems, displayedLiveEvents]);
 
   const handleMasterSearchItemClick = (item: any) => {
     if (item.searchType === 'iptv_movie' || item.searchType === 'iptv_series') {
@@ -3798,112 +3747,166 @@ export default function App() {
 
   const currentItems = useMemo(() => {
     const currentSelectedCategory = activeTab === 'movies' ? selectedMovieCategory : (activeTab === 'series' ? selectedSeriesCategory : selectedLiveCategory);
-    let baseItems: any[] = [];
+    let itemsToFilter: any[] = [];
     if (isLoggedIn && currentSelectedCategory === 'favorites') {
       const typeMap = { 'movies': 'movie', 'series': 'series', 'live': 'live' };
       const currentType = typeMap[activeTab as 'movies' | 'series' | 'live'] || 'movie';
-      baseItems = favorites
+      itemsToFilter = favorites
         .filter((fav: any) => fav.type === currentType)
         .map((fav: any) => fav.itemData);
-    } else {
-      baseItems = activeTab === 'movies' ? movieItems : (activeTab === 'series' ? seriesItems : liveItems);
-    }
-
-    let filtered = baseItems;
-
-    // In-category search / title filter: always match local items first so on-screen titles NEVER vanish
-    if (inCategorySearchQuery.trim()) {
-      const q = inCategorySearchQuery.trim().toLowerCase();
-      const words = q.split(/\s+/).filter(w => w.length > 0);
-
-      // 1. Instant local matching (0ms delay!)
-      const localMatches = baseItems.filter((item: any) => {
-        const title = (item.name || item.title || '').toLowerCase();
-        return title.includes(q) || (words.length > 1 && words.every(w => title.includes(w)));
-      });
-
-      // 2. Seamlessly combine with server search results across library if available
-      if (categorySearchResults && Array.isArray(categorySearchResults) && categorySearchResults.length > 0) {
-        const seenIds = new Set(localMatches.map((m: any) => String(m.stream_id || m.num || m.series_id)));
-        const combined = [...localMatches];
-        for (const item of categorySearchResults) {
-          const id = String(item.stream_id || item.num || item.series_id);
-          if (id && !seenIds.has(id)) {
-            seenIds.add(id);
-            combined.push(item);
-          }
-        }
-        filtered = combined;
+    } else if (activeTab === 'movies') {
+      // In-Category Search across full library when on 'All Movies' (0)
+      if (inCategorySearchQuery.trim() && currentSelectedCategory === '0' && fullLibraryMovies.length > 0) {
+        itemsToFilter = fullLibraryMovies;
       } else {
-        filtered = localMatches;
+        itemsToFilter = movieItems;
       }
+    } else if (activeTab === 'series') {
+      // In-Category Search across full library when on 'All Series' (0)
+      if (inCategorySearchQuery.trim() && currentSelectedCategory === '0' && fullLibrarySeries.length > 0) {
+        itemsToFilter = fullLibrarySeries;
+      } else {
+        itemsToFilter = seriesItems;
+      }
+    } else {
+      itemsToFilter = liveItems;
     }
 
+    let filtered = itemsToFilter;
     if (executedSearchQuery) {
       filtered = filtered.filter((item: any) => item.name && item.name.toLowerCase().includes(executedSearchQuery.toLowerCase()));
     }
+    if (inCategorySearchQuery.trim()) {
+      const q = inCategorySearchQuery.trim().toLowerCase();
+      filtered = filtered.filter((item: any) => {
+        const nameMatch = item.name && item.name.toLowerCase().includes(q);
+        if (currentSelectedCategory !== '0' && currentSelectedCategory !== 'favorites' && 'category_id' in item) {
+          const catMatch = String(item.category_id) === String(currentSelectedCategory);
+          return nameMatch && catMatch;
+        }
+        return nameMatch;
+      });
+    }
 
-    return filtered.slice(0, visibleCount);
-  }, [activeTab, movieItems, seriesItems, liveItems, executedSearchQuery, inCategorySearchQuery, categorySearchResults, visibleCount, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, favorites, isLoggedIn]);
+    // Map enriched posters for any search matches
+    return filtered.slice(0, visibleCount).map((item: any) => {
+      const sId = String(item.stream_id || item.series_id || item.id);
+      const enriched = enrichedSearchPosters[sId];
+      if (enriched && !item.stream_icon && !item.cover) {
+        return {
+          ...item,
+          stream_icon: enriched.poster || item.stream_icon,
+          cover: enriched.poster || item.cover,
+          poster_url: enriched.poster || item.poster_url,
+          poster: enriched.poster || item.poster
+        };
+      }
+      return item;
+    });
+  }, [activeTab, movieItems, seriesItems, liveItems, fullLibraryMovies, fullLibrarySeries, enrichedSearchPosters, executedSearchQuery, inCategorySearchQuery, visibleCount, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, favorites, isLoggedIn]);
 
   const hasMore = useMemo(() => {
     const currentSelectedCategory = activeTab === 'movies' ? selectedMovieCategory : (activeTab === 'series' ? selectedSeriesCategory : selectedLiveCategory);
-    let baseItems: any[] = [];
+    let itemsToFilter: any[] = [];
     if (isLoggedIn && currentSelectedCategory === 'favorites') {
       const typeMap = { 'movies': 'movie', 'series': 'series', 'live': 'live' };
       const currentType = typeMap[activeTab as 'movies' | 'series' | 'live'] || 'movie';
-      baseItems = favorites
+      itemsToFilter = favorites
         .filter((fav: any) => fav.type === currentType)
         .map((fav: any) => fav.itemData);
-    } else {
-      baseItems = activeTab === 'movies' ? movieItems : (activeTab === 'series' ? seriesItems : liveItems);
-    }
-
-    let filtered = baseItems;
-
-    if (inCategorySearchQuery.trim()) {
-      const q = inCategorySearchQuery.trim().toLowerCase();
-      const words = q.split(/\s+/).filter(w => w.length > 0);
-      const localMatches = baseItems.filter((item: any) => {
-        const title = (item.name || item.title || '').toLowerCase();
-        return title.includes(q) || (words.length > 1 && words.every(w => title.includes(w)));
-      });
-      if (categorySearchResults && Array.isArray(categorySearchResults) && categorySearchResults.length > 0) {
-        const seenIds = new Set(localMatches.map((m: any) => String(m.stream_id || m.num || m.series_id)));
-        const combined = [...localMatches];
-        for (const item of categorySearchResults) {
-          const id = String(item.stream_id || item.num || item.series_id);
-          if (id && !seenIds.has(id)) {
-            seenIds.add(id);
-            combined.push(item);
-          }
-        }
-        filtered = combined;
+    } else if (activeTab === 'movies') {
+      if (inCategorySearchQuery.trim() && currentSelectedCategory === '0' && fullLibraryMovies.length > 0) {
+        itemsToFilter = fullLibraryMovies;
       } else {
-        filtered = localMatches;
+        itemsToFilter = movieItems;
       }
+    } else if (activeTab === 'series') {
+      if (inCategorySearchQuery.trim() && currentSelectedCategory === '0' && fullLibrarySeries.length > 0) {
+        itemsToFilter = fullLibrarySeries;
+      } else {
+        itemsToFilter = seriesItems;
+      }
+    } else {
+      itemsToFilter = liveItems;
     }
 
+    let filtered = itemsToFilter;
     if (searchQuery) {
       filtered = filtered.filter((item: any) => item.name && item.name.toLowerCase().includes(searchQuery.toLowerCase()));
     }
-
+    if (inCategorySearchQuery.trim()) {
+      const q = inCategorySearchQuery.trim().toLowerCase();
+      filtered = filtered.filter((item: any) => {
+        const nameMatch = item.name && item.name.toLowerCase().includes(q);
+        if (currentSelectedCategory !== '0' && currentSelectedCategory !== 'favorites' && 'category_id' in item) {
+          const catMatch = String(item.category_id) === String(currentSelectedCategory);
+          return nameMatch && catMatch;
+        }
+        return nameMatch;
+      });
+    }
     return visibleCount < filtered.length;
-  }, [activeTab, movieItems, seriesItems, liveItems, searchQuery, inCategorySearchQuery, categorySearchResults, visibleCount, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, favorites, isLoggedIn]);
+  }, [activeTab, movieItems, seriesItems, liveItems, fullLibraryMovies, fullLibrarySeries, searchQuery, inCategorySearchQuery, visibleCount, selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory, favorites, isLoggedIn]);
+
+  // Rule 3: On-Demand Poster & Stream URL Enrichment for Search Matches
+  // When search yields matches (top 30), ONLY THEN fetch their posters and stream URLs on demand
+  useEffect(() => {
+    if (!creds?.username || !creds?.password) return;
+
+    const itemsToEnrich: Array<{ stream_id: string | number; stream_type: 'movie' | 'series'; name: string }> = [];
+
+    // 1. From active search results
+    searchMoviesResults.slice(0, 30).forEach((m: any) => {
+      const sId = String(m.stream_id);
+      if (!m.stream_icon && !m.poster_url && !enrichedSearchPosters[sId]) {
+        itemsToEnrich.push({ stream_id: sId, stream_type: 'movie', name: m.name || m.title });
+      }
+    });
+
+    searchSeriesResults.slice(0, 30).forEach((s: any) => {
+      const sId = String(s.series_id || s.stream_id);
+      if (!s.stream_icon && !s.cover && !s.poster_url && !enrichedSearchPosters[sId]) {
+        itemsToEnrich.push({ stream_id: sId, stream_type: 'series', name: s.name || s.title });
+      }
+    });
+
+    // 2. From in-category search results
+    if (inCategorySearchQuery.trim()) {
+      currentItems.slice(0, 30).forEach((item: any) => {
+        const sId = String(item.stream_id || item.series_id || item.id);
+        if (!item.stream_icon && !item.cover && !item.poster_url && !enrichedSearchPosters[sId]) {
+          const streamType = activeTab === 'series' || item.stream_type === 'series' ? 'series' : 'movie';
+          itemsToEnrich.push({ stream_id: sId, stream_type: streamType, name: item.name || item.title });
+        }
+      });
+    }
+
+    if (itemsToEnrich.length === 0) return;
+
+    let isMounted = true;
+    const timer = setTimeout(async () => {
+      try {
+        const enriched = await xtreamApi.enrichMatches(creds, itemsToEnrich.slice(0, 30));
+        if (isMounted && enriched && Object.keys(enriched).length > 0) {
+          setEnrichedSearchPosters(prev => ({ ...prev, ...enriched }));
+        }
+      } catch (err: any) {
+        console.warn("[Enrich] Search poster enrichment notice:", err.message);
+      }
+    }, 250);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, [searchMoviesResults, searchSeriesResults, currentItems, inCategorySearchQuery, creds, enrichedSearchPosters, activeTab]);
 
   const currentCategories = useMemo(() => {
-    const rawCats = activeTab === 'movies' ? movieCategories : (activeTab === 'series' ? seriesCategories : liveCategories);
-    const seen = new Set<string>();
-    const deduplicated = rawCats.filter(c => {
-      const id = String(c.category_id);
-      if (seen.has(id)) return false;
-      seen.add(id);
-      return true;
-    });
+    const cats = activeTab === 'movies' ? movieCategories : (activeTab === 'series' ? seriesCategories : liveCategories);
     if (isLoggedIn) {
-      return [{ category_id: 'favorites', category_name: '❤️ Favorites' }, ...deduplicated];
+      return [{ category_id: 'favorites', category_name: '❤️ Favorites' }, ...cats];
     }
-    return deduplicated;
+    return cats;
   }, [activeTab, movieCategories, seriesCategories, liveCategories, isLoggedIn]);
 
   const filteredCurrentCategories = useMemo(() => {
@@ -3940,13 +3943,12 @@ export default function App() {
     return pills;
   }, [liveCategories]);
 
-  // Drawer categories search filter (Deduplicates '0' so there is only one "All Channels")
+  // Drawer categories search filter
   const filteredDrawerLiveCategories = useMemo(() => {
-    const nonZeroCats = liveCategories.filter(c => String(c.category_id) !== '0');
-    const baseCats = [{ category_id: '0', category_name: 'All Channels', parent_id: 0 }, ...nonZeroCats];
+    const baseCats = [{ category_id: '0', category_name: 'All Channels', parent_id: 0 }, ...liveCategories];
     if (!mobileLiveCatSearch.trim()) return baseCats;
     const q = mobileLiveCatSearch.trim().toLowerCase();
-    return baseCats.filter(c => c.category_name.toLowerCase().includes(q) || (c.category_id === '0' && 'all channels'.includes(q)));
+    return baseCats.filter(c => c.category_name.toLowerCase().includes(q));
   }, [liveCategories, mobileLiveCatSearch]);
 
   // Mobile channels to display (Global search across all 15k+ channels in service if searching, or current category)
@@ -3976,15 +3978,11 @@ export default function App() {
   useEffect(() => {
     setCategorySearchQuery('');
     setInCategorySearchQuery('');
-    setCategorySearchResults(null);
-    setIsSearchingCategory(false);
   }, [activeTab]);
 
   // Reset in-category search query when switching categories
   useEffect(() => {
     setInCategorySearchQuery('');
-    setCategorySearchResults(null);
-    setIsSearchingCategory(false);
   }, [selectedMovieCategory, selectedSeriesCategory, selectedLiveCategory]);
 
   // Infinite scroll observer
@@ -5744,7 +5742,7 @@ export default function App() {
                       >
                         <div className="relative aspect-[2/3] w-full overflow-hidden bg-black/60">
                           <img
-                            src={item.stream_icon || item.poster_url || 'https://picsum.photos/seed/movie/300/450'}
+                            src={enrichedSearchPosters[item.stream_id]?.poster || item.stream_icon || item.poster_url || item.poster || 'https://picsum.photos/seed/movie/300/450'}
                             alt={item.name || item.title}
                             referrerPolicy="no-referrer"
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
@@ -5811,7 +5809,7 @@ export default function App() {
                       >
                         <div className="relative aspect-[2/3] w-full overflow-hidden bg-black/60">
                           <img
-                            src={item.cover || item.poster_url || 'https://picsum.photos/seed/series/300/450'}
+                            src={enrichedSearchPosters[item.series_id || item.stream_id]?.poster || item.cover || item.poster_url || item.stream_icon || item.poster || 'https://picsum.photos/seed/series/300/450'}
                             alt={item.name || item.title}
                             referrerPolicy="no-referrer"
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
@@ -6398,40 +6396,24 @@ export default function App() {
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-cyan-400" size={17} />
                 <input
                   type="text"
-                  placeholder={loadingAllChannels ? `Downloading channels playlist (${allChannelsProgress}%)...` : "Search across all channels in service..."}
+                  placeholder="Search across all channels in service..."
                   value={mobileLiveChannelSearch}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setMobileLiveChannelSearch(val);
-                    if (val.trim() && allLiveChannels.length === 0 && !loadingAllChannels) {
-                      loadAllLiveChannels();
-                    }
-                  }}
+                  onChange={(e) => setMobileLiveChannelSearch(e.target.value)}
                   className="w-full bg-[#0a1222]/95 border border-cyan-500/30 focus:border-cyan-400 focus:shadow-[0_0_20px_rgba(6,182,212,0.25)] rounded-2xl py-3 pl-11 pr-10 text-xs text-white placeholder:text-white/40 outline-none transition-all font-medium"
                 />
-                {loadingAllChannels ? (
-                  <div className="absolute right-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1 text-[10px] text-cyan-400 font-mono">
-                    <Loader2 size={13} className="animate-spin" />
-                    <span>{allChannelsProgress}%</span>
-                  </div>
-                ) : mobileLiveChannelSearch ? (
+                {mobileLiveChannelSearch && (
                   <button
                     onClick={() => setMobileLiveChannelSearch('')}
                     className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-1"
                   >
                     <X size={15} />
                   </button>
-                ) : null}
+                )}
               </div>
 
               {/* Status & Results Summary Bar */}
               <div className="flex items-center justify-between text-[11px] font-bold text-white/50 px-1">
-                {loadingAllChannels ? (
-                  <div className="flex items-center gap-1.5 text-cyan-400 font-bold">
-                    <Loader2 size={12} className="animate-spin" />
-                    <span>Channel playlist download ho rahi hai ({allChannelsProgress}%)...</span>
-                  </div>
-                ) : mobileLiveChannelSearch.trim() ? (
+                {mobileLiveChannelSearch.trim() ? (
                   <div className="flex items-center gap-1.5 text-cyan-300 truncate">
                     <Sparkles size={13} className="text-cyan-400 shrink-0" />
                     <span className="truncate">Searching All Service Channels: {mobileChannelsToDisplay.length} found</span>
@@ -6444,7 +6426,7 @@ export default function App() {
                     <span>{mobileChannelsToDisplay.length} Channels</span>
                   </div>
                 )}
-                {mobileLiveChannelSearch && !loadingAllChannels && (
+                {mobileLiveChannelSearch && (
                   <button 
                     onClick={() => setMobileLiveChannelSearch('')}
                     className="text-xs text-cyan-400 hover:underline cursor-pointer shrink-0 ml-2"
@@ -6455,41 +6437,7 @@ export default function App() {
               </div>
 
               {/* Channels List (Vertical Cards) */}
-              {loadingAllChannels ? (
-                <div className="flex flex-col items-center justify-center py-14 px-6 my-2 rounded-3xl bg-gradient-to-b from-[#0b1528] via-[#09101d] to-[#070b16] border border-cyan-500/30 shadow-[0_0_35px_rgba(6,182,212,0.18)] text-center max-w-sm mx-auto backdrop-blur-xl animate-in fade-in zoom-in-95 duration-300">
-                  <div className="relative mb-3.5">
-                    <div className="w-14 h-14 rounded-2xl bg-cyan-500/15 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.35)]">
-                      <Tv size={26} className="animate-pulse" />
-                    </div>
-                    <div className="absolute -inset-1 rounded-2xl bg-cyan-400 opacity-20 blur-md animate-pulse" />
-                  </div>
-
-                  <div className="space-y-1 mb-4">
-                    <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center justify-center gap-1.5">
-                      <span>Channel Loading, Please Wait...</span>
-                      <span className="text-cyan-400 font-mono">({allChannelsProgress}%)</span>
-                    </h3>
-                    <p className="text-[11px] text-white/60 font-medium leading-relaxed px-2">
-                      Puri live channels playlist download ho rahi hai taake aap tamam channels instant search aur play kar sakein.
-                    </p>
-                  </div>
-
-                  {/* Percentage Progress Bar */}
-                  <div className="w-full bg-white/5 rounded-full h-2.5 p-0.5 border border-cyan-500/30 overflow-hidden mb-2 relative">
-                    <div 
-                      className="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-blue-500 rounded-full shadow-[0_0_12px_rgba(6,182,212,0.8)] transition-all duration-300"
-                      style={{ width: `${Math.min(100, Math.max(8, allChannelsProgress))}%` }}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between w-full text-[10px] font-bold px-1">
-                    <span className="text-cyan-400/80 flex items-center gap-1.5">
-                      <Loader2 size={11} className="animate-spin text-cyan-400" /> Downloading Channels...
-                    </span>
-                    <span className="text-cyan-300 font-mono">{allChannelsProgress}% Completed</span>
-                  </div>
-                </div>
-              ) : loadingLive ? (
+              {loadingLive ? (
                 <div className="flex flex-col items-center justify-center py-24 gap-3">
                   <Loader2 className="animate-spin text-cyan-400" size={32} />
                   <span className="text-xs text-white/40 font-bold uppercase tracking-wider">
@@ -6714,9 +6662,6 @@ export default function App() {
                               setSelectedLiveCategory(String(cat.category_id));
                               setMobileLiveChannelSearch('');
                               setIsMobileLiveDrawerOpen(false);
-                              if (String(cat.category_id) === '0' && allLiveChannels.length === 0) {
-                                loadAllLiveChannels();
-                              }
                             }}
                             className={cn(
                               "w-full text-left px-3.5 py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-between group active:scale-[0.98] cursor-pointer",
@@ -6736,10 +6681,10 @@ export default function App() {
                             <div className="flex items-center gap-1.5 shrink-0">
                               {cat.category_id === '0' && (
                                 <span className={cn(
-                                  "text-[10px] font-black px-2 py-0.5 rounded-full whitespace-nowrap shrink-0 transition-colors shadow-sm",
-                                  isCatActive ? "bg-black/20 text-black border border-black/10" : "bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
+                                  "text-[9px] font-bold px-2 py-0.5 rounded-full",
+                                  isCatActive ? "bg-black/15 text-black" : "bg-white/5 text-white/40"
                                 )}>
-                                  15K+ Channels
+                                  {totalLiveCount || allLiveChannels.length || 'All'}
                                 </span>
                               )}
                               {isCatActive && <Check size={14} className="text-black shrink-0" />}
@@ -6809,9 +6754,6 @@ export default function App() {
                           onClick={() => {
                             setSelectedLiveCategory(String(cat.category_id));
                             setMobileLiveChannelSearch('');
-                            if (String(cat.category_id) === '0' && allLiveChannels.length === 0) {
-                              loadAllLiveChannels();
-                            }
                           }}
                           className={cn(
                             "w-full text-left px-3.5 py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-between group active:scale-[0.98] cursor-pointer",
@@ -6831,10 +6773,10 @@ export default function App() {
                           <div className="flex items-center gap-1.5 shrink-0">
                             {cat.category_id === '0' && (
                               <span className={cn(
-                                "text-[10px] font-black px-2 py-0.5 rounded-full whitespace-nowrap shrink-0 transition-colors shadow-sm",
-                                isCatActive ? "bg-black/20 text-black border border-black/10" : "bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
+                                "text-[9.5px] font-bold px-2 py-0.5 rounded-full",
+                                isCatActive ? "bg-black/15 text-black" : "bg-white/5 text-white/40"
                               )}>
-                                15K+ Channels
+                                {totalLiveCount || allLiveChannels.length || 'All'}
                               </span>
                             )}
                             {isCatActive && <Check size={14} className="text-black shrink-0" />}
@@ -6876,30 +6818,19 @@ export default function App() {
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-cyan-400" size={17} />
                         <input
                           type="text"
-                          placeholder={loadingAllChannels ? `Downloading channels playlist (${allChannelsProgress}%)...` : "Search across all channels in service..."}
+                          placeholder="Search across all channels in service..."
                           value={mobileLiveChannelSearch}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setMobileLiveChannelSearch(val);
-                            if (val.trim() && allLiveChannels.length === 0 && !loadingAllChannels) {
-                              loadAllLiveChannels();
-                            }
-                          }}
+                          onChange={(e) => setMobileLiveChannelSearch(e.target.value)}
                           className="w-full bg-[#030712]/90 border border-cyan-500/30 focus:border-cyan-400 focus:shadow-[0_0_20px_rgba(6,182,212,0.25)] rounded-2xl py-2.5 pl-11 pr-10 text-xs text-white placeholder:text-white/40 outline-none transition-all font-medium"
                         />
-                        {loadingAllChannels ? (
-                          <div className="absolute right-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-[11px] text-cyan-400 font-mono">
-                            <Loader2 size={14} className="animate-spin" />
-                            <span>{allChannelsProgress}%</span>
-                          </div>
-                        ) : mobileLiveChannelSearch ? (
+                        {mobileLiveChannelSearch && (
                           <button
                             onClick={() => setMobileLiveChannelSearch('')}
                             className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-1"
                           >
                             <X size={15} />
                           </button>
-                        ) : null}
+                        )}
                       </div>
 
                       <button
@@ -6907,7 +6838,7 @@ export default function App() {
                         onClick={handleRefreshContent}
                         disabled={isRefreshingContent}
                         className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 hover:text-cyan-300 font-bold text-xs shadow-[0_0_15px_rgba(6,182,212,0.15)] active:scale-95 transition-all cursor-pointer shrink-0 disabled:opacity-50"
-                        title={`On-Demand Fast Load Active | Last Updated: ${lastDataUpdatedTime.toLocaleTimeString()}`}
+                        title={`24/7 Auto-Update active (Every 5 mins) | Last Updated: ${lastDataUpdatedTime.toLocaleTimeString()}`}
                       >
                         <RefreshCw size={14} className={cn("transition-transform", isRefreshingContent && "animate-spin text-cyan-300")} />
                         <span className="hidden xl:inline">Update Data</span>
@@ -6917,12 +6848,7 @@ export default function App() {
 
                   {/* Status Bar */}
                   <div className="flex items-center justify-between text-xs font-bold text-white/50 px-1">
-                    {loadingAllChannels ? (
-                      <div className="flex items-center gap-2 text-cyan-400 font-bold">
-                        <Loader2 size={13} className="animate-spin" />
-                        <span>Channel loading, please wait... ({allChannelsProgress}%)</span>
-                      </div>
-                    ) : mobileLiveChannelSearch.trim() ? (
+                    {mobileLiveChannelSearch.trim() ? (
                       <div className="flex items-center gap-1.5 text-cyan-300">
                         <Sparkles size={14} className="text-cyan-400 shrink-0" />
                         <span>Searching All Service Channels: {mobileChannelsToDisplay.length} channels found</span>
@@ -6935,7 +6861,7 @@ export default function App() {
                         <span>{mobileChannelsToDisplay.length} Channels Available</span>
                       </div>
                     )}
-                    {mobileLiveChannelSearch && !loadingAllChannels && (
+                    {mobileLiveChannelSearch && (
                       <button 
                         onClick={() => setMobileLiveChannelSearch('')}
                         className="text-xs text-cyan-400 hover:underline cursor-pointer"
@@ -6946,41 +6872,7 @@ export default function App() {
                   </div>
 
                   {/* Channels Grid (2-3 columns with clean cards) */}
-                  {loadingAllChannels ? (
-                    <div className="flex flex-col items-center justify-center py-20 px-8 my-4 rounded-3xl bg-gradient-to-b from-[#0b1528] via-[#09101d] to-[#070b16] border border-cyan-500/30 shadow-[0_0_40px_rgba(6,182,212,0.18)] text-center max-w-lg mx-auto backdrop-blur-xl animate-in fade-in zoom-in-95 duration-300">
-                      <div className="relative mb-5">
-                        <div className="w-16 h-16 rounded-2xl bg-cyan-500/15 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shadow-[0_0_25px_rgba(6,182,212,0.35)]">
-                          <Tv size={28} className="animate-pulse" />
-                        </div>
-                        <div className="absolute -inset-1 rounded-2xl bg-cyan-400 opacity-20 blur-md animate-pulse" />
-                      </div>
-
-                      <div className="space-y-1.5 mb-5">
-                        <h3 className="text-base sm:text-lg font-black text-white uppercase tracking-wider flex items-center justify-center gap-2">
-                          <span>Channel Loading, Please Wait...</span>
-                          <span className="text-cyan-400 font-mono">({allChannelsProgress}%)</span>
-                        </h3>
-                        <p className="text-xs text-white/60 font-medium max-w-sm mx-auto leading-relaxed">
-                          Puri live channels playlist download ho rahi hai taake aap tamam channels instant search aur play kar sakein.
-                        </p>
-                      </div>
-
-                      {/* Percentage Progress Bar */}
-                      <div className="w-full max-w-sm bg-white/5 rounded-full h-3 p-0.5 border border-cyan-500/30 overflow-hidden mb-2.5 relative">
-                        <div 
-                          className="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-blue-500 rounded-full shadow-[0_0_15px_rgba(6,182,212,0.8)] transition-all duration-300"
-                          style={{ width: `${Math.min(100, Math.max(8, allChannelsProgress))}%` }}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between w-full max-w-sm text-[11px] font-bold px-1">
-                        <span className="text-cyan-400/80 flex items-center gap-1.5">
-                          <Loader2 size={12} className="animate-spin text-cyan-400" /> Downloading Channels...
-                        </span>
-                        <span className="text-cyan-300 font-mono">{allChannelsProgress}% Completed</span>
-                      </div>
-                    </div>
-                  ) : loadingLive ? (
+                  {loadingLive ? (
                     <div className="flex flex-col items-center justify-center py-32 gap-4">
                       <Loader2 className="animate-spin text-cyan-400" size={36} />
                       <span className="text-xs text-white/40 font-bold uppercase tracking-wider">
@@ -7612,17 +7504,16 @@ export default function App() {
                         <div className="relative z-10 flex items-center justify-between">
                           <span className="leading-tight truncate pr-2">{cat.category_name}</span>
                           {cat.category_id === '0' && (
-                            <span className={cn(
-                              "text-[10px] font-black px-2 py-0.5 rounded-full whitespace-nowrap shrink-0 transition-colors shadow-sm",
-                              currentSelectedCategory === cat.category_id 
-                                ? "bg-black/20 text-black border border-black/10" 
-                                : "bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
-                            )}>
-                              {activeTab === 'movies'
-                                ? '244K+ Movies'
-                                : activeTab === 'series'
-                                  ? '53K+ Series'
-                                  : '15K+ Channels'}
+                            <span className="text-[9px] opacity-60 font-medium mt-0.5 whitespace-nowrap shrink-0">
+                              {(activeTab === 'movies' ? totalMovieCount : (activeTab === 'series' ? totalSeriesCount : totalLiveCount)).toLocaleString()} Items
+                            </span>
+                          )}
+                          {cat.category_id !== '0' && cat.category_id !== 'favorites' && (
+                            <span className="text-[9px] opacity-40 font-medium mt-0.5 whitespace-nowrap shrink-0">
+                              {(() => {
+                                const count = activeTab === 'movies' ? categoryMovieCounts[cat.category_id] : (activeTab === 'series' ? categorySeriesCounts[cat.category_id] : undefined);
+                                return count !== undefined && count > 0 ? `${count.toLocaleString()}` : '';
+                              })()}
                             </span>
                           )}
                           {cat.category_id === 'favorites' && (
@@ -7665,55 +7556,28 @@ export default function App() {
                         {activeTab === 'movies' ? 'Movies' : activeTab === 'series' ? 'Web Series' : 'Live'}
                       </span>
                     </div>
-                    <p className="text-[10px] sm:text-[11px] text-white/40 font-medium truncate flex items-center gap-1.5 flex-wrap">
-                      {isSearchingCategory && currentItems.length === 0 ? (
-                        <span className="flex items-center gap-1.5 text-cyan-300">
-                          <Loader2 size={11} className="animate-spin text-cyan-400" />
-                          <span>Searching full {activeTab === 'movies' ? '244K+ movie' : '53K+ series'} library for &ldquo;{inCategorySearchQuery}&rdquo;...</span>
-                        </span>
-                      ) : inCategorySearchQuery.trim() ? (
-                        <span className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-white/90 font-bold">
-                            Found {currentItems.length} {activeTab === 'movies' ? (currentItems.length === 1 ? 'movie' : 'movies') : 'series'}
-                          </span>
-                          <span className="text-white/40">matching &ldquo;{inCategorySearchQuery}&rdquo;</span>
-                          {categorySearchResults && categorySearchResults.length > 0 && (
-                            <span className="px-1.5 py-0.5 bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-full text-[9px] font-black uppercase tracking-wider shadow-sm">
-                              ⚡ Full Library Search
-                            </span>
-                          )}
-                          {isSearchingCategory && (
-                            <span className="flex items-center gap-1 text-cyan-400 text-[10px]">
-                              <Loader2 size={10} className="animate-spin text-cyan-400" />
-                              <span>Scanning catalog...</span>
-                            </span>
-                          )}
-                        </span>
+                    <p className="text-[10px] sm:text-[11px] text-white/40 font-medium truncate">
+                      {inCategorySearchQuery ? (
+                        <span>Filtering titles for &ldquo;{inCategorySearchQuery}&rdquo;</span>
                       ) : currentSelectedCategory === '0' ? (
-                        <span>
-                          Showing recently added {currentItems.length} of {activeTab === 'movies' ? '244,000+' : activeTab === 'series' ? '53,000+' : '15,000+'} total {activeTab === 'movies' ? 'movies' : (activeTab === 'series' ? 'web series' : 'channels')}
-                        </span>
+                        <span>{(activeTab === 'movies' ? totalMovieCount : (activeTab === 'series' ? totalSeriesCount : totalLiveCount)).toLocaleString()} titles available</span>
                       ) : (
-                        <span>{currentItems.length} {currentItems.length === 1 ? 'title' : 'titles'} in this category</span>
+                        <span>{currentItems.length} {currentItems.length === 1 ? 'title' : 'titles'} available</span>
                       )}
                     </p>
                   </div>
                 </div>
 
-                {/* Instant In-Category & Full Library Title Search */}
+                {/* Instant In-Category Title Search */}
                 <div className="relative w-full sm:w-64 md:w-72 shrink-0">
-                  {isSearchingCategory ? (
-                    <Loader2 size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400 animate-spin pointer-events-none" />
-                  ) : (
-                    <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400/60 pointer-events-none" />
-                  )}
+                  <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400/60 pointer-events-none" />
                   <input
                     type="text"
                     placeholder={
                       activeTab === 'movies'
-                        ? "Search all 244K+ movies..."
+                        ? "Search in this movie category..."
                         : activeTab === 'series'
-                          ? "Search all 53K+ series..."
+                          ? "Search in this series category..."
                           : "Search in this category..."
                     }
                     value={inCategorySearchQuery}
@@ -7722,11 +7586,7 @@ export default function App() {
                   />
                   {inCategorySearchQuery && (
                     <button
-                      onClick={() => {
-                        setInCategorySearchQuery('');
-                        setCategorySearchResults(null);
-                        setIsSearchingCategory(false);
-                      }}
+                      onClick={() => setInCategorySearchQuery('')}
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-1 rounded-full hover:bg-white/10 transition-colors"
                       title="Clear title filter"
                     >
@@ -7740,14 +7600,6 @@ export default function App() {
                 <div className="flex flex-col items-center justify-center py-24 md:py-32 gap-4">
                   <Loader2 className="animate-spin text-cyan-500" size={40} md:size={48} />
                   <p className="text-white/40 text-sm md:text-base font-medium">Fetching premium content...</p>
-                </div>
-              ) : isSearchingCategory ? (
-                <div className="flex flex-col items-center justify-center py-24 md:py-32 gap-4">
-                  <Loader2 className="animate-spin text-cyan-400" size={40} md:size={48} />
-                  <p className="text-white/70 text-sm md:text-base font-semibold">
-                    Searching {activeTab === 'movies' ? '244,000+ movie' : '53,000+ series'} library for &ldquo;{inCategorySearchQuery}&rdquo;...
-                  </p>
-                  <p className="text-white/30 text-xs">Scanning titles across all {activeTab === 'movies' ? '491' : '352'} categories in server RAM</p>
                 </div>
               ) : error ? (
                 <div className="flex flex-col items-center justify-center py-24 md:py-32 gap-6 text-center max-w-md mx-auto px-6">
@@ -7770,22 +7622,13 @@ export default function App() {
                   <Search size={40} md:size={48} className="opacity-20" />
                   <h3 className="text-sm md:text-base font-bold text-white/80">
                     {inCategorySearchQuery 
-                      ? `No ${activeTab === 'movies' ? 'movies' : 'series'} match "${inCategorySearchQuery}" in library`
+                      ? `No titles match "${inCategorySearchQuery}" in this category`
                       : "No titles found in this category."
                     }
                   </h3>
                   {inCategorySearchQuery && (
-                    <p className="text-xs text-white/40 max-w-sm">
-                      Check for spelling or try searching with a single keyword (e.g. part of title).
-                    </p>
-                  )}
-                  {inCategorySearchQuery && (
                     <button
-                      onClick={() => {
-                        setInCategorySearchQuery('');
-                        setCategorySearchResults(null);
-                        setIsSearchingCategory(false);
-                      }}
+                      onClick={() => setInCategorySearchQuery('')}
                       className="px-4 py-2 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-xs font-bold hover:bg-cyan-500/30 transition-all cursor-pointer"
                     >
                       Clear Title Search
@@ -7810,7 +7653,7 @@ export default function App() {
                       >
                         <div className="relative aspect-[2/3] rounded-lg md:rounded-xl overflow-hidden shadow-2xl transition-transform group-hover:scale-105 border border-white/5 group-hover:border-cyan-500/50 gpu">
                           <img 
-                            src={('stream_icon' in item ? (item as any).stream_icon : (item as Series).cover) || 'https://picsum.photos/seed/movie/400/600'} 
+                            src={enrichedSearchPosters[('stream_id' in item ? (item as any).stream_id : (item as any).series_id)]?.poster || ('stream_icon' in item ? (item as any).stream_icon : (item as Series).cover) || (item as any).poster_url || (item as any).poster || 'https://picsum.photos/seed/movie/400/600'} 
                             alt={item.name}
                             referrerPolicy="no-referrer"
                             loading="lazy"
@@ -10021,24 +9864,24 @@ export default function App() {
                 </div>
 
                 <div className="space-y-2">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 text-[11px] font-bold">
-                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#22d3ee]" />
-                    <span>Fast On-Demand Mode Active</span>
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399]" />
+                    <span>24/7 Auto-Update Active (Har 5 Minut)</span>
                   </div>
                   <h3 className="text-lg font-black tracking-tight text-white uppercase italic">
-                    Data Refresh
+                    Data Update & Sync
                   </h3>
                   <p className="text-xs text-white/70 leading-relaxed px-1">
-                    Website bina kisi rukawat ke 1 second mein open hoti hai. Categories click karne par on-demand load hoti hain. Naye content ke liye aap yahan se manually refresh kar sakte hain.
+                    Hamara data 24/7 har 5 minute baad background me automatically update hota hai. Agar aap chahein to abhi manually bhi click karke latest data refresh kar sakte hain.
                   </p>
                   
                   <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-left text-xs space-y-1.5 mt-2">
                     <div className="flex justify-between items-center text-white/60">
-                      <span>Loading Mode:</span>
-                      <span className="font-bold text-cyan-400">On-Demand Instant Load</span>
+                      <span>Auto-Sync Schedule:</span>
+                      <span className="font-bold text-cyan-400">Har 5 Minut (Continuous)</span>
                     </div>
                     <div className="flex justify-between items-center text-white/60">
-                      <span>Aakhri Update:</span>
+                      <span>Aakhri Update (Last Sync):</span>
                       <span className="font-bold text-emerald-400">{lastDataUpdatedTime.toLocaleTimeString()}</span>
                     </div>
                   </div>
@@ -10340,14 +10183,10 @@ export default function App() {
                         
                         {cat.category_id === '0' && (
                           <span className={cn(
-                            "relative z-10 text-[10px] font-black px-2 py-0.5 rounded-full whitespace-nowrap shrink-0 transition-colors shadow-sm",
-                            isSelected ? "bg-black/20 text-black border border-black/10" : "bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
+                            "relative z-10 text-[9px] font-bold px-2 py-0.5 rounded-full",
+                            isSelected ? "bg-black/10 text-black" : "bg-white/5 text-white/40"
                           )}>
-                            {activeTab === 'movies'
-                              ? '244K+ Movies'
-                              : activeTab === 'series'
-                                ? '53K+ Series'
-                                : '15K+ Channels'}
+                            {activeTab === 'movies' ? totalMovieCount : (activeTab === 'series' ? totalSeriesCount : totalLiveCount)}
                           </span>
                         )}
 
