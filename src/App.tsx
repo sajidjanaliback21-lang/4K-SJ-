@@ -6029,68 +6029,6 @@ export default function App() {
                   )}
                 </section>
 
-                {/* 2. Horizontal OTT & Studio Hub Section (Positioned Below Trending Movies) */}
-                <section className="space-y-3 pt-4">
-                  <div className="flex items-center justify-between px-2">
-                    <h3 className="text-xl md:text-2xl font-display font-bold flex items-center gap-3 tracking-tight">
-                      <span className="w-1.5 h-6 bg-cyan-500 rounded-full" />
-                      Streaming Platforms & Studios
-                    </h3>
-                    <span className="text-xs text-zinc-400 font-medium hidden sm:inline-block">
-                      Slide left/right to explore OTT catalogs
-                    </span>
-                  </div>
-
-                  <div className="relative group/ott">
-                    <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-3 pt-1 px-1 no-scrollbar scroll-smooth snap-x">
-                      {OTT_PLATFORMS.map((platform) => (
-                        <motion.div
-                          key={platform.id}
-                          whileHover={{ scale: 1.05, y: -2 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => {
-                            setSelectedPlatform(platform);
-                            setPlatformMediaType('all');
-                            setPlatformSortBy('popularity.desc');
-                            setPlatformGenreId(null);
-                            setPlatformSearchQuery('');
-                          }}
-                          className={`group cursor-pointer shrink-0 snap-start rounded-2xl p-3 bg-gradient-to-br ${platform.bg_gradient} border ${platform.border_color} shadow-lg transition-all duration-300 flex flex-col items-center justify-center gap-2 w-32 sm:w-40 h-20 sm:h-24 relative overflow-hidden select-none`}
-                        >
-                          {/* Glow effect */}
-                          <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
-
-                          {platform.logo_url ? (
-                            <img
-                              src={platform.logo_url}
-                              alt={platform.name}
-                              referrerPolicy="no-referrer"
-                              className="h-6 sm:h-8 max-w-[85%] object-contain filter drop-shadow-md group-hover:scale-110 transition-transform duration-300"
-                              onError={(e) => {
-                                (e.target as HTMLElement).style.display = 'none';
-                                const parent = (e.target as HTMLElement).parentElement;
-                                if (parent) {
-                                  const fallback = parent.querySelector('.logo-fallback');
-                                  if (fallback) fallback.classList.remove('hidden');
-                                }
-                              }}
-                            />
-                          ) : null}
-
-                          <span className={`logo-fallback ${platform.logo_url ? 'hidden' : ''} text-xs sm:text-sm font-black ${platform.text_color} tracking-tight text-center leading-tight`}>
-                            {platform.name}
-                          </span>
-
-                          <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                            <span className={`w-1.5 h-1.5 rounded-full ${platform.badge_color}`} />
-                            <span className="text-[9px] sm:text-[10px] font-bold text-zinc-300 uppercase tracking-wider">Explore</span>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </div>
-                  </div>
-                </section>
-
                 {/* 2. Recently Added Movies Section (Exactly 8 Movies, 2 Rows x 4 Items) */}
                 <section className="space-y-5 pt-2">
                   <div className="flex items-center justify-between px-2">
